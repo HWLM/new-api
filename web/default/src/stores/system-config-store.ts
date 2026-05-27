@@ -41,6 +41,8 @@ export interface SystemConfig {
   systemName: string
   logo: string
   footerHtml?: string
+  metaDescription?: string
+  analyticsScript?: string
   demoSiteEnabled?: boolean
   displayTokenStatEnabled?: boolean
   currency: CurrencyConfig

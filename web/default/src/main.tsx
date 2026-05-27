@@ -34,6 +34,10 @@ import '@/lib/dayjs'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
+import {
+  applyAnalyticsScriptToDom,
+  applyMetaDescriptionToDom,
+} from '@/lib/site-seo'
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
 import { ThemeProvider } from './context/theme-provider'
@@ -131,6 +135,12 @@ const rootElement = document.getElementById('root')!
         const s = JSON.parse(saved)
         if (s?.system_name) apply(s.system_name)
         if (s?.logo) applyFaviconToDom(s.logo)
+        applyMetaDescriptionToDom(
+          typeof s?.meta_description === 'string' ? s.meta_description : ''
+        )
+        applyAnalyticsScriptToDom(
+          typeof s?.analytics_script === 'string' ? s.analytics_script : ''
+        )
       }
     } catch {
       /* empty */
@@ -147,6 +157,12 @@ const rootElement = document.getElementById('root')!
           }
         }
         if (s?.logo) applyFaviconToDom(s.logo as string)
+        applyMetaDescriptionToDom(
+          typeof s?.meta_description === 'string' ? s.meta_description : ''
+        )
+        applyAnalyticsScriptToDom(
+          typeof s?.analytics_script === 'string' ? s.analytics_script : ''
+        )
       })
       .catch(() => {
         /* empty */

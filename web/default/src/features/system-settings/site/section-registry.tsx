@@ -26,6 +26,7 @@ import {
 import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
 import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
+import { SeoSection } from './seo-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
@@ -49,6 +50,18 @@ const SITE_SECTIONS = [
             user_agreement: settings['legal.user_agreement'],
             privacy_policy: settings['legal.privacy_policy'],
           },
+        }}
+      />
+    ),
+  },
+  {
+    id: 'seo',
+    titleKey: 'SEO',
+    build: (settings: SiteSettings) => (
+      <SeoSection
+        defaultValues={{
+          MetaDescription: settings.MetaDescription,
+          AnalyticsScript: settings.AnalyticsScript,
         }}
       />
     ),

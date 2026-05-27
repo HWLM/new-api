@@ -43,12 +43,60 @@ const { Sider, Content, Header } = Layout;
 
 const PageLayout = () => {
   const [userState, userDispatch] = useContext(UserContext);
-  const [, statusDispatch] = useContext(StatusContext);
+  const [statusState, statusDispatch] = useContext(StatusContext);
   const isMobile = useIsMobile();
   const [collapsed, , setCollapsed] = useSidebarCollapsed();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { i18n } = useTranslation();
   const location = useLocation();
+
+  const applyMetaDescription = (description) => {
+    let meta = document.querySelector("meta[name='description']");
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'description';
+      document.head.appendChild(meta);
+    }
+    const normalized = (description || '').trim();
+    if (!normalized) {
+      meta.removeAttribute('content');
+      return;
+    }
+    meta.setAttribute('content', normalized);
+  };
+
+  const applyAnalyticsScript = (scriptContent) => {
+    document
+      .querySelectorAll("script[data-site-analytics-script='true']")
+      .forEach((node) => node.remove());
+
+    const normalized = (scriptContent || '').trim();
+    if (!normalized) return;
+
+    if (normalized.includes('<script')) {
+      const template = document.createElement('template');
+      template.innerHTML = normalized;
+      const scripts = template.content.querySelectorAll('script');
+      if (scripts.length > 0) {
+        scripts.forEach((source) => {
+          const script = document.createElement('script');
+          Array.from(source.attributes).forEach((attr) => {
+            script.setAttribute(attr.name, attr.value);
+          });
+          script.setAttribute('data-site-analytics-script', 'true');
+          script.text = source.text || source.textContent || '';
+          document.head.appendChild(script);
+        });
+        return;
+      }
+    }
+
+    const script = document.createElement('script');
+    script.type = 'text/javascript';
+    script.setAttribute('data-site-analytics-script', 'true');
+    script.text = normalized;
+    document.head.appendChild(script);
+  };
 
   const cardProPages = [
     '/console/channel',
@@ -115,7 +163,19 @@ const PageLayout = () => {
         linkElement.href = logo;
       }
     }
+    try {
+      const savedStatus = JSON.parse(localStorage.getItem('status') || '{}');
+      applyMetaDescription(savedStatus.meta_description);
+      applyAnalyticsScript(savedStatus.analytics_script);
+    } catch (error) {
+      console.error(error);
+    }
   }, []);
+
+  useEffect(() => {
+    applyMetaDescription(statusState?.meta_description);
+    applyAnalyticsScript(statusState?.analytics_script);
+  }, [statusState]);
 
   useEffect(() => {
     let preferredLang;
