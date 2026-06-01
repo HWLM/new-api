@@ -254,6 +254,9 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	if err := migrateTokenQuotaLimitColumns(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -291,6 +294,24 @@ func migrateDB() error {
 		}
 	} else {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateTokenQuotaLimitColumns() error {
+	migrator := DB.Migrator()
+	if !migrator.HasTable(&Token{}) {
+		return nil
+	}
+	if !migrator.HasColumn(&Token{}, "daily_quota") {
+		if err := migrator.AddColumn(&Token{}, "DailyQuota"); err != nil {
+			return err
+		}
+	}
+	if !migrator.HasColumn(&Token{}, "weekly_quota") {
+		if err := migrator.AddColumn(&Token{}, "WeeklyQuota"); err != nil {
 			return err
 		}
 	}

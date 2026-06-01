@@ -33,6 +33,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { StatusBadge } from '@/components/status-badge'
+import { formatQuota } from '@/lib/format'
 import { type ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
@@ -218,6 +219,58 @@ export function IpRestrictionsCell({ apiKey }: { apiKey: ApiKey }) {
           {ips.map((ip) => (
             <div key={ip} className='font-mono'>
               {ip}
+            </div>
+          ))}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+export function QuotaLimitsCell({ apiKey }: { apiKey: ApiKey }) {
+  const { t } = useTranslation()
+
+  const rows = [
+    {
+      label: t('Total'),
+      value: apiKey.unlimited_quota
+        ? t('Unlimited')
+        : formatQuota(apiKey.remain_quota + apiKey.used_quota),
+    },
+    {
+      label: t('Daily'),
+      value:
+        apiKey.daily_quota > 0
+          ? formatQuota(apiKey.daily_quota)
+          : t('Unlimited'),
+    },
+    {
+      label: t('Weekly'),
+      value:
+        apiKey.weekly_quota > 0
+          ? formatQuota(apiKey.weekly_quota)
+          : t('Unlimited'),
+    },
+  ]
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span />}>
+        <StatusBadge
+          label={t('View limits')}
+          variant='neutral'
+          copyable={false}
+        />
+      </TooltipTrigger>
+      <TooltipContent side='top' className='max-w-xs'>
+        <div className='space-y-1 text-xs'>
+          {rows.map((row) => (
+            <div
+              key={row.label}
+              className='flex items-center justify-between gap-4'
+            >
+              <span className='text-muted-foreground'>{row.label}</span>
+              <span className='font-mono'>{row.value}</span>
             </div>
           ))}
         </div>

@@ -38,6 +38,7 @@ import {
   ApiKeyCell,
   ModelLimitsCell,
   IpRestrictionsCell,
+  QuotaLimitsCell,
 } from './api-keys-cells'
 import { DataTableRowActions } from './data-table-row-actions'
 
@@ -190,6 +191,15 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
         )
       },
       meta: { label: t('Quota') },
+    },
+    {
+      id: 'quota_limits',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Quota Limits')} />
+      ),
+      cell: ({ row }) => <QuotaLimitsCell apiKey={row.original} />,
+      enableSorting: false,
+      meta: { label: t('Quota Limits') },
     },
     {
       accessorKey: 'group',
