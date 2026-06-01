@@ -243,6 +243,12 @@ export function ApiKeysMutateDrawer({
   const quotaPlaceholder = tokensOnly
     ? t('Enter quota in tokens')
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
+  const dailyQuotaLabel = t('Daily Quota Limit ({{currency}})', {
+    currency: currencyLabel,
+  })
+  const weeklyQuotaLabel = t('Weekly Quota Limit ({{currency}})', {
+    currency: currencyLabel,
+  })
   const selectedGroup = form.watch('group')
   const unlimitedQuota = form.watch('unlimited_quota')
 
@@ -538,13 +544,63 @@ export function ApiKeysMutateDrawer({
                           <FormDescription>
                             {t('Limit which models can be used with this key')}
                           </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                    <FormField
-                      control={form.control}
+              <FormField
+                control={form.control}
+                name='daily_quota_dollars'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{dailyQuotaLabel}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type='number'
+                        step={tokensOnly ? 1 : 0.01}
+                        placeholder={quotaPlaceholder}
+                        onChange={(e) =>
+                          field.onChange(parseFloat(e.target.value) || 0)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('0 means unlimited')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='weekly_quota_dollars'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{weeklyQuotaLabel}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type='number'
+                        step={tokensOnly ? 1 : 0.01}
+                        placeholder={quotaPlaceholder}
+                        onChange={(e) =>
+                          field.onChange(parseFloat(e.target.value) || 0)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('0 means unlimited')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                       name='allow_ips'
                       render={({ field }) => (
                         <FormItem>

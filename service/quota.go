@@ -24,6 +24,27 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+func ensureTokenPeriodQuotaAvailable(token *model.Token, quota int, now time.Time) error {
+	if token == nil || quota <= 0 {
+		return nil
+	}
+
+	dailyUsed, weeklyUsed, err := model.GetTokenPeriodUsage(token.Id, now)
+	if err != nil {
+		return err
+	}
+
+	if token.DailyQuota > 0 && dailyUsed+quota > token.DailyQuota {
+		return fmt.Errorf("token daily quota exceeded, used: %s, need: %s, limit: %s",
+			logger.FormatQuota(dailyUsed), logger.FormatQuota(quota), logger.FormatQuota(token.DailyQuota))
+	}
+	if token.WeeklyQuota > 0 && weeklyUsed+quota > token.WeeklyQuota {
+		return fmt.Errorf("token weekly quota exceeded, used: %s, need: %s, limit: %s",
+			logger.FormatQuota(weeklyUsed), logger.FormatQuota(quota), logger.FormatQuota(token.WeeklyQuota))
+	}
+	return nil
+}
+
 type TokenDetails struct {
 	TextTokens  int
 	AudioTokens int
@@ -391,6 +412,9 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	//}
 	token, err := model.GetTokenByKey(relayInfo.TokenKey, false)
 	if err != nil {
+		return err
+	}
+	if err := ensureTokenPeriodQuotaAvailable(token, quota, time.Now()); err != nil {
 		return err
 	}
 	if !relayInfo.TokenUnlimited && token.RemainQuota < quota {

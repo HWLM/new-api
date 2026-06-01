@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -22,6 +23,8 @@ type Token struct {
 	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
 	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
 	UnlimitedQuota     bool           `json:"unlimited_quota"`
+	DailyQuota         int            `json:"daily_quota" gorm:"default:0"`
+	WeeklyQuota        int            `json:"weekly_quota" gorm:"default:0"`
 	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
 	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
 	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
@@ -295,6 +298,7 @@ func (token *Token) Update() (err error) {
 		}
 	}()
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
+		"daily_quota", "weekly_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry").Updates(token).Error
 	return err
 }
@@ -479,6 +483,55 @@ func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
+}
+
+func tokenDayWindowRange(now time.Time) (int64, int64) {
+	loc := now.Location()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	end := start.Add(24 * time.Hour)
+	return start.Unix(), end.Unix()
+}
+
+func tokenWeekWindowRange(now time.Time) (int64, int64) {
+	loc := now.Location()
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -(weekday - 1))
+	end := start.AddDate(0, 0, 7)
+	return start.Unix(), end.Unix()
+}
+
+func SumTokenConsumedQuotaInRange(tokenId int, startUnix int64, endUnix int64) (int, error) {
+	if tokenId <= 0 {
+		return 0, errors.New("invalid token id")
+	}
+
+	var total int64
+	err := LOG_DB.Model(&Log{}).
+		Where("token_id = ? AND type = ? AND created_at >= ? AND created_at < ?", tokenId, LogTypeConsume, startUnix, endUnix).
+		Select("COALESCE(SUM(quota), 0)").
+		Scan(&total).Error
+	if err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
+func GetTokenPeriodUsage(tokenId int, now time.Time) (dailyUsed int, weeklyUsed int, err error) {
+	dayStart, dayEnd := tokenDayWindowRange(now)
+	dailyUsed, err = SumTokenConsumedQuotaInRange(tokenId, dayStart, dayEnd)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	weekStart, weekEnd := tokenWeekWindowRange(now)
+	weeklyUsed, err = SumTokenConsumedQuotaInRange(tokenId, weekStart, weekEnd)
+	if err != nil {
+		return 0, 0, err
+	}
+	return dailyUsed, weeklyUsed, nil
 }
 
 // InvalidateUserTokensCache 清理指定用户所有令牌在 Redis 中的缓存，

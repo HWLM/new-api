@@ -30,6 +30,8 @@ export const apiKeySchema = z.object({
   remain_quota: z.number(),
   used_quota: z.number(),
   unlimited_quota: z.boolean(),
+  daily_quota: z.number().optional().default(0),
+  weekly_quota: z.number().optional().default(0),
   expired_time: z.number(), // -1 for never expires
   created_time: z.number(),
   accessed_time: z.number(),
@@ -85,6 +87,8 @@ export interface SearchApiKeysParams {
 export interface ApiKeyFormData {
   name: string
   remain_quota: number
+  daily_quota: number
+  weekly_quota: number
   expired_time: number
   unlimited_quota: boolean
   model_limits_enabled: boolean

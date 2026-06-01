@@ -58,6 +58,8 @@ type legacyToken struct {
 	ExpiredTime        int64          `gorm:"bigint;default:-1"`
 	RemainQuota        int            `gorm:"default:0"`
 	UnlimitedQuota     bool
+	DailyQuota         int            `gorm:"default:0"`
+	WeeklyQuota        int            `gorm:"default:0"`
 	ModelLimitsEnabled bool
 	ModelLimits        string         `gorm:"type:text"`
 	AllowIps           *string        `gorm:"default:''"`
@@ -174,6 +176,8 @@ func seedToken(t *testing.T, db *gorm.DB, userID int, name string, rawKey string
 		ExpiredTime:    -1,
 		RemainQuota:    100,
 		UnlimitedQuota: true,
+		DailyQuota:     0,
+		WeeklyQuota:    0,
 		Group:          "default",
 	}
 	if err := db.Create(token).Error; err != nil {
@@ -296,6 +300,8 @@ func runTokenMigrationCompatibilityTest(t *testing.T, db *gorm.DB, dialect strin
 		ExpiredTime:        -1,
 		RemainQuota:        100,
 		UnlimitedQuota:     true,
+		DailyQuota:         0,
+		WeeklyQuota:        0,
 		ModelLimitsEnabled: false,
 		ModelLimits:        "",
 		AllowIps:           common.GetPointer(""),
@@ -337,6 +343,8 @@ func runTokenMigrationCompatibilityTest(t *testing.T, db *gorm.DB, dialect strin
 		ExpiredTime:        -1,
 		RemainQuota:        200,
 		UnlimitedQuota:     true,
+		DailyQuota:         0,
+		WeeklyQuota:        0,
 		ModelLimitsEnabled: false,
 		ModelLimits:        "",
 		AllowIps:           common.GetPointer(""),
@@ -480,6 +488,8 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 		"expired_time":         -1,
 		"remain_quota":         100,
 		"unlimited_quota":      true,
+		"daily_quota":          0,
+		"weekly_quota":         0,
 		"model_limits_enabled": false,
 		"model_limits":         "",
 		"group":                "default",
@@ -537,5 +547,79 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	}
 	if strings.Contains(unauthorizedRecorder.Body.String(), token.Key) {
 		t.Fatalf("unauthorized key response leaked raw token key: %s", unauthorizedRecorder.Body.String())
+	}
+}
+
+func TestAddTokenPersistsDailyAndWeeklyQuota(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+
+	body := map[string]any{
+		"name":                 "quota-window-token",
+		"expired_time":         -1,
+		"remain_quota":         1000,
+		"unlimited_quota":      false,
+		"daily_quota":          200,
+		"weekly_quota":         500,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "default",
+		"cross_group_retry":    false,
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", body, 1)
+	AddToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+
+	var token model.Token
+	if err := db.Where("user_id = ? AND name = ?", 1, "quota-window-token").First(&token).Error; err != nil {
+		t.Fatalf("failed to query created token: %v", err)
+	}
+	if token.DailyQuota != 200 {
+		t.Fatalf("expected daily quota 200, got %d", token.DailyQuota)
+	}
+	if token.WeeklyQuota != 500 {
+		t.Fatalf("expected weekly quota 500, got %d", token.WeeklyQuota)
+	}
+}
+
+func TestUpdateTokenPersistsDailyAndWeeklyQuota(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	token := seedToken(t, db, 1, "quota-window-editable", "dailyweeklytoken123")
+
+	body := map[string]any{
+		"id":                   token.Id,
+		"name":                 "quota-window-editable",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      false,
+		"daily_quota":          300,
+		"weekly_quota":         900,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "default",
+		"cross_group_retry":    false,
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+
+	var updated model.Token
+	if err := db.First(&updated, "id = ?", token.Id).Error; err != nil {
+		t.Fatalf("failed to query updated token: %v", err)
+	}
+	if updated.DailyQuota != 300 {
+		t.Fatalf("expected daily quota 300, got %d", updated.DailyQuota)
+	}
+	if updated.WeeklyQuota != 900 {
+		t.Fatalf("expected weekly quota 900, got %d", updated.WeeklyQuota)
 	}
 }

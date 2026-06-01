@@ -31,6 +31,8 @@ export function getApiKeyFormSchema(t: TFunction) {
     .object({
       name: z.string().min(1, t('Please enter a name')),
       remain_quota_dollars: z.number().optional(),
+      daily_quota_dollars: z.number().optional(),
+      weekly_quota_dollars: z.number().optional(),
       expired_time: z.date().optional(),
       unlimited_quota: z.boolean(),
       model_limits: z.array(z.string()),
@@ -54,6 +56,28 @@ export function getApiKeyFormSchema(t: TFunction) {
           message: t('Quota must be zero or greater'),
         })
       }
+
+      if (
+        data.daily_quota_dollars === undefined ||
+        data.daily_quota_dollars < 0
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['daily_quota_dollars'],
+          message: t('Quota must be zero or greater'),
+        })
+      }
+
+      if (
+        data.weekly_quota_dollars === undefined ||
+        data.weekly_quota_dollars < 0
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['weekly_quota_dollars'],
+          message: t('Quota must be zero or greater'),
+        })
+      }
     })
 }
 
@@ -66,6 +90,8 @@ export type ApiKeyFormValues = z.infer<ReturnType<typeof getApiKeyFormSchema>>
 export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   name: '',
   remain_quota_dollars: 10,
+  daily_quota_dollars: 0,
+  weekly_quota_dollars: 0,
   expired_time: undefined,
   unlimited_quota: true,
   model_limits: [],
@@ -100,6 +126,8 @@ export function transformFormDataToPayload(
     remain_quota: data.unlimited_quota
       ? 0
       : parseQuotaFromDollars(data.remain_quota_dollars || 0),
+    daily_quota: parseQuotaFromDollars(data.daily_quota_dollars || 0),
+    weekly_quota: parseQuotaFromDollars(data.weekly_quota_dollars || 0),
     expired_time: data.expired_time
       ? Math.floor(data.expired_time.getTime() / 1000)
       : -1,
@@ -123,6 +151,8 @@ export function transformApiKeyToFormDefaults(
     remain_quota_dollars: apiKey.unlimited_quota
       ? 0
       : quotaUnitsToDollars(apiKey.remain_quota),
+    daily_quota_dollars: quotaUnitsToDollars(apiKey.daily_quota || 0),
+    weekly_quota_dollars: quotaUnitsToDollars(apiKey.weekly_quota || 0),
     expired_time:
       apiKey.expired_time > 0
         ? new Date(apiKey.expired_time * 1000)
