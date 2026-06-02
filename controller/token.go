@@ -186,6 +186,13 @@ func GetTokenUsage(c *gin.Context) {
 		expiredAt = 0
 	}
 
+	dailyUsed, weeklyUsed, err := model.GetTokenPeriodUsage(token.Id, time.Now())
+	if err != nil {
+		common.SysError("failed to get token period usage: " + err.Error())
+		common.ApiErrorI18n(c, i18n.MsgTokenGetInfoFailed)
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code":    true,
 		"message": "ok",
@@ -196,6 +203,10 @@ func GetTokenUsage(c *gin.Context) {
 			"total_used":           token.UsedQuota,
 			"total_available":      token.RemainQuota,
 			"unlimited_quota":      token.UnlimitedQuota,
+			"daily_quota":          token.DailyQuota,
+			"weekly_quota":         token.WeeklyQuota,
+			"daily_used":           dailyUsed,
+			"weekly_used":          weeklyUsed,
 			"model_limits":         token.GetModelLimitsMap(),
 			"model_limits_enabled": token.ModelLimitsEnabled,
 			"expires_at":           expiredAt,
