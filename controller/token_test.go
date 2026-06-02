@@ -42,6 +42,28 @@ type tokenKeyResponse struct {
 	Key string `json:"key"`
 }
 
+type tokenUsageEnvelope struct {
+	Code    bool                   `json:"code"`
+	Message string                 `json:"message"`
+	Data    tokenUsageResponseData `json:"data"`
+}
+
+type tokenUsageResponseData struct {
+	Object             string          `json:"object"`
+	Name               string          `json:"name"`
+	TotalGranted       int             `json:"total_granted"`
+	TotalUsed          int             `json:"total_used"`
+	TotalAvailable     int             `json:"total_available"`
+	UnlimitedQuota     bool            `json:"unlimited_quota"`
+	DailyQuota         int             `json:"daily_quota"`
+	WeeklyQuota        int             `json:"weekly_quota"`
+	DailyUsed          int             `json:"daily_used"`
+	WeeklyUsed         int             `json:"weekly_used"`
+	ModelLimits        map[string]bool `json:"model_limits"`
+	ModelLimitsEnabled bool            `json:"model_limits_enabled"`
+	ExpiresAt          int64           `json:"expires_at"`
+}
+
 type sqliteColumnInfo struct {
 	Name string `gorm:"column:name"`
 	Type string `gorm:"column:type"`
@@ -621,5 +643,111 @@ func TestUpdateTokenPersistsDailyAndWeeklyQuota(t *testing.T) {
 	}
 	if updated.WeeklyQuota != 900 {
 		t.Fatalf("expected weekly quota 900, got %d", updated.WeeklyQuota)
+	}
+}
+
+func TestGetTokenUsageReturnsDailyAndWeeklyQuotaAndUsage(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	now := common.GetTimestamp()
+
+	token := &model.Token{
+		UserId:             1,
+		Name:               "usage-token",
+		Key:                "usagekey12345678",
+		Status:             common.TokenStatusEnabled,
+		CreatedTime:        now,
+		AccessedTime:       now,
+		ExpiredTime:        -1,
+		RemainQuota:        700,
+		UsedQuota:          300,
+		UnlimitedQuota:     false,
+		DailyQuota:         200,
+		WeeklyQuota:        500,
+		ModelLimitsEnabled: true,
+		ModelLimits:        "gpt-4o,claude-3-5-sonnet",
+		Group:              "default",
+	}
+	if err := db.Create(token).Error; err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	logs := []*model.Log{
+		{
+			UserId:    1,
+			TokenId:   token.Id,
+			TokenName: token.Name,
+			ModelName: "gpt-4o",
+			Quota:     50,
+			Type:      model.LogTypeConsume,
+			CreatedAt: now,
+		},
+		{
+			UserId:    1,
+			TokenId:   token.Id,
+			TokenName: token.Name,
+			ModelName: "gpt-4o",
+			Quota:     70,
+			Type:      model.LogTypeConsume,
+			CreatedAt: now - 2*24*60*60,
+		},
+		{
+			UserId:    1,
+			TokenId:   token.Id,
+			TokenName: token.Name,
+			ModelName: "gpt-4o",
+			Quota:     90,
+			Type:      model.LogTypeConsume,
+			CreatedAt: now - 10*24*60*60,
+		},
+	}
+	if err := db.Create(&logs).Error; err != nil {
+		t.Fatalf("failed to create logs: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/usage/token/", nil)
+	ctx.Request.Header.Set("Authorization", "Bearer sk-"+token.Key)
+
+	GetTokenUsage(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response tokenUsageEnvelope
+	if err := common.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode usage response: %v", err)
+	}
+
+	if !response.Code {
+		t.Fatalf("expected success code, got false with message %q", response.Message)
+	}
+	if response.Data.DailyQuota != 200 {
+		t.Fatalf("expected daily quota 200, got %d", response.Data.DailyQuota)
+	}
+	if response.Data.WeeklyQuota != 500 {
+		t.Fatalf("expected weekly quota 500, got %d", response.Data.WeeklyQuota)
+	}
+	if response.Data.DailyUsed != 50 {
+		t.Fatalf("expected daily used 50, got %d", response.Data.DailyUsed)
+	}
+	if response.Data.WeeklyUsed != 120 {
+		t.Fatalf("expected weekly used 120, got %d", response.Data.WeeklyUsed)
+	}
+	if response.Data.TotalGranted != 1000 {
+		t.Fatalf("expected total granted 1000, got %d", response.Data.TotalGranted)
+	}
+	if response.Data.TotalUsed != 300 {
+		t.Fatalf("expected total used 300, got %d", response.Data.TotalUsed)
+	}
+	if response.Data.TotalAvailable != 700 {
+		t.Fatalf("expected total available 700, got %d", response.Data.TotalAvailable)
+	}
+	if !response.Data.ModelLimitsEnabled {
+		t.Fatalf("expected model limits to be enabled")
+	}
+	if !response.Data.ModelLimits["gpt-4o"] || !response.Data.ModelLimits["claude-3-5-sonnet"] {
+		t.Fatalf("expected model limits to include configured models, got %#v", response.Data.ModelLimits)
 	}
 }
