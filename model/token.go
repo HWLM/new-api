@@ -29,6 +29,8 @@ type Token struct {
 	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
 	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
 	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
+	DailyUsed          int            `json:"daily_used" gorm:"-"`
+	WeeklyUsed         int            `json:"weekly_used" gorm:"-"`
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
@@ -532,6 +534,51 @@ func GetTokenPeriodUsage(tokenId int, now time.Time) (dailyUsed int, weeklyUsed 
 		return 0, 0, err
 	}
 	return dailyUsed, weeklyUsed, nil
+}
+
+func SumTokenConsumedQuotaMapInRange(tokenIds []int, startUnix int64, endUnix int64) (map[int]int, error) {
+	usageMap := make(map[int]int, len(tokenIds))
+	if len(tokenIds) == 0 {
+		return usageMap, nil
+	}
+	if LOG_DB == nil {
+		return usageMap, nil
+	}
+
+	type tokenQuotaSum struct {
+		TokenId int   `gorm:"column:token_id"`
+		Total   int64 `gorm:"column:total"`
+	}
+
+	var sums []tokenQuotaSum
+	err := LOG_DB.Model(&Log{}).
+		Select("token_id, COALESCE(SUM(quota), 0) AS total").
+		Where("token_id IN ? AND type = ? AND created_at >= ? AND created_at < ?", tokenIds, LogTypeConsume, startUnix, endUnix).
+		Group("token_id").
+		Scan(&sums).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sum := range sums {
+		usageMap[sum.TokenId] = int(sum.Total)
+	}
+	return usageMap, nil
+}
+
+func GetTokenPeriodUsageMap(tokenIds []int, now time.Time) (map[int]int, map[int]int, error) {
+	dayStart, dayEnd := tokenDayWindowRange(now)
+	dailyUsedMap, err := SumTokenConsumedQuotaMapInRange(tokenIds, dayStart, dayEnd)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	weekStart, weekEnd := tokenWeekWindowRange(now)
+	weeklyUsedMap, err := SumTokenConsumedQuotaMapInRange(tokenIds, weekStart, weekEnd)
+	if err != nil {
+		return nil, nil, err
+	}
+	return dailyUsedMap, weeklyUsedMap, nil
 }
 
 // InvalidateUserTokensCache 清理指定用户所有令牌在 Redis 中的缓存，

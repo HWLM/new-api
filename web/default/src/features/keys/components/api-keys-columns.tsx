@@ -38,7 +38,6 @@ import {
   ApiKeyCell,
   ModelLimitsCell,
   IpRestrictionsCell,
-  QuotaLimitsCell,
 } from './api-keys-cells'
 import { DataTableRowActions } from './data-table-row-actions'
 
@@ -46,6 +45,55 @@ function getQuotaProgressColor(percentage: number): string {
   if (percentage <= 10) return '[&_[data-slot=progress-indicator]]:bg-rose-500'
   if (percentage <= 30) return '[&_[data-slot=progress-indicator]]:bg-amber-500'
   return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
+}
+
+function getQuotaUsagePercentage(used: number, total: number): number {
+  if (total <= 0) return 100
+  return Math.max(0, Math.min(100, (used / total) * 100))
+}
+
+function getQuotaRemainingPercentage(used: number, total: number): number {
+  if (total <= 0) return 100
+  const remaining = Math.max(total - used, 0)
+  return Math.max(0, Math.min(100, (remaining / total) * 100))
+}
+
+function QuotaProgressRow({
+  label,
+  used,
+  total,
+  unlimitedLabel,
+}: {
+  label: string
+  used: number
+  total: number
+  unlimitedLabel: string
+}) {
+  const isUnlimited = total <= 0
+  const remaining = isUnlimited ? null : Math.max(total - used, 0)
+  const percentage =
+    isUnlimited || remaining === null ? 100 : getQuotaUsagePercentage(remaining, total)
+  const progressClassName = cn(
+    'h-1.5',
+    getQuotaProgressColor(percentage)
+  )
+
+  return (
+    <div className='space-y-1'>
+      <div className='flex items-center justify-between gap-2 text-[11px] leading-none'>
+        <span className='text-muted-foreground'>{label}</span>
+        {isUnlimited ? (
+          <span className='font-medium tabular-nums'>{unlimitedLabel}</span>
+        ) : (
+          <div className='flex min-w-[130px] items-center justify-between gap-1 font-medium tabular-nums'>
+            <span className='text-left'>{formatQuota(used)}</span>
+            <span className='text-right'>{formatQuota(total)}</span>
+          </div>
+        )}
+      </div>
+      <Progress value={percentage} className={progressClassName} />
+    </div>
+  )
 }
 
 function useGroupRatios(): Record<string, number> {
@@ -155,35 +203,70 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
         const used = apiKey.used_quota
         const remaining = apiKey.remain_quota
         const total = used + remaining
-        const percentage = total > 0 ? (remaining / total) * 100 : 0
+        const totalRemainingPercentage = getQuotaRemainingPercentage(used, total)
+        const dailyUsed = apiKey.daily_used ?? 0
+        const weeklyUsed = apiKey.weekly_used ?? 0
+        const dailyQuota = apiKey.daily_quota ?? 0
+        const weeklyQuota = apiKey.weekly_quota ?? 0
+        const dailyRemaining = Math.max(dailyQuota - dailyUsed, 0)
+        const weeklyRemaining = Math.max(weeklyQuota - weeklyUsed, 0)
+        const dailyRemainingPercentage = getQuotaRemainingPercentage(
+          dailyUsed,
+          dailyQuota
+        )
+        const weeklyRemainingPercentage = getQuotaRemainingPercentage(
+          weeklyUsed,
+          weeklyQuota
+        )
 
         return (
           <Tooltip>
-            <TooltipTrigger render={<div className='w-[150px] space-y-1' />}>
-              <div className='flex justify-between text-xs'>
-                <span className='font-medium tabular-nums'>
-                  {formatQuota(remaining)}
-                </span>
-                <span className='text-muted-foreground tabular-nums'>
-                  {formatQuota(total)}
-                </span>
-              </div>
-              <Progress
-                value={percentage}
-                className={cn('h-1.5', getQuotaProgressColor(percentage))}
+            <TooltipTrigger render={<div className='space-y-2' />}>
+              <QuotaProgressRow
+                label={t('Total')}
+                used={used}
+                total={total}
+                unlimitedLabel={t('Unlimited')}
+              />
+              <QuotaProgressRow
+                label={t('Daily')}
+                used={dailyUsed}
+                total={dailyQuota}
+                unlimitedLabel={t('Unlimited')}
+              />
+              <QuotaProgressRow
+                label={t('Weekly')}
+                used={weeklyUsed}
+                total={weeklyQuota}
+                unlimitedLabel={t('Unlimited')}
               />
             </TooltipTrigger>
             <TooltipContent>
-              <div className='space-y-1 text-xs'>
+              <div className='space-y-2 text-xs'>
                 <div>
                   {t('Used:')} {formatQuota(used)}
                 </div>
                 <div>
                   {t('Remaining:')} {formatQuota(remaining)} (
-                  {percentage.toFixed(1)}%)
+                  {totalRemainingPercentage.toFixed(1)}%)
                 </div>
-                <div>
-                  {t('Total:')} {formatQuota(total)}
+                <div className='grid grid-cols-[auto_1fr] gap-x-1 gap-y-1'>
+                  <span>{t('Total')}：</span>
+                  <span className='font-medium tabular-nums'>
+                    {formatQuota(total)}
+                  </span>
+                  <span>{t('Daily')}：</span>
+                  <span className='font-medium tabular-nums'>
+                    {dailyQuota > 0
+                      ? `${formatQuota(dailyRemaining)} (${dailyRemainingPercentage.toFixed(1)}%)`
+                      : t('Unlimited')}
+                  </span>
+                  <span>{t('Weekly')}：</span>
+                  <span className='font-medium tabular-nums'>
+                    {weeklyQuota > 0
+                      ? `${formatQuota(weeklyRemaining)} (${weeklyRemainingPercentage.toFixed(1)}%)`
+                      : t('Unlimited')}
+                  </span>
                 </div>
               </div>
             </TooltipContent>
@@ -191,15 +274,6 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
         )
       },
       meta: { label: t('Quota') },
-    },
-    {
-      id: 'quota_limits',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Quota Limits')} />
-      ),
-      cell: ({ row }) => <QuotaLimitsCell apiKey={row.original} />,
-      enableSorting: false,
-      meta: { label: t('Quota Limits') },
     },
     {
       accessorKey: 'group',
