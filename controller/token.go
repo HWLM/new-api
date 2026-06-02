@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -31,11 +32,45 @@ func buildMaskedTokenResponses(tokens []*model.Token) []*model.Token {
 	return maskedTokens
 }
 
+func enrichTokenPeriodUsage(tokens []*model.Token) error {
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	tokenIds := make([]int, 0, len(tokens))
+	for _, token := range tokens {
+		if token != nil && token.Id > 0 {
+			tokenIds = append(tokenIds, token.Id)
+		}
+	}
+	if len(tokenIds) == 0 {
+		return nil
+	}
+
+	dailyUsedMap, weeklyUsedMap, err := model.GetTokenPeriodUsageMap(tokenIds, time.Now())
+	if err != nil {
+		return nil
+	}
+
+	for _, token := range tokens {
+		if token == nil {
+			continue
+		}
+		token.DailyUsed = dailyUsedMap[token.Id]
+		token.WeeklyUsed = weeklyUsedMap[token.Id]
+	}
+	return nil
+}
+
 func GetAllTokens(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
 	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := enrichTokenPeriodUsage(tokens); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -54,6 +89,10 @@ func SearchTokens(c *gin.Context) {
 
 	tokens, total, err := model.SearchUserTokens(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := enrichTokenPeriodUsage(tokens); err != nil {
 		common.ApiError(c, err)
 		return
 	}
