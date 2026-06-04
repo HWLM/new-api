@@ -86,7 +86,7 @@ function QuotaProgressRow({
           <span className='font-medium tabular-nums'>{unlimitedLabel}</span>
         ) : (
           <div className='flex min-w-[130px] items-center justify-between gap-1 font-medium tabular-nums'>
-            <span className='text-left'>{formatQuota(used)}</span>
+            <span className='text-left'>{formatQuota(remaining ?? 0)}</span>
             <span className='text-right'>{formatQuota(total)}</span>
           </div>
         )}
