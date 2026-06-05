@@ -397,4 +397,17 @@ func SetApiRouter(router *gin.Engine) {
 			deploymentsRoute.DELETE("/:id", controller.DeleteDeployment)
 		}
 	}
+
+	openApiRouter := router.Group("/openapi")
+	openApiRouter.Use(middleware.RouteTag("openapi"))
+	openApiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
+	openApiRouter.Use(middleware.BodyStorageCleanup())
+	openApiRouter.Use(middleware.GlobalAPIRateLimit())
+	openApiRouter.Use(middleware.OpenAPIAuth())
+	{
+		openChannelRoute := openApiRouter.Group("/channel")
+		{
+			openChannelRoute.POST("/", controller.UpsertChannel)
+		}
+	}
 }
