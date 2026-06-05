@@ -423,6 +423,20 @@ func GetChannelById(id int, selectAll bool) (*Channel, error) {
 	return channel, nil
 }
 
+// GetChannelByNameAndType 通过 name + type 精确查找渠道，返回 (channel, found, err)。
+// 用于 upsert 场景；当记录不存在时 found=false 且 err=nil。
+func GetChannelByNameAndType(name string, channelType int) (*Channel, bool, error) {
+	channel := &Channel{}
+	err := DB.Where("name = ? AND type = ?", name, channelType).First(channel).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return channel, true, nil
+}
+
 func BatchInsertChannels(channels []Channel) error {
 	if len(channels) == 0 {
 		return nil

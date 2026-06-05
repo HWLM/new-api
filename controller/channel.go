@@ -684,6 +684,127 @@ func AddChannel(c *gin.Context) {
 	return
 }
 
+// UpsertChannel 与 AddChannel 入参完全一致；区别在于：按 (name, type) 查找渠道，
+// 存在则按 ID 更新，不存在则插入。专供无鉴权的 /openapi/channel/ 路由使用。
+func UpsertChannel(c *gin.Context) {
+	addChannelRequest := AddChannelRequest{}
+	err := c.ShouldBindJSON(&addChannelRequest)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	addChannelRequest.Channel.CreatedTime = common.GetTimestamp()
+	keys := make([]string, 0)
+	switch addChannelRequest.Mode {
+	case "multi_to_single":
+		addChannelRequest.Channel.ChannelInfo.IsMultiKey = true
+		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = addChannelRequest.MultiKeyMode
+		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
+			array, err := getVertexArrayKeys(addChannelRequest.Channel.Key)
+			if err != nil {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": err.Error(),
+				})
+				return
+			}
+			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(array)
+			addChannelRequest.Channel.Key = strings.Join(array, "\n")
+		} else {
+			cleanKeys := make([]string, 0)
+			for _, key := range strings.Split(addChannelRequest.Channel.Key, "\n") {
+				if key == "" {
+					continue
+				}
+				key = strings.TrimSpace(key)
+				cleanKeys = append(cleanKeys, key)
+			}
+			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(cleanKeys)
+			addChannelRequest.Channel.Key = strings.Join(cleanKeys, "\n")
+		}
+		keys = []string{addChannelRequest.Channel.Key}
+	case "batch":
+		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
+			keys, err = getVertexArrayKeys(addChannelRequest.Channel.Key)
+			if err != nil {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": err.Error(),
+				})
+				return
+			}
+		} else {
+			keys = strings.Split(addChannelRequest.Channel.Key, "\n")
+		}
+	case "single":
+		keys = []string{addChannelRequest.Channel.Key}
+	default:
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "不支持的添加模式",
+		})
+		return
+	}
+
+	inserted := 0
+	updated := 0
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		localChannel := *addChannelRequest.Channel
+		localChannel.Key = key
+		if addChannelRequest.BatchAddSetKeyPrefix2Name && len(keys) > 1 {
+			keyPrefix := localChannel.Key
+			if len(localChannel.Key) > 8 {
+				keyPrefix = localChannel.Key[:8]
+			}
+			localChannel.Name = fmt.Sprintf("%s %s", localChannel.Name, keyPrefix)
+		}
+
+		existing, found, err := model.GetChannelByNameAndType(localChannel.Name, localChannel.Type)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if found {
+			localChannel.Id = existing.Id
+			localChannel.CreatedTime = existing.CreatedTime
+			if err := localChannel.Update(); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			updated++
+		} else {
+			if err := localChannel.Insert(); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			inserted++
+		}
+	}
+
+	service.ResetProxyClientCache()
+	model.InitChannelCache()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"inserted": inserted,
+			"updated":  updated,
+		},
+	})
+}
+
 func DeleteChannel(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	channel := model.Channel{Id: id}

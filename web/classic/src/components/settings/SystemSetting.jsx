@@ -72,6 +72,7 @@ const SystemSetting = () => {
     WorkerUrl: '',
     WorkerValidKey: '',
     WorkerAllowHttpImageRequestEnabled: '',
+    OpenAPIToken: '',
     Footer: '',
     WeChatAuthEnabled: '',
     WeChatServerAddress: '',
@@ -312,6 +313,12 @@ const SystemSetting = () => {
       options.push({ key: 'WorkerValidKey', value: inputs.WorkerValidKey });
     }
     await updateOptions(options);
+  };
+
+  const submitOpenAPIToken = async () => {
+    await updateOptions([
+      { key: 'OpenAPIToken', value: inputs.OpenAPIToken.trim() },
+    ]);
   };
 
   const submitServerAddress = async () => {
@@ -781,6 +788,31 @@ const SystemSetting = () => {
                     {t('允许 HTTP 协议图片请求（适用于自部署代理）')}
                   </Form.Checkbox>
                   <Button onClick={submitWorker}>{t('更新Worker设置')}</Button>
+                </Form.Section>
+              </Card>
+
+              <Card>
+                <Form.Section text={t('OpenAPI 访问设置')}>
+                  <Text>
+                    {t(
+                      '用于 /openapi/* 路由的静态访问令牌，留空将禁用 /openapi/* 接口。',
+                    )}
+                  </Text>
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                  >
+                    <Col xs={24} sm={24} md={12} lg={12} xl={12}>
+                      <Form.Input
+                        field='OpenAPIToken'
+                        label={t('OpenAPI Token')}
+                        placeholder={t('敏感信息不会发送到前端显示')}
+                        type='password'
+                      />
+                    </Col>
+                  </Row>
+                  <Button onClick={submitOpenAPIToken}>
+                    {t('更新OpenAPI设置')}
+                  </Button>
                 </Form.Section>
               </Card>
 

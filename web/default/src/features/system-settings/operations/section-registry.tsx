@@ -20,6 +20,7 @@ import { SystemBehaviorSection } from '../general/system-behavior-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
+import { OpenApiSettingsSection } from '../integrations/openapi-settings-section'
 import { LogSettingsSection } from '../maintenance/log-settings-section'
 import { PerformanceSection } from '../maintenance/performance-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
@@ -90,6 +91,17 @@ const OPERATIONS_SECTIONS = [
           WorkerValidKey: settings.WorkerValidKey,
           WorkerAllowHttpImageRequestEnabled:
             settings.WorkerAllowHttpImageRequestEnabled,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'openapi',
+    titleKey: 'OpenAPI Access',
+    build: (settings: OperationsSettings) => (
+      <OpenApiSettingsSection
+        defaultValues={{
+          OpenAPIToken: settings.OpenAPIToken,
         }}
       />
     ),
