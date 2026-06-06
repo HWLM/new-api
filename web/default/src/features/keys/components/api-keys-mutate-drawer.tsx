@@ -155,8 +155,7 @@ export function ApiKeysMutateDrawer({
     if (filtered.length === current.length) return
     if (filtered.length === 0) {
       const fallback =
-        groups.find((g) => g.value === 'default')?.value ??
-        groups[0]?.value
+        groups.find((g) => g.value === 'default')?.value ?? groups[0]?.value
       form.setValue('groups', fallback ? [fallback] : [])
     } else {
       form.setValue('groups', filtered)
@@ -606,13 +605,13 @@ export function ApiKeysMutateDrawer({
                           <FormDescription>
                             {t('Limit which models can be used with this key')}
                           </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-              <FormField
-                control={form.control}
+                    <FormField
+                      control={form.control}
                       name='allow_ips'
                       render={({ field }) => (
                         <FormItem>

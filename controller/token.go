@@ -354,9 +354,12 @@ func UpdateToken(c *gin.Context) {
 		common.ApiErrorMsg(c, "daily_quota and weekly_quota must be zero or greater")
 		return
 	}
+<<<<<<< HEAD
 	if err := validateAndNormalizeTokenGroups(c, &token); err != nil {
 		return
 	}
+=======
+>>>>>>> codex/site-seo-settings
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
