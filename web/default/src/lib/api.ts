@@ -35,7 +35,8 @@ export type ApiRequestConfig = AxiosRequestConfig
 // Axios Instance Configuration
 // ============================================================================
 
-// Base URL: empty string for same-origin API requests
+// Base URL: empty string for same-origin API requests.
+// In dev, Rsbuild proxies /api, /mj, and /pg to the backend.
 const baseURL = ''
 
 // Create axios instance with default config
