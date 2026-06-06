@@ -282,37 +282,73 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       ),
       cell: ({ row }) => {
         const apiKey = row.original
-        const group = row.getValue('group') as string
-        const ratio = group && group !== 'auto' ? groupRatios[group] : undefined
+        const rawGroup = (row.getValue('group') as string) ?? ''
+        const groupList = rawGroup
+          .split(',')
+          .map((g) => g.trim())
+          .filter(Boolean)
 
-        if (group === 'auto') {
-          return (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span className='inline-flex items-center gap-1.5 text-xs' />
-                }
-              >
-                <GroupBadge group='auto' />
-                {apiKey.cross_group_retry && (
-                  <StatusBadge
-                    label={t('Cross-group')}
-                    variant='info'
-                    copyable={false}
-                  />
-                )}
-              </TooltipTrigger>
-              <TooltipContent>
-                <span className='text-xs'>
-                  {t(
-                    'Automatically selects the best available group with circuit breaker mechanism'
-                  )}
-                </span>
-              </TooltipContent>
-            </Tooltip>
-          )
+        if (groupList.length === 0) {
+          return <GroupBadge group='' />
         }
-        return <GroupBadge group={group} ratio={ratio} />
+
+        const isMulti =
+          groupList.length > 1 || groupList.includes('auto')
+
+        if (groupList.length === 1) {
+          const only = groupList[0]
+          if (only === 'auto') {
+            return (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className='inline-flex items-center gap-1.5 text-xs' />
+                  }
+                >
+                  <GroupBadge group='auto' />
+                  {apiKey.cross_group_retry && (
+                    <StatusBadge
+                      label={t('Cross-group')}
+                      variant='info'
+                      copyable={false}
+                    />
+                  )}
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span className='text-xs'>
+                    {t(
+                      'Automatically selects the best available group with circuit breaker mechanism'
+                    )}
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            )
+          }
+          return <GroupBadge group={only} ratio={groupRatios[only]} />
+        }
+
+        return (
+          <span className='inline-flex flex-wrap items-center gap-1 text-xs'>
+            {groupList.map((g, idx) => (
+              <span key={`${g}-${idx}`} className='inline-flex items-center gap-1'>
+                {idx > 0 && (
+                  <span className='text-muted-foreground'>{'›'}</span>
+                )}
+                <GroupBadge
+                  group={g}
+                  ratio={g === 'auto' ? undefined : groupRatios[g]}
+                />
+              </span>
+            ))}
+            {isMulti && apiKey.cross_group_retry && (
+              <StatusBadge
+                label={t('Cross-group')}
+                variant='info'
+                copyable={false}
+              />
+            )}
+          </span>
+        )
       },
       meta: { label: t('Group'), mobileHidden: true },
     },

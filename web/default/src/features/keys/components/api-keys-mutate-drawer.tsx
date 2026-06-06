@@ -75,10 +75,8 @@ import {
   transformApiKeyToFormDefaults,
 } from '../lib'
 import { type ApiKey } from '../types'
-import {
-  ApiKeyGroupCombobox,
-  type ApiKeyGroupOption,
-} from './api-key-group-combobox'
+import { type ApiKeyGroupOption } from './api-key-group-combobox'
+import { ApiKeyGroupMultiCombobox } from './api-key-group-multi-combobox'
 import { useApiKeys } from './api-keys-provider'
 
 type ApiKeyMutateDrawerProps = {
@@ -147,19 +145,23 @@ export function ApiKeysMutateDrawer({
     }
   }, [open, isUpdate, currentRow, form, defaultUseAutoGroup, backendHasAuto])
 
-  // Correct group after groups load: if the form value is not in available groups, fall back
+  // Correct groups after groups load: filter out unavailable groups; fallback if all are removed.
   useEffect(() => {
     if (groups.length === 0) return
-    const currentGroup = form.getValues('group')
-    if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
+    const current = form.getValues('groups') ?? []
+    if (current.length === 0) return
+    const availableSet = new Set(groups.map((g) => g.value))
+    const filtered = current.filter((v) => availableSet.has(v))
+    if (filtered.length === current.length) return
+    if (filtered.length === 0) {
       const fallback =
-        groups.find((g) => g.value === 'default')?.value ??
-        groups[0]?.value ??
-        ''
-      form.setValue('group', fallback)
-      if (currentGroup === 'auto') {
-        form.setValue('cross_group_retry', false)
-      }
+        groups.find((g) => g.value === 'default')?.value ?? groups[0]?.value
+      form.setValue('groups', fallback ? [fallback] : [])
+    } else {
+      form.setValue('groups', filtered)
+    }
+    if (current.includes('auto') && !filtered.includes('auto')) {
+      form.setValue('cross_group_retry', false)
     }
   }, [groups, form])
 
@@ -249,7 +251,9 @@ export function ApiKeysMutateDrawer({
   const weeklyQuotaLabel = t('Weekly Quota Limit ({{currency}})', {
     currency: currencyLabel,
   })
-  const selectedGroup = form.watch('group')
+  const selectedGroups = form.watch('groups') ?? []
+  const supportsCrossGroupRetry =
+    selectedGroups.length > 1 || selectedGroups.includes('auto')
   const unlimitedQuota = form.watch('unlimited_quota')
 
   return (
@@ -303,24 +307,29 @@ export function ApiKeysMutateDrawer({
 
               <FormField
                 control={form.control}
-                name='group'
+                name='groups'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Group')}</FormLabel>
+                    <FormLabel>{t('Groups')}</FormLabel>
                     <FormControl>
-                      <ApiKeyGroupCombobox
+                      <ApiKeyGroupMultiCombobox
                         options={groups}
-                        value={field.value}
+                        value={field.value ?? []}
                         onValueChange={field.onChange}
-                        placeholder={t('Select a group')}
+                        placeholder={t('Select groups (priority order)')}
                       />
                     </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Selected groups will be tried in order if the current group fails.'
+                      )}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              {selectedGroup === 'auto' && (
+              {supportsCrossGroupRetry && (
                 <FormField
                   control={form.control}
                   name='cross_group_retry'
@@ -596,13 +605,13 @@ export function ApiKeysMutateDrawer({
                           <FormDescription>
                             {t('Limit which models can be used with this key')}
                           </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-              <FormField
-                control={form.control}
+                    <FormField
+                      control={form.control}
                       name='allow_ips'
                       render={({ field }) => (
                         <FormItem>

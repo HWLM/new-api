@@ -10,10 +10,41 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 )
+
+// validateAndNormalizeTokenGroups 校验 token 提交的分组列表,并把规整后的逗号分隔字符串写回 token.Group。
+// 返回非 nil 错误时,调用方应直接终止请求(错误已通过 i18n 翻译输出)。
+func validateAndNormalizeTokenGroups(c *gin.Context, token *model.Token) error {
+	groups := token.GetGroups()
+	if len(groups) == 0 {
+		token.Group = ""
+		return nil
+	}
+	userId := c.GetInt("id")
+	userGroup, err := model.GetUserGroup(userId, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return err
+	}
+	usableGroups := service.GetUserUsableGroups(userGroup)
+	for _, g := range groups {
+		if _, ok := usableGroups[g]; !ok {
+			common.ApiErrorI18n(c, i18n.MsgTokenGroupUnauthorized, map[string]any{"Group": g})
+			return fmt.Errorf("group unauthorized: %s", g)
+		}
+		if !ratio_setting.ContainsGroupRatio(g) && g != "auto" {
+			common.ApiErrorI18n(c, i18n.MsgTokenGroupDeprecated, map[string]any{"Group": g})
+			return fmt.Errorf("group deprecated: %s", g)
+		}
+	}
+	token.Group = strings.Join(groups, ",")
+	return nil
+}
 
 func buildMaskedTokenResponse(token *model.Token) *model.Token {
 	if token == nil {
@@ -229,6 +260,9 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorMsg(c, "daily_quota and weekly_quota must be zero or greater")
 		return
 	}
+	if err := validateAndNormalizeTokenGroups(c, &token); err != nil {
+		return
+	}
 	// 非无限额度时，检查额度值是否超出有效范围
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
@@ -320,6 +354,12 @@ func UpdateToken(c *gin.Context) {
 		common.ApiErrorMsg(c, "daily_quota and weekly_quota must be zero or greater")
 		return
 	}
+<<<<<<< HEAD
+	if err := validateAndNormalizeTokenGroups(c, &token); err != nil {
+		return
+	}
+=======
+>>>>>>> codex/site-seo-settings
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)

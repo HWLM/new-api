@@ -61,6 +61,29 @@ func (token *Token) GetMaskedKey() string {
 	return MaskTokenKey(token.Key)
 }
 
+// GetGroups 解析 token.Group 字段为去重、保持顺序的分组列表。
+// 兼容历史单分组写法：单个非空字符串等价于单元素列表。
+func (token *Token) GetGroups() []string {
+	if token.Group == "" {
+		return nil
+	}
+	parts := strings.Split(token.Group, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
 func (token *Token) GetIpLimits() []string {
 	// delete empty spaces
 	//split with \n
