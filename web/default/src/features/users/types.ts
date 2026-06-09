@@ -57,6 +57,7 @@ export const userSchema = z.object({
   last_login_at: z.number().optional(),
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
+  is_vip_customer: z.boolean().optional(),
 })
 export type User = z.infer<typeof userSchema>
 
@@ -94,6 +95,8 @@ export interface SearchUsersParams {
   group?: string
   role?: string
   status?: string
+  /** '' = 不筛选，'true' = 仅重点客户，'false' = 仅非重点客户 */
+  is_vip?: string
   p?: number
   page_size?: number
 }
@@ -126,7 +129,16 @@ export interface ManageUserQuotaPayload {
 }
 
 // ============================================================================
+// TG Notification Settings
+// ============================================================================
+
+export interface TgNotifySettings {
+  bot_token: string
+  chat_id: string
+}
+
+// ============================================================================
 // Dialog Types
 // ============================================================================
 
-export type UsersDialogType = 'create' | 'update' | 'delete'
+export type UsersDialogType = 'create' | 'update' | 'delete' | 'tg-settings'

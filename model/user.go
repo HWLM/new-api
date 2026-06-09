@@ -51,6 +51,7 @@ type User struct {
 	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
 	Remark           string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
 	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	IsVipCustomer    bool           `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
 	CreatedAt        int64          `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64          `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 }
@@ -225,7 +226,7 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, startIdx int, num int) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -265,6 +266,13 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	}
 	if status != nil {
 		query = query.Where("status = ?", *status)
+	}
+	if isVip != nil {
+		if *isVip {
+			query = query.Where("is_vip_customer = ?", commonTrueVal)
+		} else {
+			query = query.Where("is_vip_customer = ?", commonFalseVal)
+		}
 	}
 
 	// 获取总数
@@ -326,6 +334,15 @@ func HardDeleteUserById(id int) error {
 	}
 	err := DB.Unscoped().Delete(&User{}, "id = ?", id).Error
 	return err
+}
+
+// BatchMarkVipCustomer 批量更新用户的重点客户标记
+func BatchMarkVipCustomer(ids []int, isVip bool) (int64, error) {
+	if len(ids) == 0 {
+		return 0, errors.New("ids 为空")
+	}
+	res := DB.Model(&User{}).Where("id IN ?", ids).Update("is_vip_customer", isVip)
+	return res.RowsAffected, res.Error
 }
 
 func inviteUser(inviterId int) (err error) {
