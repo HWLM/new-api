@@ -240,3 +240,116 @@ export function serializeSidebarModulesAdmin(
 ): string {
   return JSON.stringify(config)
 }
+
+// ---------------------------------------------------------------------------
+// Custom menu pages (iframe-embedded sidebar entries)
+// ---------------------------------------------------------------------------
+
+export const CUSTOM_MENU_MAX_TOTAL = 20
+export const CUSTOM_MENU_MAX_ENABLED = 10
+export const CUSTOM_MENU_NAME_MAX_LEN = 5
+
+export type CustomMenuVisibleTo = 'user' | 'admin'
+
+/**
+ * iframe   — open in current SPA via /custom/$id iframe wrapper (default)
+ * newWindow — open item.url directly via target="_blank"
+ */
+export type CustomMenuOpenMode = 'iframe' | 'newWindow'
+
+/**
+ * sidebar   — iframe rendered inside AuthenticatedLayout (sidebar on left, default)
+ * fullwidth — iframe rendered without sidebar, top nav only, full-width below
+ *             (only meaningful when openMode === 'iframe')
+ */
+export type CustomMenuLayoutMode = 'sidebar' | 'fullwidth'
+
+export type CustomMenuItem = {
+  id: string
+  name: string
+  url: string
+  visibleTo: CustomMenuVisibleTo
+  openMode: CustomMenuOpenMode
+  layoutMode: CustomMenuLayoutMode
+  enabled: boolean
+}
+
+export type CustomMenuPagesConfig = {
+  items: CustomMenuItem[]
+}
+
+export const CUSTOM_MENU_PAGES_DEFAULT: CustomMenuPagesConfig = { items: [] }
+
+export function isValidCustomMenuUrl(raw: string): boolean {
+  const trimmed = (raw ?? '').trim()
+  if (!trimmed) return false
+  const lower = trimmed.toLowerCase()
+  if (
+    lower.startsWith('javascript:') ||
+    lower.startsWith('data:') ||
+    lower.startsWith('vbscript:')
+  ) {
+    return false
+  }
+  if (trimmed.startsWith('//')) return false
+  if (trimmed.startsWith('/')) return true
+  return /^https?:\/\/[^/\s]+/i.test(trimmed)
+}
+
+function sanitizeCustomMenuItem(raw: unknown): CustomMenuItem | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  const name = typeof record.name === 'string' ? record.name.trim() : ''
+  const url = typeof record.url === 'string' ? record.url.trim() : ''
+  const visibleTo: CustomMenuVisibleTo =
+    record.visibleTo === 'admin' ? 'admin' : 'user'
+  const openMode: CustomMenuOpenMode =
+    record.openMode === 'newWindow' ? 'newWindow' : 'iframe'
+  const layoutMode: CustomMenuLayoutMode =
+    record.layoutMode === 'fullwidth' ? 'fullwidth' : 'sidebar'
+  const enabled = toBoolean(record.enabled, false)
+  if (!id || !name) return null
+  if (!isValidCustomMenuUrl(url)) return null
+  const truncatedName =
+    Array.from(name).slice(0, CUSTOM_MENU_NAME_MAX_LEN).join('') || name
+  return {
+    id,
+    name: truncatedName,
+    url,
+    visibleTo,
+    openMode,
+    layoutMode,
+    enabled,
+  }
+}
+
+export function parseCustomMenuPages(
+  value: string | null | undefined
+): CustomMenuPagesConfig {
+  if (!value || value.trim() === '') {
+    return { items: [] }
+  }
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>
+    const rawItems = Array.isArray(parsed?.items) ? parsed.items : []
+    const items: CustomMenuItem[] = []
+    const seenIds = new Set<string>()
+    for (const raw of rawItems) {
+      const item = sanitizeCustomMenuItem(raw)
+      if (!item) continue
+      if (seenIds.has(item.id)) continue
+      seenIds.add(item.id)
+      items.push(item)
+    }
+    return { items }
+  } catch {
+    return { items: [] }
+  }
+}
+
+export function serializeCustomMenuPages(
+  config: CustomMenuPagesConfig
+): string {
+  return JSON.stringify({ items: config.items })
+}

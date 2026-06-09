@@ -223,6 +223,13 @@ export function PublicHeader(props: PublicHeaderProps) {
             <div className='hidden items-center gap-0.5 sm:flex'>
               {links.map((link, i) => {
                 const isActive = pathname === link.href
+                const linkClass = cn(
+                  'relative rounded-full px-3 py-1.5 text-[13px] font-medium transition-all duration-200',
+                  isActive
+                    ? 'text-foreground bg-foreground/[0.06] dark:bg-foreground/[0.09]'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]',
+                  link.disabled && 'pointer-events-none opacity-50'
+                )
                 if (link.external) {
                   return (
                     <a
@@ -233,10 +240,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                       aria-disabled={link.disabled}
                       tabIndex={link.disabled ? -1 : undefined}
                       onClick={(event) => handleNavLinkClick(event, link)}
-                      className={cn(
-                        'text-muted-foreground hover:text-foreground rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-200',
-                        link.disabled && 'pointer-events-none opacity-50'
-                      )}
+                      className={linkClass}
                     >
                       {t(link.title)}
                     </a>
@@ -248,13 +252,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                     to={link.href}
                     disabled={link.disabled}
                     onClick={(event) => handleNavLinkClick(event, link)}
-                    className={cn(
-                      'rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-200',
-                      isActive
-                        ? 'text-foreground'
-                        : 'text-muted-foreground hover:text-foreground',
-                      link.disabled && 'pointer-events-none opacity-50'
-                    )}
+                    className={linkClass}
                   >
                     {t(link.title)}
                   </Link>
@@ -264,7 +262,7 @@ export function PublicHeader(props: PublicHeaderProps) {
               {(showLanguageSwitcher ||
                 showThemeSwitch ||
                 showNotifications) && (
-                <div className='bg-border/40 mx-2 h-4 w-px' />
+                <div className='bg-border/60 mx-2 h-4 w-px' />
               )}
 
               {showLanguageSwitcher && <LanguageSwitcher />}
@@ -284,15 +282,15 @@ export function PublicHeader(props: PublicHeaderProps) {
 
               {showAuthButtons && (
                 <>
-                  <div className='bg-border/40 mx-1 h-4 w-px' />
+                  <div className='bg-border/60 mx-1.5 h-4 w-px' />
                   {loading ? (
-                    <Skeleton className='h-8 w-20 rounded-lg' />
+                    <Skeleton className='h-8 w-20 rounded-full' />
                   ) : isAuthenticated ? (
                     <ProfileDropdown />
                   ) : (
                     <Button
                       size='sm'
-                      className='h-8 rounded-lg px-3.5 text-xs font-medium'
+                      className='h-8 rounded-full px-4 text-xs font-medium shadow-sm transition-shadow hover:shadow-md'
                       render={<Link to='/sign-in' />}
                     >
                       {t('Sign in')}
@@ -356,16 +354,24 @@ export function PublicHeader(props: PublicHeaderProps) {
             {links.map((link, i) => {
               const isActive = pathname === link.href
               const linkClassName = cn(
-                'flex items-center gap-3 py-3 text-base font-medium tracking-tight transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
+                'group relative flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium tracking-tight transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
                 mobileOpen
                   ? 'translate-y-0 opacity-100'
                   : 'translate-y-4 opacity-0',
-                isActive ? 'text-foreground' : 'text-muted-foreground',
+                isActive
+                  ? 'text-foreground bg-foreground/[0.06] dark:bg-foreground/[0.09]'
+                  : 'text-muted-foreground active:bg-foreground/[0.04]',
                 link.disabled && 'pointer-events-none opacity-50'
               )
               const transitionStyle = {
                 transitionDelay: mobileOpen ? `${100 + i * 50}ms` : '0ms',
               }
+              const indicator = isActive ? (
+                <span
+                  aria-hidden
+                  className='bg-foreground absolute top-1/2 left-0 h-5 w-0.75 -translate-y-1/2 rounded-r-full'
+                />
+              ) : null
               if (link.external) {
                 return (
                   <a
@@ -379,6 +385,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                     className={linkClassName}
                     style={transitionStyle}
                   >
+                    {indicator}
                     {t(link.title)}
                   </a>
                 )
@@ -392,6 +399,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                   className={linkClassName}
                   style={transitionStyle}
                 >
+                  {indicator}
                   {t(link.title)}
                 </Link>
               )
@@ -411,7 +419,7 @@ export function PublicHeader(props: PublicHeaderProps) {
               <Link
                 to={isAuthenticated ? '/dashboard' : '/sign-in'}
                 onClick={() => setMobileOpen(false)}
-                className='bg-foreground text-background inline-flex h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80'
+                className='bg-foreground text-background inline-flex h-11 items-center justify-center rounded-xl text-sm font-medium shadow-sm transition-all hover:opacity-90 hover:shadow-md active:opacity-80'
               >
                 {isAuthenticated ? t('Go to Dashboard') : t('Sign in')}
               </Link>
