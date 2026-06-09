@@ -26,6 +26,7 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  TgNotifySettings,
 } from './types'
 
 // ============================================================================
@@ -54,6 +55,7 @@ export async function searchUsers(
     group = '',
     role = '',
     status = '',
+    is_vip = '',
     p = 1,
     page_size = 10,
   } = params
@@ -62,6 +64,7 @@ export async function searchUsers(
   queryParams.set('group', group)
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
+  if (is_vip) queryParams.set('is_vip', is_vip)
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   const res = await api.get(`/api/user/search?${queryParams.toString()}`)
@@ -191,5 +194,36 @@ export async function adminUnbindCustomOAuth(
   const res = await api.delete(
     `/api/user/${userId}/oauth/bindings/${providerId}`
   )
+  return res.data
+}
+
+/**
+ * Batch mark/unmark users as VIP customers (admin)
+ */
+export async function batchMarkVipCustomer(
+  ids: number[],
+  isVip: boolean
+): Promise<ApiResponse<{ affected: number }>> {
+  const res = await api.post('/api/user/batch_vip', { ids, is_vip: isVip })
+  return res.data
+}
+
+/**
+ * Get TG notification group settings (admin)
+ */
+export async function getTgNotifySettings(): Promise<
+  ApiResponse<TgNotifySettings>
+> {
+  const res = await api.get('/api/user/tg_notify')
+  return res.data
+}
+
+/**
+ * Update TG notification group settings (admin)
+ */
+export async function updateTgNotifySettings(
+  data: TgNotifySettings
+): Promise<ApiResponse> {
+  const res = await api.put('/api/user/tg_notify', data)
   return res.data
 }

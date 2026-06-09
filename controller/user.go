@@ -263,8 +263,13 @@ func SearchUsers(c *gin.Context) {
 			status = &parsed
 		}
 	}
+	var isVip *bool
+	if v := c.Query("is_vip"); v != "" {
+		b := v == "true" || v == "1"
+		isVip = &b
+	}
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	users, total, err := model.SearchUsers(keyword, group, role, status, isVip, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1293,4 +1298,28 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	common.ApiSuccessI18n(c, i18n.MsgSettingSaved, nil)
+}
+
+type BatchMarkVipRequest struct {
+	Ids   []int `json:"ids"`
+	IsVip bool  `json:"is_vip"`
+}
+
+// BatchMarkVipCustomer 批量标记/移除重点客户标记，仅管理员可调用
+func BatchMarkVipCustomer(c *gin.Context) {
+	var req BatchMarkVipRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if len(req.Ids) == 0 {
+		common.ApiErrorMsg(c, "请至少选择一个用户")
+		return
+	}
+	affected, err := model.BatchMarkVipCustomer(req.Ids, req.IsVip)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"affected": affected})
 }

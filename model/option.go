@@ -611,3 +611,10 @@ func handleConfigUpdate(key, value string) bool {
 
 	return true // 已处理
 }
+
+// GetOptionString 从内存 OptionMap 中读取 key 对应的字符串值，不存在返回空串
+func GetOptionString(key string) string {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap[key]
+}
