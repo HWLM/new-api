@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
+import { ROLE } from '@/lib/roles'
 import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+import { parseCustomMenuPages } from '@/features/system-settings/maintenance/config'
 import { useStatus } from '@/hooks/use-status'
 
 export type TopNavLink = {
@@ -97,6 +99,43 @@ export function useTopNavLinks(): TopNavLink[] {
   // About
   if (modules?.about !== false) {
     links.push({ title: t('About'), href: '/about' })
+  }
+
+  // Admin-configured custom iframe menus (strict role match).
+  // Visibility rules:
+  //   - visibleTo='user'  → only regular users (logged in, role === USER)
+  //   - visibleTo='admin' → admins (role >= ADMIN, includes root/super-admin)
+  //   - Guests (no role) see none
+  const role = auth?.user?.role
+  const isAdmin = role !== undefined && role >= ROLE.ADMIN
+  const customMenus = parseCustomMenuPages(
+    status?.SidebarCustomMenuPages as string | undefined
+  )
+  for (const item of customMenus.items) {
+    if (!item.enabled) continue
+    const allowed =
+      item.visibleTo === 'admin' ? isAdmin : isAuthed && !isAdmin
+    if (!allowed) continue
+    if (item.openMode === 'newWindow') {
+      // Direct external open — bypass the /custom/$id iframe wrapper.
+      links.push({
+        title: item.name,
+        href: item.url,
+        external: true,
+      })
+    } else if (item.layoutMode === 'fullwidth') {
+      // Iframe + fullwidth: route to top-level /custom-full/$id (no sidebar layout).
+      links.push({
+        title: item.name,
+        href: `/custom-full/${item.id}`,
+      })
+    } else {
+      // Iframe + sidebar (default): route to /custom/$id inside _authenticated layout.
+      links.push({
+        title: item.name,
+        href: `/custom/${item.id}`,
+      })
+    }
   }
 
   return links

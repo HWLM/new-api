@@ -18,12 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemInfoSection } from '../general/system-info-section'
 import {
+  parseCustomMenuPages,
   parseHeaderNavModules,
   parseSidebarModulesAdmin,
+  serializeCustomMenuPages,
   serializeHeaderNavModules,
   serializeSidebarModulesAdmin,
 } from '../maintenance/config'
-import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
+import { HeaderNavCombinedSection } from '../maintenance/header-nav-combined-section'
 import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import { SeoSection } from './seo-section'
@@ -79,10 +81,16 @@ const SITE_SECTIONS = [
     build: (settings: SiteSettings) => {
       const headerNavConfig = parseHeaderNavModules(settings.HeaderNavModules)
       const headerNavSerialized = serializeHeaderNavModules(headerNavConfig)
+      const customMenuConfig = parseCustomMenuPages(
+        settings.SidebarCustomMenuPages
+      )
+      const customMenuSerialized = serializeCustomMenuPages(customMenuConfig)
       return (
-        <HeaderNavigationSection
-          config={headerNavConfig}
-          initialSerialized={headerNavSerialized}
+        <HeaderNavCombinedSection
+          headerNavConfig={headerNavConfig}
+          headerNavSerialized={headerNavSerialized}
+          customMenuConfig={customMenuConfig}
+          customMenuSerialized={customMenuSerialized}
         />
       )
     },

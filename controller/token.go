@@ -356,7 +356,7 @@ func UpdateToken(c *gin.Context) {
 	}
 	if err := validateAndNormalizeTokenGroups(c, &token); err != nil {
 		return
-	}
+	}          
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)

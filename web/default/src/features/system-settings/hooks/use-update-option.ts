@@ -30,6 +30,7 @@ const STATUS_RELATED_KEYS = [
   'theme.frontend',
   'HeaderNavModules',
   'SidebarModulesAdmin',
+  'SidebarCustomMenuPages',
   'Notice',
   'MetaDescription',
   'AnalyticsScript',

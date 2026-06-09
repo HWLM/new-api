@@ -17,7 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import type { QuotaDataItem, UptimeGroupResult } from './types'
+import type {
+  QuotaDataItem,
+  TokenDailyDetailFilters,
+  TokenDailyDetailItem,
+  TokenExhaustingItem,
+  TokenStatsSummary,
+  TokenStatsTopItem,
+  UptimeGroupResult,
+} from './types'
 
 // ============================================================================
 // Dashboard APIs
@@ -66,5 +74,50 @@ export async function getUptimeStatus() {
   const res = await api.get<{ success: boolean; data: UptimeGroupResult[] }>(
     '/api/uptime/status'
   )
+  return res.data
+}
+
+// ----------------------------------------------------------------------------
+// Token Statistics
+// ----------------------------------------------------------------------------
+
+export async function getTokenStatsSummary() {
+  const res = await api.get<{ success: boolean; data: TokenStatsSummary }>(
+    '/api/data/token_stats/summary/self'
+  )
+  return res.data
+}
+
+export async function getTokenStatsTop(limit = 10) {
+  const res = await api.get<{ success: boolean; data: TokenStatsTopItem[] }>(
+    '/api/data/token_stats/top/self',
+    { params: { limit } }
+  )
+  return res.data
+}
+
+export async function getTokenStatsExhausting(
+  page = 1,
+  pageSize = 10
+) {
+  const res = await api.get<{
+    success: boolean
+    data: { items: TokenExhaustingItem[]; total: number }
+  }>('/api/data/token_stats/exhausting/self', {
+    params: { page, page_size: pageSize },
+  })
+  return res.data
+}
+
+export async function getTokenStatsDaily(filters: TokenDailyDetailFilters) {
+  const res = await api.get<{
+    success: boolean
+    data: {
+      items: TokenDailyDetailItem[]
+      total: number
+      page: number
+      page_size: number
+    }
+  }>('/api/data/token_stats/daily/self', { params: filters })
   return res.data
 }

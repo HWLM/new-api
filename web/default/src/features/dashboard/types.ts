@@ -113,6 +113,59 @@ export interface ProcessedUserChartData {
 }
 
 // ============================================================================
+// Token Statistics Types
+// ============================================================================
+
+export interface TokenStatsSummary {
+  enabled_count: number
+  remain_total: number
+  today_quota: number
+  yesterday_quota: number
+  last30_quota: number
+}
+
+export interface TokenStatsTopItem {
+  token_id: number
+  token_name: string
+  quota: number
+}
+
+export interface TokenExhaustingItem {
+  id: number
+  user_id: number
+  snapshot_at: number
+  token_id: number
+  token_name: string
+  token_key: string
+  group_name: string
+  used_quota: number
+  remain_quota: number
+  remain_ratio: number
+}
+
+export interface TokenDailyDetailItem {
+  date: number
+  token_id: number
+  token_name: string
+  token_key: string
+  group_name: string
+  daily_quota: number
+  cumulative_quota: number
+}
+
+export interface TokenDailyDetailFilters {
+  start_date?: number
+  end_date?: number
+  group?: string
+  status?: number
+  token_name?: string
+  page?: number
+  page_size?: number
+  sort_by?: 'date' | 'daily_quota' | 'cumulative_quota'
+  sort_order?: 'asc' | 'desc'
+}
+
+// ============================================================================
 // Announcement Types
 // ============================================================================
 
