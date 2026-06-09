@@ -267,7 +267,10 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	if common.DataExportEnabled {
 		gopool.Go(func() {
-			LogQuotaData(userId, username, params.ModelName, params.Quota, common.GetTimestamp(), params.PromptTokens+params.CompletionTokens)
+			ts := common.GetTimestamp()
+			totalTokens := params.PromptTokens + params.CompletionTokens
+			LogQuotaData(userId, username, params.ModelName, params.Quota, ts, totalTokens)
+			LogTokenQuotaData(userId, params.TokenId, params.TokenName, params.Group, params.Quota, ts, totalTokens)
 		})
 	}
 }
