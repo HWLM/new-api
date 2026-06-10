@@ -156,6 +156,8 @@ export interface TopupInfo {
   payment_compliance_confirmed?: boolean
   /** Current compliance terms version */
   payment_compliance_terms_version?: string
+  /** Current user's topup group ratio (e.g. 1.0 for default, 0.9 for vip) */
+  topup_group_ratio?: number
 }
 
 /**
