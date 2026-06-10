@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Plus } from 'lucide-react'
+import { MessageCircle, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { useUsers } from './users-provider'
@@ -30,8 +30,16 @@ export function UsersPrimaryButtons() {
     setOpen('create')
   }
 
+  const handleTgGroupSettings = () => {
+    setOpen('tg-settings')
+  }
+
   return (
     <div className='flex gap-2'>
+      <Button variant='outline' size='sm' onClick={handleTgGroupSettings}>
+        <MessageCircle className='h-4 w-4' />
+        {t('TG Notification Group Settings')}
+      </Button>
       <Button size='sm' onClick={handleCreate}>
         <Plus className='h-4 w-4' />
         {t('Add User')}

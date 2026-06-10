@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { type ColumnDef } from '@tanstack/react-table'
+import { Star } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatQuota, formatTimestamp } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -89,10 +90,26 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const username = row.getValue('username') as string
         const displayName = row.original.display_name
         const remark = row.original.remark
+        const isVip = row.original.is_vip_customer
 
         return (
           <div className='flex min-w-[160px] flex-col gap-1'>
             <div className='flex items-center gap-2'>
+              {isVip && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Star
+                        className='h-4 w-4 shrink-0 fill-amber-400 text-amber-400'
+                        aria-label={t('VIP Customer')}
+                      />
+                    }
+                  />
+                  <TooltipContent>
+                    <p className='text-xs'>{t('VIP Customer')}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <LongText className='max-w-[140px] font-medium'>
                 {username}
               </LongText>
@@ -370,6 +387,20 @@ export function useUsersColumns(): ColumnDef<User>[] {
         )
       },
       meta: { label: t('Last Login'), mobileHidden: true },
+    },
+    {
+      // 隐藏列，仅用作 toolbar 重点客户筛选器的列锚点
+      id: 'is_vip_customer',
+      accessorKey: 'is_vip_customer',
+      header: '',
+      cell: () => null,
+      filterFn: (row, id, value: string[]) => {
+        const v = String(row.getValue(id))
+        return value.includes(v)
+      },
+      enableSorting: false,
+      enableHiding: true,
+      meta: { label: t('VIP Customer') },
     },
     {
       id: 'actions',
