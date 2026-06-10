@@ -264,10 +264,17 @@ export type CustomMenuOpenMode = 'iframe' | 'newWindow'
  */
 export type CustomMenuLayoutMode = 'sidebar' | 'fullwidth'
 
+/**
+ * yes — login required, role gated by visibleTo (default, legacy behavior)
+ * no  — public: everyone (guests + all logged-in users) can see, visibleTo ignored
+ */
+export type CustomMenuRequireLogin = 'yes' | 'no'
+
 export type CustomMenuItem = {
   id: string
   name: string
   url: string
+  requireLogin: CustomMenuRequireLogin
   visibleTo: CustomMenuVisibleTo
   openMode: CustomMenuOpenMode
   layoutMode: CustomMenuLayoutMode
@@ -308,6 +315,8 @@ function sanitizeCustomMenuItem(raw: unknown): CustomMenuItem | null {
     record.openMode === 'newWindow' ? 'newWindow' : 'iframe'
   const layoutMode: CustomMenuLayoutMode =
     record.layoutMode === 'fullwidth' ? 'fullwidth' : 'sidebar'
+  const requireLogin: CustomMenuRequireLogin =
+    record.requireLogin === 'no' ? 'no' : 'yes'
   const enabled = toBoolean(record.enabled, false)
   if (!id || !name) return null
   if (!isValidCustomMenuUrl(url)) return null
@@ -317,6 +326,7 @@ function sanitizeCustomMenuItem(raw: unknown): CustomMenuItem | null {
     id,
     name: truncatedName,
     url,
+    requireLogin,
     visibleTo,
     openMode,
     layoutMode,

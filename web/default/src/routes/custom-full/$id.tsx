@@ -16,23 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
-import { useAuthStore } from '@/stores/auth-store'
+import { createFileRoute } from '@tanstack/react-router'
 import { CustomMenuPageFullwidth } from '@/features/custom-menu-page/fullwidth'
 
 export const Route = createFileRoute('/custom-full/$id')({
-  beforeLoad: ({ location }) => {
-    // Top-level route (not under _authenticated/) — gate here so the page can
-    // render outside the sidebar layout while still requiring login. The shared
-    // session-verified flag in _authenticated/route.tsx will pick up the
-    // verification next time the user touches an authenticated page.
-    const { auth } = useAuthStore.getState()
-    if (!auth.user) {
-      throw redirect({
-        to: '/sign-in',
-        search: { redirect: location.href },
-      })
-    }
-  },
+  // Auth gating is intentionally NOT done here — public items (requireLogin='no')
+  // must be reachable by guests. The component inspects the target item's
+  // requireLogin/visibleTo and renders an EmptyState with a sign-in link when
+  // login is actually required.
   component: CustomMenuPageFullwidth,
 })

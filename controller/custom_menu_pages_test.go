@@ -97,6 +97,51 @@ func TestValidateCustomMenuPages_LayoutModeInvalid(t *testing.T) {
 	}
 }
 
+func TestValidateCustomMenuPages_RequireLoginMissingIsOK(t *testing.T) {
+	// Missing requireLogin should be accepted (legacy data → defaults to "yes" on read).
+	raw := `{"items":[{"id":"a","name":"x","url":"/x","visibleTo":"user","openMode":"iframe","layoutMode":"sidebar","enabled":false}]}`
+	if err := validateCustomMenuPages(raw); err != nil {
+		t.Errorf("missing requireLogin should pass, got: %v", err)
+	}
+}
+
+func TestValidateCustomMenuPages_RequireLoginValid(t *testing.T) {
+	cases := []string{
+		`{"items":[{"id":"a","name":"x","url":"/x","requireLogin":"yes","visibleTo":"user","openMode":"iframe","layoutMode":"sidebar","enabled":false}]}`,
+		`{"items":[{"id":"a","name":"x","url":"/x","requireLogin":"no","visibleTo":"user","openMode":"iframe","layoutMode":"fullwidth","enabled":false}]}`,
+		// requireLogin=no allows empty visibleTo (item is public, role doesn't apply)
+		`{"items":[{"id":"a","name":"x","url":"/x","requireLogin":"no","openMode":"iframe","layoutMode":"fullwidth","enabled":false}]}`,
+	}
+	for i, raw := range cases {
+		if err := validateCustomMenuPages(raw); err != nil {
+			t.Errorf("case %d: expected valid requireLogin, got: %v", i, err)
+		}
+	}
+}
+
+func TestValidateCustomMenuPages_RequireLoginInvalid(t *testing.T) {
+	raw := `{"items":[{"id":"a","name":"x","url":"/x","requireLogin":"maybe","visibleTo":"user","openMode":"iframe","enabled":false}]}`
+	if err := validateCustomMenuPages(raw); err == nil {
+		t.Errorf("expected invalid requireLogin error")
+	}
+}
+
+func TestValidateCustomMenuPages_RequireLoginYesMissingVisibleTo(t *testing.T) {
+	// requireLogin=yes (or empty/default) still requires a valid visibleTo
+	raw := `{"items":[{"id":"a","name":"x","url":"/x","requireLogin":"yes","openMode":"iframe","enabled":false}]}`
+	if err := validateCustomMenuPages(raw); err == nil {
+		t.Errorf("expected missing-visibleTo error when requireLogin=yes")
+	}
+}
+
+func TestValidateCustomMenuPages_RequireLoginNoBadVisibleTo(t *testing.T) {
+	// requireLogin=no + non-empty bogus visibleTo is still rejected
+	raw := `{"items":[{"id":"a","name":"x","url":"/x","requireLogin":"no","visibleTo":"guest","openMode":"iframe","enabled":false}]}`
+	if err := validateCustomMenuPages(raw); err == nil {
+		t.Errorf("expected bad-visibleTo error even when requireLogin=no")
+	}
+}
+
 func TestValidateCustomMenuPages_BadJSON(t *testing.T) {
 	if err := validateCustomMenuPages(`{"items":[`); err == nil {
 		t.Errorf("expected parse error")

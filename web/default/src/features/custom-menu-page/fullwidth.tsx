@@ -17,8 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo } from 'react'
-import { Link, useParams } from '@tanstack/react-router'
-import { Ban, FileQuestion } from 'lucide-react'
+import { Link, useLocation, useParams } from '@tanstack/react-router'
+import { Ban, FileQuestion, LogIn } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { PublicLayout } from '@/components/layout'
@@ -31,12 +31,12 @@ function EmptyState({
   icon,
   title,
   description,
-  backLabel,
+  action,
 }: {
   icon: React.ReactNode
   title: string
   description: string
-  backLabel: string
+  action: React.ReactNode
 }) {
   return (
     <div className='flex min-h-[60vh] items-center justify-center p-8'>
@@ -44,9 +44,7 @@ function EmptyState({
         <div className='flex justify-center'>{icon}</div>
         <h2 className='text-xl font-semibold'>{title}</h2>
         <p className='text-muted-foreground text-sm'>{description}</p>
-        <Link to='/'>
-          <Button variant='outline'>{backLabel}</Button>
-        </Link>
+        {action}
       </div>
     </div>
   )
@@ -59,13 +57,19 @@ function EmptyState({
  * render with just the public top header — no sidebar — matching the marketing
  * pages' look. Auth gating still happens at the route's beforeLoad.
  */
+type GuardStatus = 'ok' | 'notfound' | 'loginRequired' | 'forbidden'
+
 export function CustomMenuPageFullwidth() {
   const { t } = useTranslation()
   const { id } = useParams({ from: '/custom-full/$id' })
+  const location = useLocation()
   const { status } = useStatus()
   const role = useAuthStore((s) => s.auth.user?.role)
 
-  const { item, forbidden } = useMemo(() => {
+  const { item, guard } = useMemo<{
+    item: ReturnType<typeof parseCustomMenuPages>['items'][number] | null
+    guard: GuardStatus
+  }>(() => {
     const cfg = parseCustomMenuPages(
       status?.SidebarCustomMenuPages as string | undefined
     )
@@ -80,17 +84,23 @@ export function CustomMenuPageFullwidth() {
         it.openMode === 'iframe' &&
         it.layoutMode === 'fullwidth'
     )
-    if (!found) return { item: null, forbidden: false }
+    if (!found) return { item: null, guard: 'notfound' as const }
 
+    // requireLogin='no' → public: anyone can access (visibleTo ignored).
+    if (found.requireLogin === 'no') {
+      return { item: found, guard: 'ok' as const }
+    }
+
+    // requireLogin='yes' → require login + role match.
     const isAuthed = role !== undefined && role >= ROLE.USER
+    if (!isAuthed) return { item: found, guard: 'loginRequired' as const }
     const isAdmin = role !== undefined && role >= ROLE.ADMIN
-    const allowed =
-      found.visibleTo === 'admin' ? isAdmin : isAuthed && !isAdmin
-    if (!allowed) return { item: found, forbidden: true }
-    return { item: found, forbidden: false }
+    const allowed = found.visibleTo === 'admin' ? isAdmin : !isAdmin
+    if (!allowed) return { item: found, guard: 'forbidden' as const }
+    return { item: found, guard: 'ok' as const }
   }, [status?.SidebarCustomMenuPages, id, role])
 
-  if (!item) {
+  if (guard === 'notfound') {
     return (
       <PublicLayout showMainContainer={false}>
         <EmptyState
@@ -99,13 +109,34 @@ export function CustomMenuPageFullwidth() {
           description={t(
             'The page may have been deleted or disabled by an administrator.'
           )}
-          backLabel={t('Back to home')}
+          action={
+            <Link to='/'>
+              <Button variant='outline'>{t('Back to home')}</Button>
+            </Link>
+          }
         />
       </PublicLayout>
     )
   }
 
-  if (forbidden) {
+  if (guard === 'loginRequired') {
+    return (
+      <PublicLayout showMainContainer={false}>
+        <EmptyState
+          icon={<LogIn className='text-muted-foreground h-16 w-16' />}
+          title={t('Login required')}
+          description={t('Please sign in to view this custom page.')}
+          action={
+            <Link to='/sign-in' search={{ redirect: location.href }}>
+              <Button>{t('Sign in')}</Button>
+            </Link>
+          }
+        />
+      </PublicLayout>
+    )
+  }
+
+  if (guard === 'forbidden') {
     return (
       <PublicLayout showMainContainer={false}>
         <EmptyState
@@ -114,7 +145,11 @@ export function CustomMenuPageFullwidth() {
           description={t(
             'You do not have permission to view this custom page.'
           )}
-          backLabel={t('Back to home')}
+          action={
+            <Link to='/'>
+              <Button variant='outline'>{t('Back to home')}</Button>
+            </Link>
+          }
         />
       </PublicLayout>
     )
@@ -123,8 +158,8 @@ export function CustomMenuPageFullwidth() {
   return (
     <PublicLayout showMainContainer={false}>
       <iframe
-        src={item.url}
-        title={item.name}
+        src={item!.url}
+        title={item!.name}
         className='h-[calc(100svh-4rem)] w-full border-0'
         referrerPolicy='no-referrer-when-downgrade'
       />
