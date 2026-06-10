@@ -603,6 +603,11 @@ const TopUp = () => {
           discount: data.discount || {},
         });
 
+        // 将当前用户的充值分组比例应用到价格比例，保证快捷按钮的 Pay 显示与后端一致
+        const baseSystemPrice = statusState?.status?.price || 1;
+        const userTopupGroupRatio = data.topup_group_ratio || 1;
+        setPriceRatio(baseSystemPrice * userTopupGroupRatio);
+
         // 处理支付方式
         let payMethods = data.pay_methods || [];
         try {

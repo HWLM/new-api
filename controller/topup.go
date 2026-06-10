@@ -24,6 +24,16 @@ import (
 func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
+	// 当前登录用户的充值分组比例，用于前端快捷金额按钮显示真实支付价
+	topupGroupRatio := 1.0
+	if userId := c.GetInt("id"); userId > 0 {
+		if group, err := model.GetUserGroup(userId, true); err == nil {
+			if ratio := common.GetTopupGroupRatio(group); ratio > 0 {
+				topupGroupRatio = ratio
+			}
+		}
+	}
+
 	// 获取支付方式
 	payMethods := operation_setting.PayMethods
 	if !complianceConfirmed {
@@ -119,6 +129,7 @@ func GetTopUpInfo(c *gin.Context) {
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
+		"topup_group_ratio":       topupGroupRatio,
 	}
 	common.ApiSuccess(c, data)
 }
