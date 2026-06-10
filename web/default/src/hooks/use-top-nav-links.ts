@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
+import { ROLE } from '@/lib/roles'
 import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+import { parseCustomMenuPages } from '@/features/system-settings/maintenance/config'
 import { useStatus } from '@/hooks/use-status'
 
 export type TopNavLink = {
@@ -97,6 +99,59 @@ export function useTopNavLinks(): TopNavLink[] {
   // About
   if (modules?.about !== false) {
     links.push({ title: t('About'), href: '/about' })
+  }
+
+  // Admin-configured custom iframe menus.
+  // Visibility rules:
+  //   - requireLogin='no'  → public: visible to everyone (guests + all logged-in users).
+  //     For guests, sidebar-layout iframe items are still hidden because that route
+  //     lives inside _authenticated and cannot render without an auth context.
+  //   - requireLogin='yes' → filtered by visibleTo:
+  //       - visibleTo='user'  → only regular users (logged in, non-admin)
+  //       - visibleTo='admin' → admins (role >= ADMIN, includes root/super-admin)
+  //       - Guests (no role) see none
+  const role = auth?.user?.role
+  const isAdmin = role !== undefined && role >= ROLE.ADMIN
+  const customMenus = parseCustomMenuPages(
+    status?.SidebarCustomMenuPages as string | undefined
+  )
+  for (const item of customMenus.items) {
+    if (!item.enabled) continue
+    if (item.requireLogin === 'no') {
+      // Public item: hide sidebar-layout iframe items from guests (route requires auth).
+      if (
+        !isAuthed &&
+        item.openMode === 'iframe' &&
+        item.layoutMode === 'sidebar'
+      ) {
+        continue
+      }
+    } else {
+      // requireLogin='yes' → strict role match, guests see none.
+      const allowed =
+        item.visibleTo === 'admin' ? isAdmin : isAuthed && !isAdmin
+      if (!allowed) continue
+    }
+    if (item.openMode === 'newWindow') {
+      // Direct external open — bypass the /custom/$id iframe wrapper.
+      links.push({
+        title: item.name,
+        href: item.url,
+        external: true,
+      })
+    } else if (item.layoutMode === 'fullwidth') {
+      // Iframe + fullwidth: route to top-level /custom-full/$id (no sidebar layout).
+      links.push({
+        title: item.name,
+        href: `/custom-full/${item.id}`,
+      })
+    } else {
+      // Iframe + sidebar (default): route to /custom/$id inside _authenticated layout.
+      links.push({
+        title: item.name,
+        href: `/custom/${item.id}`,
+      })
+    }
   }
 
   return links

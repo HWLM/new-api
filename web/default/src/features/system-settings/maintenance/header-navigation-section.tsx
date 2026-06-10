@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useImperativeHandle, useMemo, type Ref } from 'react'
 import * as z from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -59,9 +59,20 @@ const headerNavSchema = z.object({
 
 type HeaderNavFormValues = z.infer<typeof headerNavSchema>
 
+export type SectionHandle = {
+  submit: () => Promise<void>
+  reset: () => void
+}
+
 type HeaderNavigationSectionProps = {
   config: HeaderNavModulesConfig
   initialSerialized: string
+  /** When true, suppress the internal Save/Reset portal — caller renders a unified one. */
+  hideActions?: boolean
+  /** Notify parent of pending state for unified saving indicator. */
+  onPendingChange?: (pending: boolean) => void
+  /** Imperative handle so a parent can trigger submit/reset alongside other forms. */
+  actionsRef?: Ref<SectionHandle>
 }
 
 const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
@@ -98,6 +109,9 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
 export function HeaderNavigationSection({
   config,
   initialSerialized,
+  hideActions,
+  onPendingChange,
+  actionsRef,
 }: HeaderNavigationSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -145,6 +159,21 @@ export function HeaderNavigationSection({
   const resetToDefault = () => {
     form.reset(toFormValues(HEADER_NAV_DEFAULT))
   }
+
+  useEffect(() => {
+    onPendingChange?.(updateOption.isPending)
+  }, [updateOption.isPending, onPendingChange])
+
+  useImperativeHandle(
+    actionsRef,
+    () => ({
+      submit: form.handleSubmit(onSubmit),
+      reset: resetToDefault,
+    }),
+    // form.handleSubmit + onSubmit closure capture latest values via form ref
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form, config, initialSerialized]
+  )
 
   const simpleModules: Array<{
     key: keyof HeaderNavFormValues
@@ -210,13 +239,15 @@ export function HeaderNavigationSection({
     <SettingsSection title={t('Header navigation')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
-          <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
-            onReset={resetToDefault}
-            isSaving={updateOption.isPending}
-            resetLabel='Reset to default'
-            saveLabel='Save navigation'
-          />
+          {!hideActions && (
+            <SettingsPageFormActions
+              onSave={form.handleSubmit(onSubmit)}
+              onReset={resetToDefault}
+              isSaving={updateOption.isPending}
+              resetLabel='Reset to default'
+              saveLabel='Save navigation'
+            />
+          )}
           <div className='grid gap-4 md:grid-cols-2'>
             {simpleModules.map((module) => (
               <FormField
