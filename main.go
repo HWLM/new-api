@@ -125,6 +125,9 @@ func main() {
 	// VIP customer daily TG report task (每天本地 8 点向配置的 TG 群推送)
 	service.StartTgNotificationTask()
 
+	// VIP customer daily consumption stat task (每天本地 2 点统计昨天消耗写入 vip_daily_consumption)
+	service.StartVipDailyStatTask()
+
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
 		a := relay.GetTaskAdaptor(platform)

@@ -34,10 +34,12 @@ import (
 
 // 用 options 表存储的 key
 const (
-	OptionKeyTgBotToken       = "tg_notify_bot_token"
-	OptionKeyTgChatId         = "tg_notify_chat_id"
-	OptionKeyTgLastReportDate = "tg_notify_last_report_date" // 形如 "2026-06-09"
-	OptionKeyTgRetryCountDate = "tg_notify_retry_date"       // 形如 "2026-06-09|2"，记录当天重试次数
+	OptionKeyTgBotToken         = "tg_notify_bot_token"
+	OptionKeyTgChatId           = "tg_notify_chat_id"
+	OptionKeyTgLastReportDate   = "tg_notify_last_report_date" // 形如 "2026-06-09"
+	OptionKeyTgRetryCountDate   = "tg_notify_retry_date"       // 形如 "2026-06-09|2"，记录当天重试次数
+	OptionKeyTgFrontendBaseUrl  = "tg_notify_frontend_base_url" // 形如 "https://aiyunrouter.com/"，用于消耗明细链接
+	VipStatsDetailPathFromBase  = "vip-stats"                   // 与前端公开路由 /vip-stats 对应
 )
 
 const (
@@ -128,18 +130,42 @@ func executeTgNotifyOnce() error {
 		return nil // 没有重点客户，跳过不发（Q4 选项 B）
 	}
 
-	text := BuildVipReportText(stat)
+	weekly, err := model.SumWeeklyConsumedRealtime()
+	if err != nil {
+		return fmt.Errorf("collect weekly consumed: %w", err)
+	}
+
+	text := BuildVipReportText(stat, weekly)
 	return SendTelegramMessage(token, chatId, text)
 }
 
 // BuildVipReportText 把统计结果拼成 TG 消息文本（Q1: USD $X.XXXX 格式）。
-func BuildVipReportText(stat *model.VipStat) string {
-	return fmt.Sprintf(
-		"统计用户数：%d\n前一日累计消耗金额：$%.4f\n当前累计剩余余额：$%.4f",
+// 如果 options 表里配置了 frontend base url，会在末尾附消耗明细页 URL。
+func BuildVipReportText(stat *model.VipStat, weeklyConsumed int64) string {
+	body := fmt.Sprintf(
+		"统计用户数：%d\n近7天累计消耗金额：$%.4f\n前一日累计消耗金额：$%.4f\n当前累计剩余余额：$%.4f",
 		stat.UserCount,
+		float64(weeklyConsumed)/common.QuotaPerUnit,
 		float64(stat.YesterdayConsumed)/common.QuotaPerUnit,
 		float64(stat.CurrentRemaining)/common.QuotaPerUnit,
 	)
+	if url := buildVipStatsDetailUrl(); url != "" {
+		body += "\n消耗明细：" + url
+	}
+	return body
+}
+
+// buildVipStatsDetailUrl 拼明细页 URL。base 未配置时返回空串（不放进消息）
+func buildVipStatsDetailUrl() string {
+	base := model.GetOptionString(OptionKeyTgFrontendBaseUrl)
+	if base == "" {
+		return ""
+	}
+	// 兼容用户配置时是否带尾 "/"
+	if base[len(base)-1] != '/' {
+		base += "/"
+	}
+	return base + VipStatsDetailPathFromBase
 }
 
 // TriggerVipReportManually 由 admin API 调用：忽略时间窗口和 lastDate，立即发一次。
@@ -154,7 +180,11 @@ func TriggerVipReportManually() error {
 	if err != nil {
 		return fmt.Errorf("收集统计失败：%w", err)
 	}
-	text := BuildVipReportText(stat)
+	weekly, err := model.SumWeeklyConsumedRealtime()
+	if err != nil {
+		return fmt.Errorf("收集 7 天累计失败：%w", err)
+	}
+	text := BuildVipReportText(stat, weekly)
 	return SendTelegramMessage(token, chatId, text)
 }
 

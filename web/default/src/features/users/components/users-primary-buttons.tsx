@@ -16,13 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { MessageCircle, Plus } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
+import { BarChart3, MessageCircle, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { useUsers } from './users-provider'
 
 export function UsersPrimaryButtons() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { setOpen, setCurrentRow } = useUsers()
 
   const handleCreate = () => {
@@ -34,8 +36,16 @@ export function UsersPrimaryButtons() {
     setOpen('tg-settings')
   }
 
+  const handleViewStats = () => {
+    navigate({ to: '/vip-stats' })
+  }
+
   return (
     <div className='flex gap-2'>
+      <Button variant='outline' size='sm' onClick={handleViewStats}>
+        <BarChart3 className='h-4 w-4' />
+        {t('VIP Customer Statistics')}
+      </Button>
       <Button variant='outline' size='sm' onClick={handleTgGroupSettings}>
         <MessageCircle className='h-4 w-4' />
         {t('TG Notification Group Settings')}
