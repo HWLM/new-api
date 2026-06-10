@@ -101,11 +101,15 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('About'), href: '/about' })
   }
 
-  // Admin-configured custom iframe menus (strict role match).
+  // Admin-configured custom iframe menus.
   // Visibility rules:
-  //   - visibleTo='user'  → only regular users (logged in, role === USER)
-  //   - visibleTo='admin' → admins (role >= ADMIN, includes root/super-admin)
-  //   - Guests (no role) see none
+  //   - requireLogin='no'  → public: visible to everyone (guests + all logged-in users).
+  //     For guests, sidebar-layout iframe items are still hidden because that route
+  //     lives inside _authenticated and cannot render without an auth context.
+  //   - requireLogin='yes' → filtered by visibleTo:
+  //       - visibleTo='user'  → only regular users (logged in, non-admin)
+  //       - visibleTo='admin' → admins (role >= ADMIN, includes root/super-admin)
+  //       - Guests (no role) see none
   const role = auth?.user?.role
   const isAdmin = role !== undefined && role >= ROLE.ADMIN
   const customMenus = parseCustomMenuPages(
@@ -113,9 +117,21 @@ export function useTopNavLinks(): TopNavLink[] {
   )
   for (const item of customMenus.items) {
     if (!item.enabled) continue
-    const allowed =
-      item.visibleTo === 'admin' ? isAdmin : isAuthed && !isAdmin
-    if (!allowed) continue
+    if (item.requireLogin === 'no') {
+      // Public item: hide sidebar-layout iframe items from guests (route requires auth).
+      if (
+        !isAuthed &&
+        item.openMode === 'iframe' &&
+        item.layoutMode === 'sidebar'
+      ) {
+        continue
+      }
+    } else {
+      // requireLogin='yes' → strict role match, guests see none.
+      const allowed =
+        item.visibleTo === 'admin' ? isAdmin : isAuthed && !isAdmin
+      if (!allowed) continue
+    }
     if (item.openMode === 'newWindow') {
       // Direct external open — bypass the /custom/$id iframe wrapper.
       links.push({

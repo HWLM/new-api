@@ -81,6 +81,7 @@ const customMenuItemSchema = z.object({
       isValidCustomMenuUrl,
       'URL must be http(s):// or a site-relative path starting with /'
     ),
+  requireLogin: z.enum(['yes', 'no']),
   visibleTo: z.enum(['user', 'admin']),
   openMode: z.enum(['iframe', 'newWindow']),
   layoutMode: z.enum(['sidebar', 'fullwidth']),
@@ -216,6 +217,7 @@ export function CustomMenuPagesSection({
       id: generateMenuId(),
       name: '',
       url: '',
+      requireLogin: 'yes',
       visibleTo: 'user',
       openMode: 'iframe',
       layoutMode: 'sidebar',
@@ -384,7 +386,7 @@ export function CustomMenuPagesSection({
                     </div>
                   </div>
 
-                  <div className='mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4'>
+                  <div className='mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3'>
                     <FormField
                       control={form.control}
                       name={`items.${idx}.name`}
@@ -411,32 +413,28 @@ export function CustomMenuPagesSection({
 
                     <FormField
                       control={form.control}
-                      name={`items.${idx}.visibleTo`}
-                      render={({ field: roleField }) => (
+                      name={`items.${idx}.requireLogin`}
+                      render={({ field: loginField }) => (
                         <FormItem className='space-y-1'>
                           <Label className='text-xs'>
                             <span className='text-destructive'>* </span>
-                            {t('Visible role')}
+                            {t('Login required')}
                           </Label>
                           <FormControl>
                             <Select
                               items={[
-                                { value: 'user', label: t('Regular user') },
-                                { value: 'admin', label: t('Administrator') },
+                                { value: 'yes', label: t('Yes') },
+                                { value: 'no', label: t('No') },
                               ]}
-                              value={roleField.value}
-                              onValueChange={roleField.onChange}
+                              value={loginField.value}
+                              onValueChange={loginField.onChange}
                             >
                               <SelectTrigger className='w-full'>
                                 <SelectValue placeholder={t('Please select')} />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value='user'>
-                                  {t('Regular user')}
-                                </SelectItem>
-                                <SelectItem value='admin'>
-                                  {t('Administrator')}
-                                </SelectItem>
+                                <SelectItem value='yes'>{t('Yes')}</SelectItem>
+                                <SelectItem value='no'>{t('No')}</SelectItem>
                               </SelectContent>
                             </Select>
                           </FormControl>
@@ -444,6 +442,46 @@ export function CustomMenuPagesSection({
                         </FormItem>
                       )}
                     />
+
+                    {watchedItems[idx]?.requireLogin !== 'no' && (
+                      <FormField
+                        control={form.control}
+                        name={`items.${idx}.visibleTo`}
+                        render={({ field: roleField }) => (
+                          <FormItem className='space-y-1'>
+                            <Label className='text-xs'>
+                              <span className='text-destructive'>* </span>
+                              {t('Visible role')}
+                            </Label>
+                            <FormControl>
+                              <Select
+                                items={[
+                                  { value: 'user', label: t('Regular user') },
+                                  { value: 'admin', label: t('Administrator') },
+                                ]}
+                                value={roleField.value}
+                                onValueChange={roleField.onChange}
+                              >
+                                <SelectTrigger className='w-full'>
+                                  <SelectValue
+                                    placeholder={t('Please select')}
+                                  />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value='user'>
+                                    {t('Regular user')}
+                                  </SelectItem>
+                                  <SelectItem value='admin'>
+                                    {t('Administrator')}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
 
                     <FormField
                       control={form.control}
@@ -552,7 +590,7 @@ export function CustomMenuPagesSection({
                       control={form.control}
                       name={`items.${idx}.url`}
                       render={({ field: urlField }) => (
-                        <FormItem className='space-y-1 md:col-span-2 lg:col-span-4'>
+                        <FormItem className='space-y-1 md:col-span-2 lg:col-span-3'>
                           <Label className='text-xs'>
                             <span className='text-destructive'>* </span>
                             {t('Page URL')}

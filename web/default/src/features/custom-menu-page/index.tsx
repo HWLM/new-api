@@ -73,6 +73,11 @@ export function CustomMenuPage() {
     )
     if (!found) return { item: null, forbidden: false }
 
+    // requireLogin='no' → public; everyone in this route (always authed because
+    // we live inside _authenticated/) sees it. visibleTo ignored.
+    if (found.requireLogin === 'no') return { item: found, forbidden: false }
+
+    // requireLogin='yes' → strict role match.
     const isAuthed = role !== undefined && role >= ROLE.USER
     const isAdmin = role !== undefined && role >= ROLE.ADMIN
     const allowed =

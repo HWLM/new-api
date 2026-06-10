@@ -17,13 +17,14 @@ const (
 )
 
 type customMenuItem struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	URL        string `json:"url"`
-	VisibleTo  string `json:"visibleTo"`
-	OpenMode   string `json:"openMode"`
-	LayoutMode string `json:"layoutMode"`
-	Enabled    bool   `json:"enabled"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	RequireLogin string `json:"requireLogin"`
+	VisibleTo    string `json:"visibleTo"`
+	OpenMode     string `json:"openMode"`
+	LayoutMode   string `json:"layoutMode"`
+	Enabled      bool   `json:"enabled"`
 }
 
 type customMenuPagesConfig struct {
@@ -92,7 +93,18 @@ func validateCustomMenuPages(raw string) error {
 			return fmt.Errorf("第 %d 条菜单的 URL 非法,需为 http(s):// 或 / 开头的站内路径", idx+1)
 		}
 
-		if item.VisibleTo != "user" && item.VisibleTo != "admin" {
+		// requireLogin is optional for backward compatibility — missing value means "yes" (legacy default).
+		if item.RequireLogin != "" && item.RequireLogin != "yes" && item.RequireLogin != "no" {
+			return fmt.Errorf("第 %d 条菜单的登录要求必须为 yes 或 no", idx+1)
+		}
+
+		// visibleTo only matters when login is required; when login is not required, item is public so visibleTo is ignored.
+		// We still validate the value if present (form preserves the field even when hidden in UI).
+		if item.RequireLogin != "no" {
+			if item.VisibleTo != "user" && item.VisibleTo != "admin" {
+				return fmt.Errorf("第 %d 条菜单的可见角色必须为 user 或 admin", idx+1)
+			}
+		} else if item.VisibleTo != "" && item.VisibleTo != "user" && item.VisibleTo != "admin" {
 			return fmt.Errorf("第 %d 条菜单的可见角色必须为 user 或 admin", idx+1)
 		}
 
