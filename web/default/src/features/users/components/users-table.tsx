@@ -64,7 +64,10 @@ export function UsersTable() {
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [rowSelection, setRowSelection] = useState({})
   const [sorting, setSorting] = useState<SortingState>([])
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  // is_vip_customer 列默认隐藏，仅作为 toolbar 筛选锚点
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    is_vip_customer: false,
+  })
 
   const {
     globalFilter,
@@ -83,6 +86,7 @@ export function UsersTable() {
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'string' },
+      { columnId: 'is_vip_customer', searchKey: 'vip', type: 'array' },
     ],
   })
   const statusFilter =
@@ -96,6 +100,13 @@ export function UsersTable() {
   const groupFilter =
     (columnFilters.find((filter) => filter.id === 'group')?.value as string) ??
     ''
+  const vipFilter =
+    (columnFilters.find((filter) => filter.id === 'is_vip_customer')?.value as
+      | string[]
+      | undefined) ?? []
+  // 'all' 视为不筛选（"全部"语义），仅在选中 true/false 时透传 is_vip
+  const vipFilterValue =
+    vipFilter[0] && vipFilter[0] !== 'all' ? vipFilter[0] : ''
 
   // Fetch data with React Query
   const { data, isLoading, isFetching } = useQuery({
@@ -107,12 +118,16 @@ export function UsersTable() {
       statusFilter,
       roleFilter,
       groupFilter,
+      vipFilterValue,
       refreshTrigger,
     ],
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
       const hasColumnFilter =
-        statusFilter.length > 0 || roleFilter.length > 0 || Boolean(groupFilter)
+        statusFilter.length > 0 ||
+        roleFilter.length > 0 ||
+        Boolean(groupFilter) ||
+        Boolean(vipFilterValue)
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -126,6 +141,7 @@ export function UsersTable() {
               status: statusFilter[0] ?? '',
               role: roleFilter[0] ?? '',
               group: groupFilter,
+              is_vip: vipFilterValue,
             })
           : await getUsers(params)
 
@@ -216,6 +232,16 @@ export function UsersTable() {
             columnId: 'role',
             title: t('Role'),
             options: getUserRoleOptions(t),
+            singleSelect: true,
+          },
+          {
+            columnId: 'is_vip_customer',
+            title: t('VIP Customer'),
+            options: [
+              { label: t('All'), value: 'all' },
+              { label: t('Yes'), value: 'true' },
+              { label: t('No'), value: 'false' },
+            ],
             singleSelect: true,
           },
         ],

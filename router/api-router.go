@@ -136,6 +136,10 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/:id", controller.GetUser)
 				adminRoute.POST("/", controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
+				adminRoute.POST("/batch_vip", controller.BatchMarkVipCustomer)
+				adminRoute.GET("/tg_notify", controller.GetTgNotifySettings)
+				adminRoute.PUT("/tg_notify", controller.UpdateTgNotifySettings)
+				adminRoute.POST("/tg_notify/trigger", controller.TriggerTgNotifyManually)
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)
@@ -316,6 +320,10 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/", middleware.AdminAuth(), controller.GetAllQuotaDates)
 		dataRoute.GET("/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)
 		dataRoute.GET("/self", middleware.UserAuth(), controller.GetUserQuotaDates)
+		dataRoute.GET("/token_stats/summary/self", middleware.UserAuth(), controller.GetTokenStatsSummary)
+		dataRoute.GET("/token_stats/top/self", middleware.UserAuth(), controller.GetTokenStatsTop)
+		dataRoute.GET("/token_stats/exhausting/self", middleware.UserAuth(), controller.GetTokenStatsExhausting)
+		dataRoute.GET("/token_stats/daily/self", middleware.UserAuth(), controller.GetTokenStatsDaily)
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
