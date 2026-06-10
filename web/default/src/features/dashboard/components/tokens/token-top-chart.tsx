@@ -92,7 +92,7 @@ export function TokenTopChart() {
           ],
         },
       },
-      background: { fill: 'transparent' },
+      background: 'transparent',
     }
   }, [data])
 
