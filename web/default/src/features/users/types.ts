@@ -138,6 +138,31 @@ export interface TgNotifySettings {
 }
 
 // ============================================================================
+// VIP Stats Detail
+// ============================================================================
+
+export interface VipStatsSummary {
+  user_count: number
+  today_consumed: number
+  weekly_consumed: number
+  current_remaining: number
+}
+
+export interface VipStatsRow {
+  user_id: number
+  username: string
+  remaining: number
+  daily: number[]
+}
+
+export interface VipStatsDetail {
+  summary: VipStatsSummary
+  dates: string[]
+  rows: VipStatsRow[]
+  totals: number[]
+}
+
+// ============================================================================
 // Dialog Types
 // ============================================================================
 

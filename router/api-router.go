@@ -63,6 +63,10 @@ func SetApiRouter(router *gin.Engine) {
 		// Universal secure verification routes
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.UniversalVerify)
 
+		// Public VIP stats page (password-gated, no auth required)
+		apiRouter.POST("/vip_stats/verify", controller.VerifyVipStatsPassword)
+		apiRouter.GET("/vip_stats/detail", controller.GetVipStatsDetail)
+
 		userRoute := apiRouter.Group("/user")
 		{
 			userRoute.POST("/register", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.Register)
@@ -140,6 +144,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/tg_notify", controller.GetTgNotifySettings)
 				adminRoute.PUT("/tg_notify", controller.UpdateTgNotifySettings)
 				adminRoute.POST("/tg_notify/trigger", controller.TriggerTgNotifyManually)
+				adminRoute.POST("/vip_stats/backfill", controller.BackfillVipDailyStats)
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)

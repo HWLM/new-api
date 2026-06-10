@@ -27,6 +27,7 @@ import type {
   ManageUserQuotaPayload,
   ApiResponse,
   TgNotifySettings,
+  VipStatsDetail,
 } from './types'
 
 // ============================================================================
@@ -225,5 +226,28 @@ export async function updateTgNotifySettings(
   data: TgNotifySettings
 ): Promise<ApiResponse> {
   const res = await api.put('/api/user/tg_notify', data)
+  return res.data
+}
+
+/**
+ * Get VIP customer 7-day consumption detail (public endpoint, password gated).
+ * Caller must pass the access password via header.
+ */
+export async function getVipStatsDetail(
+  password: string
+): Promise<ApiResponse<VipStatsDetail>> {
+  const res = await api.get('/api/vip_stats/detail', {
+    headers: { 'X-VIP-Stats-Password': password },
+  })
+  return res.data
+}
+
+/**
+ * Verify VIP stats access password (public).
+ */
+export async function verifyVipStatsPassword(
+  password: string
+): Promise<ApiResponse> {
+  const res = await api.post('/api/vip_stats/verify', { password })
   return res.data
 }

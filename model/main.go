@@ -286,6 +286,7 @@ func migrateDB() error {
 		&PerfMetric{},
 		&TokenQuotaData{},
 		&TokenExhaustingSnapshot{},
+		&VipDailyConsumption{},
 	)
 	if err != nil {
 		return err
