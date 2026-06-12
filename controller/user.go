@@ -268,8 +268,20 @@ func SearchUsers(c *gin.Context) {
 		b := v == "true" || v == "1"
 		isVip = &b
 	}
+	var createdAtStart *int64
+	if v := c.Query("created_at_start"); v != "" {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+			createdAtStart = &parsed
+		}
+	}
+	var createdAtEnd *int64
+	if v := c.Query("created_at_end"); v != "" {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+			createdAtEnd = &parsed
+		}
+	}
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.SearchUsers(keyword, group, role, status, isVip, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	users, total, err := model.SearchUsers(keyword, group, role, status, isVip, createdAtStart, createdAtEnd, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return

@@ -97,6 +97,10 @@ export interface SearchUsersParams {
   status?: string
   /** '' = 不筛选，'true' = 仅重点客户，'false' = 仅非重点客户 */
   is_vip?: string
+  /** unix 秒，0/undefined = 不筛选 */
+  created_at_start?: number
+  /** unix 秒，0/undefined = 不筛选 */
+  created_at_end?: number
   p?: number
   page_size?: number
 }
@@ -146,6 +150,10 @@ export interface VipStatsSummary {
   today_consumed: number
   weekly_consumed: number
   current_remaining: number
+  today_requests: number
+  today_tokens: number
+  weekly_requests: number
+  weekly_tokens: number
 }
 
 export interface VipStatsRow {
@@ -153,6 +161,8 @@ export interface VipStatsRow {
   username: string
   remaining: number
   daily: number[]
+  daily_requests: number[]
+  daily_tokens: number[]
 }
 
 export interface VipStatsDetail {
@@ -160,6 +170,8 @@ export interface VipStatsDetail {
   dates: string[]
   rows: VipStatsRow[]
   totals: number[]
+  total_requests: number[]
+  total_tokens: number[]
 }
 
 // ============================================================================

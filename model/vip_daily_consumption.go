@@ -25,14 +25,16 @@ import (
 )
 
 // VipDailyConsumption 重点客户每日消耗统计。
-// 由凌晨 2 点的定时任务写入，每条记录代表"某个客户某一天"的总消耗 quota。
+// 由凌晨 2 点的定时任务写入，每条记录代表"某个客户某一天"的总消耗 quota / 请求次数 / token 数。
 type VipDailyConsumption struct {
-	Id        int    `json:"id" gorm:"primaryKey"`
-	UserId    int    `json:"user_id" gorm:"index;uniqueIndex:uk_vip_daily_user_date,priority:1"`
-	Username  string `json:"username" gorm:"type:varchar(64);default:''"`
-	StatDate  string `json:"stat_date" gorm:"type:varchar(10);index;uniqueIndex:uk_vip_daily_user_date,priority:2"` // YYYY-MM-DD
-	Quota     int64  `json:"quota" gorm:"default:0"`                                                               // 当天消耗 quota（单位 = QuotaPerUnit / 美元）
-	CreatedAt int64  `json:"created_at" gorm:"autoCreateTime"`
+	Id           int    `json:"id" gorm:"primaryKey"`
+	UserId       int    `json:"user_id" gorm:"index;uniqueIndex:uk_vip_daily_user_date,priority:1"`
+	Username     string `json:"username" gorm:"type:varchar(64);default:''"`
+	StatDate     string `json:"stat_date" gorm:"type:varchar(10);index;uniqueIndex:uk_vip_daily_user_date,priority:2"` // YYYY-MM-DD
+	Quota        int64  `json:"quota" gorm:"default:0"`                                                               // 当天消耗 quota（单位 = QuotaPerUnit / 美元）
+	RequestCount int64  `json:"request_count" gorm:"default:0;column:request_count"`                                  // 当天请求次数
+	Tokens       int64  `json:"tokens" gorm:"default:0;column:tokens"`                                                // 当天 prompt_tokens + completion_tokens 总和
+	CreatedAt    int64  `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // UpsertVipDailyConsumption 批量插入/更新某一天的统计数据。
@@ -49,15 +51,21 @@ func UpsertVipDailyConsumption(records []VipDailyConsumption) error {
 	}
 	return DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "stat_date"}},
-		DoUpdates: clause.AssignmentColumns([]string{"quota", "username"}),
+		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username"}),
 	}).Create(&records).Error
 }
 
-// GetVipDailyConsumptionInRange 查询给定用户在 [startDate, endDate] 区间的日消耗记录
-// dates 用闭区间字符串比较（YYYY-MM-DD 在三种 DB 上等价）。
-// 返回 map[userId]map[date]quota，方便上层组装表格。
-func GetVipDailyConsumptionInRange(userIds []int, startDate, endDate string) (map[int]map[string]int64, error) {
-	result := make(map[int]map[string]int64)
+// DailyConsumptionEntry 一个客户某一天的全部指标
+type DailyConsumptionEntry struct {
+	Quota        int64
+	RequestCount int64
+	Tokens       int64
+}
+
+// GetVipDailyConsumptionInRange 查询给定用户在 [startDate, endDate] 区间的日消耗记录。
+// 返回 map[userId]map[date]DailyConsumptionEntry，方便上层组装表格。
+func GetVipDailyConsumptionInRange(userIds []int, startDate, endDate string) (map[int]map[string]DailyConsumptionEntry, error) {
+	result := make(map[int]map[string]DailyConsumptionEntry)
 	if len(userIds) == 0 {
 		return result, nil
 	}
@@ -71,23 +79,39 @@ func GetVipDailyConsumptionInRange(userIds []int, startDate, endDate string) (ma
 	}
 	for _, r := range rows {
 		if _, ok := result[r.UserId]; !ok {
-			result[r.UserId] = make(map[string]int64)
+			result[r.UserId] = make(map[string]DailyConsumptionEntry)
 		}
-		result[r.UserId][r.StatDate] = r.Quota
+		result[r.UserId][r.StatDate] = DailyConsumptionEntry{
+			Quota:        r.Quota,
+			RequestCount: r.RequestCount,
+			Tokens:       r.Tokens,
+		}
 	}
 	return result, nil
 }
 
-// SumVipDailyConsumptionInRange 给定 userIds + 日期区间，返回总和（quota 单位）
-func SumVipDailyConsumptionInRange(userIds []int, startDate, endDate string) (int64, error) {
+// SumVipDailyAggregate 给定 userIds + 日期区间，返回 quota / request_count / tokens 三个总和
+func SumVipDailyAggregate(userIds []int, startDate, endDate string) (DailyConsumptionEntry, error) {
+	var sum DailyConsumptionEntry
 	if len(userIds) == 0 {
-		return 0, nil
+		return sum, nil
 	}
-	var sum int64
+	type row struct {
+		Quota        int64
+		RequestCount int64
+		Tokens       int64
+	}
+	var r row
 	err := DB.Model(&VipDailyConsumption{}).
 		Where("user_id IN ?", userIds).
 		Where("stat_date >= ? AND stat_date <= ?", startDate, endDate).
-		Select("COALESCE(SUM(quota), 0)").
-		Scan(&sum).Error
-	return sum, err
+		Select("COALESCE(SUM(quota), 0) AS quota, COALESCE(SUM(request_count), 0) AS request_count, COALESCE(SUM(tokens), 0) AS tokens").
+		Scan(&r).Error
+	if err != nil {
+		return sum, err
+	}
+	sum.Quota = r.Quota
+	sum.RequestCount = r.RequestCount
+	sum.Tokens = r.Tokens
+	return sum, nil
 }

@@ -226,7 +226,7 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, startIdx int, num int) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, createdAtStart, createdAtEnd *int64, startIdx int, num int) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -273,6 +273,12 @@ func SearchUsers(keyword string, group string, role *int, status *int, isVip *bo
 		} else {
 			query = query.Where("is_vip_customer = ?", commonFalseVal)
 		}
+	}
+	if createdAtStart != nil {
+		query = query.Where("created_at >= ?", *createdAtStart)
+	}
+	if createdAtEnd != nil {
+		query = query.Where("created_at <= ?", *createdAtEnd)
 	}
 
 	// 获取总数

@@ -77,6 +77,13 @@ export function DatePicker({
           selected={selected}
           onSelect={onSelect}
           locale={calendarLocale}
+          formatters={{
+            // 月份下拉用纯数字 01-12，跟 YYYY-MM-DD 输入框格式保持一致
+            formatMonthDropdown: (date) =>
+              String(date.getMonth() + 1).padStart(2, '0'),
+            // 顶部标题显示 YYYY-MM（不带语言月份名）
+            formatCaption: (date) => dayjs(date).format('YYYY-MM'),
+          }}
           disabled={(date: Date) =>
             date > new Date() || date < new Date('1900-01-01')
           }

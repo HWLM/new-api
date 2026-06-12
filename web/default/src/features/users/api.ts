@@ -57,6 +57,8 @@ export async function searchUsers(
     role = '',
     status = '',
     is_vip = '',
+    created_at_start,
+    created_at_end,
     p = 1,
     page_size = 10,
   } = params
@@ -66,6 +68,9 @@ export async function searchUsers(
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
   if (is_vip) queryParams.set('is_vip', is_vip)
+  if (created_at_start)
+    queryParams.set('created_at_start', String(created_at_start))
+  if (created_at_end) queryParams.set('created_at_end', String(created_at_end))
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   const res = await api.get(`/api/user/search?${queryParams.toString()}`)

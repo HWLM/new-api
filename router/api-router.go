@@ -144,6 +144,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/tg_notify", controller.GetTgNotifySettings)
 				adminRoute.PUT("/tg_notify", controller.UpdateTgNotifySettings)
 				adminRoute.POST("/tg_notify/trigger", controller.TriggerTgNotifyManually)
+				adminRoute.POST("/tg_notify/low_balance_trigger", controller.TriggerVipLowBalanceManually)
 				adminRoute.POST("/vip_stats/backfill", controller.BackfillVipDailyStats)
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)

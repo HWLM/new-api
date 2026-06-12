@@ -67,3 +67,13 @@ func TriggerTgNotifyManually(c *gin.Context) {
 	}
 	common.ApiSuccess(c, nil)
 }
+
+// TriggerVipLowBalanceManually 手动触发余额告警（仅管理员）。
+// 用于测试 / 排查；忽略小时去重，立即扫描并发送。
+func TriggerVipLowBalanceManually(c *gin.Context) {
+	if err := service.TriggerVipLowBalanceManually(); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	common.ApiSuccess(c, nil)
+}

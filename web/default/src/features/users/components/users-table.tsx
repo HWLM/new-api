@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import {
@@ -30,6 +30,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table'
+import dayjs from '@/lib/dayjs'
 import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -39,7 +40,9 @@ import {
   DISABLED_ROW_MOBILE,
   DataTablePage,
 } from '@/components/data-table'
-import { getUsers, searchUsers } from '../api'
+import { DatePicker } from '@/components/date-picker'
+import { Label } from '@/components/ui/label'
+import { getGroups, getUsers, searchUsers } from '../api'
 import {
   USER_STATUS,
   getUserStatusOptions,
@@ -108,6 +111,55 @@ export function UsersTable() {
   const vipFilterValue =
     vipFilter[0] && vipFilter[0] !== 'all' ? vipFilter[0] : ''
 
+  // 创建时间区间：YYYY-MM-DD 字符串放在 URL，传给后端时换算成 unix 秒
+  const search = route.useSearch()
+  const navigate = route.useNavigate()
+  const createdStart = (search as { createdStart?: string }).createdStart ?? ''
+  const createdEnd = (search as { createdEnd?: string }).createdEnd ?? ''
+
+  const createdAtStartTs = useMemo(() => {
+    if (!createdStart) return undefined
+    const d = dayjs(createdStart).startOf('day')
+    return d.isValid() ? d.unix() : undefined
+  }, [createdStart])
+  const createdAtEndTs = useMemo(() => {
+    if (!createdEnd) return undefined
+    const d = dayjs(createdEnd).endOf('day')
+    return d.isValid() ? d.unix() : undefined
+  }, [createdEnd])
+
+  const setCreatedStart = (date: Date | undefined) => {
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        createdStart: date ? dayjs(date).format('YYYY-MM-DD') : '',
+        page: 1,
+      }),
+      replace: true,
+    })
+  }
+  const setCreatedEnd = (date: Date | undefined) => {
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        createdEnd: date ? dayjs(date).format('YYYY-MM-DD') : '',
+        page: 1,
+      }),
+      replace: true,
+    })
+  }
+
+  // 加载分组列表，作为 toolbar group filter 的 options 来源
+  const { data: groupListData } = useQuery({
+    queryKey: ['user-groups'],
+    queryFn: () => getGroups(),
+    staleTime: 5 * 60_000,
+  })
+  const groupOptions = useMemo(() => {
+    const list = groupListData?.success ? groupListData.data ?? [] : []
+    return list.map((g) => ({ label: g, value: g }))
+  }, [groupListData])
+
   // Fetch data with React Query
   const { data, isLoading, isFetching } = useQuery({
     queryKey: [
@@ -119,6 +171,8 @@ export function UsersTable() {
       roleFilter,
       groupFilter,
       vipFilterValue,
+      createdAtStartTs,
+      createdAtEndTs,
       refreshTrigger,
     ],
     queryFn: async () => {
@@ -127,7 +181,9 @@ export function UsersTable() {
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
         Boolean(groupFilter) ||
-        Boolean(vipFilterValue)
+        Boolean(vipFilterValue) ||
+        Boolean(createdAtStartTs) ||
+        Boolean(createdAtEndTs)
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -142,6 +198,8 @@ export function UsersTable() {
               role: roleFilter[0] ?? '',
               group: groupFilter,
               is_vip: vipFilterValue,
+              created_at_start: createdAtStartTs,
+              created_at_end: createdAtEndTs,
             })
           : await getUsers(params)
 
@@ -244,7 +302,43 @@ export function UsersTable() {
             ],
             singleSelect: true,
           },
+          {
+            columnId: 'group',
+            title: t('Group'),
+            options: groupOptions,
+            singleSelect: true,
+          },
         ],
+        additionalSearch: (
+          <div className='flex flex-wrap items-center gap-2'>
+            <Label className='text-muted-foreground text-xs'>
+              {t('Created At')}
+            </Label>
+            <DatePicker
+              selected={createdStart ? dayjs(createdStart).toDate() : undefined}
+              onSelect={setCreatedStart}
+              placeholder={t('Start date')}
+            />
+            <span className='text-muted-foreground text-sm'>~</span>
+            <DatePicker
+              selected={createdEnd ? dayjs(createdEnd).toDate() : undefined}
+              onSelect={setCreatedEnd}
+              placeholder={t('End date')}
+            />
+          </div>
+        ),
+        hasAdditionalFilters: Boolean(createdStart) || Boolean(createdEnd),
+        onReset: () => {
+          navigate({
+            search: (prev) => ({
+              ...prev,
+              createdStart: '',
+              createdEnd: '',
+              page: 1,
+            }),
+            replace: true,
+          })
+        },
       }}
       getRowClassName={(row, { isMobile }) =>
         isDisabledUserRow(row.original)

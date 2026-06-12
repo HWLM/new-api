@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, Lock, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -180,6 +180,7 @@ function VipStatsContent(props: {
 
         <SummaryCards data={data} isLoading={isLoading} />
         <DetailTable data={data} isLoading={isLoading} />
+        <RequestTokenTable data={data} isLoading={isLoading} />
       </div>
     </div>
   )
@@ -191,6 +192,7 @@ function SummaryCards(props: {
 }) {
   const { t } = useTranslation()
   const s = props.data?.summary
+  const fmtInt = (n: number) => n.toLocaleString()
   const cards = [
     {
       label: t('Customer Count'),
@@ -207,6 +209,22 @@ function SummaryCards(props: {
     {
       label: t('Total Remaining ($)'),
       value: s ? formatCurrencyFromUSD(quotaToUsd(s.current_remaining)) : '-',
+    },
+    {
+      label: t('Today Requests'),
+      value: s ? fmtInt(s.today_requests) : '-',
+    },
+    {
+      label: t('Today Tokens'),
+      value: s ? fmtInt(s.today_tokens) : '-',
+    },
+    {
+      label: t('7-Day Requests'),
+      value: s ? fmtInt(s.weekly_requests) : '-',
+    },
+    {
+      label: t('7-Day Tokens'),
+      value: s ? fmtInt(s.weekly_tokens) : '-',
     },
   ]
 
@@ -312,6 +330,162 @@ function DetailTable(props: {
               <TableRow>
                 <TableCell
                   colSpan={Math.max(dates.length + 2, 9)}
+                  className='text-muted-foreground text-center'
+                >
+                  {t('Loading...')}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * 第二张表格："客户请求次数/token 数"。每个客户占两行(请求次数 / 消耗 TOKEN)，
+ * 列头跟第一张表一样是动态 7 天日期 + 合计列。
+ */
+function RequestTokenTable(props: {
+  data: VipStatsDetail | undefined
+  isLoading: boolean
+}) {
+  const { t } = useTranslation()
+  const data = props.data
+  const dates = data?.dates ?? []
+  const rows = data?.rows ?? []
+  const totalRequests = data?.total_requests ?? []
+  const totalTokens = data?.total_tokens ?? []
+  const fmtInt = (n: number) => n.toLocaleString()
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className='text-base'>
+          {t('Customer Requests / Tokens Detail')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('Customer')}</TableHead>
+              <TableHead>{t('Dimension')}</TableHead>
+              {dates.map((d) => (
+                <TableHead key={d} className='text-center'>
+                  {formatMonthDay(d)}
+                </TableHead>
+              ))}
+              <TableHead className='text-center'>{t('Total')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {/* 合计两行：所有客户的每日请求次数 / token 合计 */}
+            {data && rows.length > 0 && (
+              <>
+                <TableRow className='bg-amber-50 hover:bg-amber-50 dark:bg-amber-950/30 dark:hover:bg-amber-950/30'>
+                  <TableCell rowSpan={2} className='align-middle font-medium'>
+                    {t('Total')}
+                  </TableCell>
+                  <TableCell className='font-medium'>
+                    {t('Requests')}
+                  </TableCell>
+                  {totalRequests.map((v, i) => (
+                    <TableCell
+                      key={i}
+                      className='text-center font-medium tabular-nums'
+                    >
+                      {fmtInt(v)}
+                    </TableCell>
+                  ))}
+                  <TableCell className='text-center font-medium tabular-nums'>
+                    {fmtInt(totalRequests.reduce((a, b) => a + b, 0))}
+                  </TableCell>
+                </TableRow>
+                <TableRow className='bg-amber-50 hover:bg-amber-50 dark:bg-amber-950/30 dark:hover:bg-amber-950/30'>
+                  <TableCell className='font-medium'>
+                    {t('Tokens')}
+                  </TableCell>
+                  {totalTokens.map((v, i) => (
+                    <TableCell
+                      key={i}
+                      className='text-center font-medium tabular-nums'
+                    >
+                      {fmtInt(v)}
+                    </TableCell>
+                  ))}
+                  <TableCell className='text-center font-medium tabular-nums'>
+                    {fmtInt(totalTokens.reduce((a, b) => a + b, 0))}
+                  </TableCell>
+                </TableRow>
+              </>
+            )}
+
+            {/* 每个客户两行：请求次数 / 消耗 TOKEN */}
+            {rows.map((r) => {
+              const rowRequestsTotal = r.daily_requests.reduce(
+                (a, b) => a + b,
+                0
+              )
+              const rowTokensTotal = r.daily_tokens.reduce((a, b) => a + b, 0)
+              return (
+                <React.Fragment key={r.user_id}>
+                  <TableRow>
+                    <TableCell rowSpan={2} className='align-middle font-medium'>
+                      {r.username}
+                    </TableCell>
+                    <TableCell>{t('Requests')}</TableCell>
+                    {r.daily_requests.map((v, i) => (
+                      <TableCell
+                        key={i}
+                        className={cn(
+                          'text-center tabular-nums',
+                          v === 0 && 'text-muted-foreground'
+                        )}
+                      >
+                        {fmtInt(v)}
+                      </TableCell>
+                    ))}
+                    <TableCell className='text-center tabular-nums'>
+                      {fmtInt(rowRequestsTotal)}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>{t('Tokens')}</TableCell>
+                    {r.daily_tokens.map((v, i) => (
+                      <TableCell
+                        key={i}
+                        className={cn(
+                          'text-center tabular-nums',
+                          v === 0 && 'text-muted-foreground'
+                        )}
+                      >
+                        {fmtInt(v)}
+                      </TableCell>
+                    ))}
+                    <TableCell className='text-center tabular-nums'>
+                      {fmtInt(rowTokensTotal)}
+                    </TableCell>
+                  </TableRow>
+                </React.Fragment>
+              )
+            })}
+
+            {!props.isLoading && rows.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={dates.length + 3}
+                  className='text-muted-foreground text-center'
+                >
+                  {t('No VIP customers found')}
+                </TableCell>
+              </TableRow>
+            )}
+            {props.isLoading && (
+              <TableRow>
+                <TableCell
+                  colSpan={Math.max(dates.length + 3, 10)}
                   className='text-muted-foreground text-center'
                 >
                   {t('Loading...')}
