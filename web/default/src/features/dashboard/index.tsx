@@ -83,6 +83,12 @@ const LazyTokenStats = lazy(() =>
   }))
 )
 
+const LazyRequestAnalytics = lazy(() =>
+  import('./components/request-analytics/request-analytics').then((m) => ({
+    default: m.RequestAnalytics,
+  }))
+)
+
 function LogStatCardsFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -149,6 +155,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   tokens: {
     titleKey: 'Token Statistics',
   },
+  'request-analytics': {
+    titleKey: 'Request Response Analytics',
+  },
 }
 
 export function Dashboard() {
@@ -197,7 +206,10 @@ export function Dashboard() {
   const visibleSections = useMemo(
     () =>
       DASHBOARD_SECTION_IDS.filter(
-        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
+        (section) =>
+          section !== 'overview' &&
+          (section !== 'users' || isAdmin) &&
+          (section !== 'request-analytics' || isAdmin)
       ),
     [isAdmin]
   )
@@ -311,6 +323,13 @@ export function Dashboard() {
             <FadeIn>
               <Suspense fallback={<ModelChartsFallback />}>
                 <LazyTokenStats />
+              </Suspense>
+            </FadeIn>
+          )}
+          {activeSection === 'request-analytics' && isAdmin && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyRequestAnalytics />
               </Suspense>
             </FadeIn>
           )}
