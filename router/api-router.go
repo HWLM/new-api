@@ -37,6 +37,38 @@ func SetApiRouter(router *gin.Engine) {
 			perfMetricsRoute.GET("/summary", controller.GetPerfMetricsSummary)
 			perfMetricsRoute.GET("", controller.GetPerfMetrics)
 		}
+		// ==============================
+		// 请求-响应统计分析:/api/metrics/*
+		// ==============================
+		metricsRoute := apiRouter.Group("/metrics")
+		metricsRoute.Use(middleware.UserAuth())
+		{
+			// 自助接口(普通用户)— 只能看自己的数据
+			metricsRoute.GET("/self/overview", controller.GetSelfMetricsOverview)
+			metricsRoute.GET("/self/trend", controller.GetSelfMetricsTrend)
+
+			// 管理员接口
+			adminMetrics := metricsRoute.Group("/")
+			adminMetrics.Use(middleware.AdminAuth())
+			{
+				adminMetrics.GET("/overview", controller.GetMetricsOverview)
+				adminMetrics.GET("/users", controller.GetUserMetrics)
+				adminMetrics.GET("/platforms", controller.GetPlatformMetrics)
+				adminMetrics.GET("/platform/:type/channels", controller.GetPlatformChannels)
+				adminMetrics.GET("/channel/:id/models", controller.GetChannelModels)
+				adminMetrics.GET("/trend", controller.GetMetricsTrend)
+				adminMetrics.GET("/errors/top", controller.GetErrorsTop)
+				adminMetrics.GET("/errors/detail", controller.GetErrorsDetail)
+				adminMetrics.GET("/settings", controller.GetMetricsSettings)
+				adminMetrics.PUT("/settings", controller.UpdateMetricsSettings)
+				adminMetrics.GET("/alert-rules", controller.ListRequestAlertRules)
+				adminMetrics.POST("/alert-rules", controller.CreateRequestAlertRule)
+				adminMetrics.PUT("/alert-rules/:id", controller.UpdateRequestAlertRule)
+				adminMetrics.DELETE("/alert-rules/:id", controller.DeleteRequestAlertRule)
+				adminMetrics.GET("/alert-events", controller.ListRequestAlertEvents)
+				adminMetrics.POST("/alert-test", controller.TestAlertNotification)
+			}
+		}
 		apiRouter.GET("/rankings", middleware.HeaderNavModuleAuth("rankings"), controller.GetRankings)
 		apiRouter.GET("/verification", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)

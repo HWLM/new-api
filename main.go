@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"log"
@@ -23,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -127,6 +129,20 @@ func main() {
 
 	// VIP customer daily consumption stat task (每天本地 2 点统计昨天消耗写入 vip_daily_consumption)
 	service.StartVipDailyStatTask()
+
+	// ==============================
+	// 请求-响应统计分析模块启动
+	// ==============================
+	// 1. 从 options 表加载 metrics.* 阈值/关键词/TTL 到内存
+	for _, key := range setting.MetricsOptionKeys() {
+		setting.ApplyMetricsOption(key, model.GetOptionString(key))
+	}
+	// 2. 异步埋点 writer worker
+	service.StartRequestMetricsWriter(context.Background())
+	// 3. TTL 定期清理(默认每 6 小时跑一次,删除 N 天前明细)
+	service.StartRequestMetricsCleanup(context.Background())
+	// 4. 告警评估器(每 60s 跑一次,仅 master 节点)
+	service.StartRequestAlertEvaluator(context.Background())
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {

@@ -123,6 +123,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	// 请求-响应统计埋点:Relay 完成后非阻塞投递明细到 request_metrics_logs。
+	// 注册位置在 relayInfo 创建之后,确保任何后续 return 都能触发。
+	// 不依赖 c.Writer.Status()(LIFO 顺序下错误 c.JSON 在我们之后才执行),
+	// 由 SubmitRequestMetrics 内部从 newAPIError 推断 status code。
+	defer func() {
+		service.SubmitRequestMetrics(c, relayInfo, 0, newAPIError)
+	}()
+
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
