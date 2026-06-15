@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Settings as SettingsIcon } from 'lucide-react'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -260,6 +261,8 @@ function SummarySection({ range }: { range: Range }) {
   const { t } = useTranslation()
   const [data, setData] = useState<OverviewResult | null>(null)
   const [loading, setLoading] = useState(false)
+  // 选中的 channel_type:0 表示总览(不过滤),其它为 channel_type
+  const [selectedChannelType, setSelectedChannelType] = useState<number>(0)
 
   useEffect(() => {
     setLoading(true)
@@ -313,15 +316,18 @@ function SummarySection({ range }: { range: Range }) {
   })
 
   // 卡片 = 总览 + 固定平台(OpenAI/Anthropic,缺数据填 0) + 其他平台(若有数据)
+  // channelType: 0 表示总览(不过滤),其它为 channel_type 值
   const cards: Array<{
     key: string
     title: string
     metrics: SummaryMetrics
+    channelType: number
   }> = [
     {
       key: 'total',
       title: t('Total Requests'),
       metrics: total,
+      channelType: 0,
     },
     ...PINNED_PLATFORMS.map(({ type, name }) => {
       const p = platformMap.get(type)
@@ -329,6 +335,7 @@ function SummarySection({ range }: { range: Range }) {
         key: `p-${type}`,
         title: name + ' ' + t('Total Requests'),
         metrics: p ? platformToMetrics(p) : zeroMetrics,
+        channelType: type,
       }
     }),
     ...platforms
@@ -337,6 +344,7 @@ function SummarySection({ range }: { range: Range }) {
         key: `p-${p.channel_type}`,
         title: p.platform_name + ' ' + t('Total Requests'),
         metrics: platformToMetrics(p),
+        channelType: p.channel_type,
       })),
   ]
 
@@ -348,25 +356,47 @@ function SummarySection({ range }: { range: Range }) {
         style={{ gridTemplateColumns: `repeat(${Math.max(cards.length, 1)}, minmax(0, 1fr))` }}
       >
         {cards.map((c) => (
-          <SummaryCard key={c.key} title={c.title} metrics={c.metrics} />
+          <SummaryCard
+            key={c.key}
+            title={c.title}
+            metrics={c.metrics}
+            selected={selectedChannelType === c.channelType}
+            onClick={() => setSelectedChannelType(c.channelType)}
+          />
         ))}
       </div>
 
       {/* 第二行:4 张图 — 失败 top10 + 错误折线 + 请求量折线 + 平均响应时长折线 */}
       <div className='grid grid-cols-1 gap-3 lg:grid-cols-4'>
-        <ErrorTopList range={range} />
-        <SingleTrendChart range={range} metric='err_count' title={t('Request Errors (count)')} color='#ef4444' />
-        <SingleTrendChart range={range} metric='req_total' title={t('Request Count (Stats)')} color='#ef4444' />
-        <SingleTrendChart range={range} metric='avg_duration_ms' title={t('Average Response Time')} color='#ef4444' />
+        <ErrorTopList range={range} channelType={selectedChannelType} />
+        <SingleTrendChart range={range} channelType={selectedChannelType} metric='err_count' title={t('Request Errors (count)')} color='#ef4444' />
+        <SingleTrendChart range={range} channelType={selectedChannelType} metric='req_total' title={t('Request Count (Stats)')} color='#ef4444' />
+        <SingleTrendChart range={range} channelType={selectedChannelType} metric='avg_duration_ms' title={t('Average Response Time')} color='#ef4444' />
       </div>
     </div>
   )
 }
 
-function SummaryCard({ title, metrics }: { title: string; metrics: SummaryMetrics }) {
+function SummaryCard({
+  title,
+  metrics,
+  selected,
+  onClick,
+}: {
+  title: string
+  metrics: SummaryMetrics
+  selected?: boolean
+  onClick?: () => void
+}) {
   const { t } = useTranslation()
   return (
-    <Card>
+    <Card
+      onClick={onClick}
+      className={cn(
+        onClick && 'cursor-pointer transition-colors hover:bg-muted/40',
+        selected && 'ring-2 ring-primary ring-offset-1',
+      )}
+    >
       <CardHeader className='pb-1'>
         <CardTitle className='text-sm font-medium text-muted-foreground'>{title}</CardTitle>
       </CardHeader>
@@ -401,15 +431,17 @@ function SmallStat({ label, value }: { label: string; value: string }) {
 // 失败原因 top10 列表(对齐原型左下)
 // ============================
 
-function ErrorTopList({ range }: { range: Range }) {
+function ErrorTopList({ range, channelType }: { range: Range; channelType: number }) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<ErrorTopRow[]>([])
   useEffect(() => {
+    const params: Record<string, string | number> = { range, limit: 10 }
+    if (channelType > 0) params.channel_type = channelType
     api
-      .get('/api/metrics/errors/top', { params: { range, limit: 10 } })
+      .get('/api/metrics/errors/top', { params })
       .then((res) => setRows(res.data?.data ?? []))
       .catch(() => {})
-  }, [range])
+  }, [range, channelType])
   const safeRows = rows ?? []
   return (
     <Card>
@@ -451,22 +483,26 @@ function ErrorTopList({ range }: { range: Range }) {
 
 function SingleTrendChart({
   range,
+  channelType,
   metric,
   title,
   color,
 }: {
   range: Range
+  channelType: number
   metric: 'req_total' | 'err_count' | 'avg_duration_ms'
   title: string
   color: string
 }) {
   const [data, setData] = useState<TrendResult | null>(null)
   useEffect(() => {
+    const params: Record<string, string | number> = { range }
+    if (channelType > 0) params.channel_type = channelType
     api
-      .get('/api/metrics/trend', { params: { range } })
+      .get('/api/metrics/trend', { params })
       .then((res) => setData(res.data?.data ?? null))
       .catch(() => {})
-  }, [range])
+  }, [range, channelType])
   const points = data?.series ?? []
 
   const w = 360
@@ -915,8 +951,22 @@ function DrilldownDialog({
   const [errors, setErrors] = useState<ErrorTopRow[]>([])
   const [allChannels, setAllChannels] = useState<Array<ChannelRow & { channel_type: number }>>([])
   const [expandedChannel, setExpandedChannel] = useState<number | null>(null)
+  // 选中的 channel_type:0 表示全部(不过滤),其它为某个平台
+  const [selectedChannelType, setSelectedChannelType] = useState<number>(0)
 
   const open = userId != null
+
+  // 关闭/切换用户时重置选中态,避免下次打开沿用旧状态
+  useEffect(() => {
+    if (!open) {
+      setSelectedChannelType(0)
+      setExpandedChannel(null)
+    }
+  }, [open])
+  useEffect(() => {
+    setSelectedChannelType(0)
+    setExpandedChannel(null)
+  }, [userId])
 
   // 1. 用户级别总览 + 平台子卡
   useEffect(() => {
@@ -930,14 +980,16 @@ function DrilldownDialog({
       .catch(() => {})
   }, [open, userId, range])
 
-  // 2. 用户级别错误明细
+  // 2. 用户级别错误明细(按选中平台过滤)
   useEffect(() => {
     if (!open || userId == null) return
+    const params: Record<string, string | number> = { range, user_id: userId, limit: 10 }
+    if (selectedChannelType > 0) params.channel_type = selectedChannelType
     api
-      .get('/api/metrics/errors/top', { params: { range, user_id: userId, limit: 10 } })
+      .get('/api/metrics/errors/top', { params })
       .then((res) => setErrors(res.data?.data ?? []))
       .catch(() => {})
-  }, [open, userId, range])
+  }, [open, userId, range, selectedChannelType])
 
   // 3. 用户所有渠道(从每个 platform 拉 channels 然后合并)
   useEffect(() => {
@@ -964,6 +1016,17 @@ function DrilldownDialog({
     })
   }, [open, userId, range, platforms])
 
+  // 渠道耗时明细:按选中平台过滤;切换平台后收起展开行,避免引用到隐藏渠道
+  const filteredChannels = useMemo(() => {
+    if (selectedChannelType <= 0) return allChannels
+    return allChannels.filter((c) => c.channel_type === selectedChannelType)
+  }, [allChannels, selectedChannelType])
+  useEffect(() => {
+    if (expandedChannel != null && !filteredChannels.some((c) => c.channel_id === expandedChannel)) {
+      setExpandedChannel(null)
+    }
+  }, [filteredChannels, expandedChannel])
+
   // overview 卡里显示的"5300ms(P95)"用平台 P95 突出展示
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -977,42 +1040,54 @@ function DrilldownDialog({
           </DialogTitle>
         </DialogHeader>
         <div className='flex-1 space-y-4 overflow-y-auto overflow-x-hidden pe-1'>
-          {/* 平台子卡片(横向) — 严格对齐原型 */}
+          {/* 平台子卡片(横向) — 严格对齐原型,可点击联动下方明细 */}
           {platforms.length > 0 && (
             <div
               className='grid gap-3'
               style={{ gridTemplateColumns: `repeat(${platforms.length}, minmax(0, 1fr))` }}
             >
-              {platforms.map((p) => (
-                <Card key={p.channel_type}>
-                  <CardHeader className='pb-1'>
-                    <CardTitle className='flex items-center justify-between gap-1 text-sm font-medium'>
-                      <span>{p.platform_name}</span>
-                      <span className='flex items-center gap-1'>
-                        <span className='rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-normal text-blue-600'>
-                          {fmtPct(p.slow_ttft_rate ?? 0)} {t('Slow TTFT')}
+              {platforms.map((p) => {
+                const selected = selectedChannelType === p.channel_type
+                return (
+                  <Card
+                    key={p.channel_type}
+                    onClick={() =>
+                      setSelectedChannelType(selected ? 0 : p.channel_type)
+                    }
+                    className={cn(
+                      'cursor-pointer transition-colors hover:bg-muted/40',
+                      selected && 'ring-2 ring-primary ring-offset-1',
+                    )}
+                  >
+                    <CardHeader className='pb-1'>
+                      <CardTitle className='flex items-center justify-between gap-1 text-sm font-medium'>
+                        <span>{p.platform_name}</span>
+                        <span className='flex items-center gap-1'>
+                          <span className='rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-normal text-blue-600'>
+                            {fmtPct(p.slow_ttft_rate ?? 0)} {t('Slow TTFT')}
+                          </span>
+                          <span className='rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-normal text-orange-600'>
+                            {fmtPct(p.slow_resp_rate)} {t('Slow Response')}
+                          </span>
                         </span>
-                        <span className='rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-normal text-orange-600'>
-                          {fmtPct(p.slow_resp_rate)} {t('Slow Response')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className='flex items-baseline gap-1'>
+                        <span className='text-3xl font-semibold text-blue-600'>
+                          {fmtNum(p.p95_ms)}
                         </span>
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className='flex items-baseline gap-1'>
-                      <span className='text-3xl font-semibold text-blue-600'>
-                        {fmtNum(p.p95_ms)}
-                      </span>
-                      <span className='text-xs text-muted-foreground'>ms(P95)</span>
-                    </div>
-                    <div className='mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground'>
-                      <span>{t('Average Duration')}: {fmtMs(p.avg_duration_ms)}</span>
-                      <span>| {t('Request Times')}: {fmtNum(p.req_total)}</span>
-                      <span>| {t('Error (Stats)')}: {fmtPct(p.error_rate)}</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                        <span className='text-xs text-muted-foreground'>ms(P95)</span>
+                      </div>
+                      <div className='mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground'>
+                        <span>{t('Average Duration')}: {fmtMs(p.avg_duration_ms)}</span>
+                        <span>| {t('Request Times')}: {fmtNum(p.req_total)}</span>
+                        <span>| {t('Error (Stats)')}: {fmtPct(p.error_rate)}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           )}
           {platforms.length === 0 && overviewTotal && (
@@ -1048,13 +1123,13 @@ function DrilldownDialog({
           {/* 渠道耗时明细 — 单行 | 分隔的字段名严格对齐原型 */}
           <div>
             <div className='mb-2 text-sm font-semibold'>{t('Channel Latency Details')}</div>
-            {allChannels.length === 0 ? (
+            {filteredChannels.length === 0 ? (
               <div className='rounded border bg-muted/30 px-3 py-2 text-xs text-muted-foreground'>
                 {t('No Data (Stats)')}
               </div>
             ) : (
               <div className='space-y-2'>
-                {allChannels.map((r) => (
+                {filteredChannels.map((r) => (
                   <div key={r.channel_id} className='rounded border'>
                     <div className='flex items-center justify-between gap-3 px-3 py-2'>
                       <div className='min-w-0 flex-1'>
