@@ -161,8 +161,9 @@ func GetMetricsTrend(c *gin.Context) {
 	if !ok {
 		return
 	}
+	channelType, _ := strconv.Atoi(c.DefaultQuery("channel_type", "0"))
 	bucket := service.BucketSecondsForRange(rangeStr)
-	result, err := service.QueryTrend(c.Request.Context(), from, to, bucket, 0)
+	result, err := service.QueryTrend(c.Request.Context(), from, to, bucket, 0, channelType)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -181,8 +182,9 @@ func GetSelfMetricsTrend(c *gin.Context) {
 		responseErr(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	channelType, _ := strconv.Atoi(c.DefaultQuery("channel_type", "0"))
 	bucket := service.BucketSecondsForRange(rangeStr)
-	result, err := service.QueryTrend(c.Request.Context(), from, to, bucket, uid)
+	result, err := service.QueryTrend(c.Request.Context(), from, to, bucket, uid, channelType)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
