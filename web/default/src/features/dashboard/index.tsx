@@ -83,6 +83,12 @@ const LazyTokenStats = lazy(() =>
   }))
 )
 
+const LazyRequestAnalytics = lazy(() =>
+  import('./components/request-analytics/request-analytics').then((m) => ({
+    default: m.RequestAnalytics,
+  }))
+)
+
 const LazyInviterStats = lazy(() =>
   import('./components/inviter/inviter-stats').then((m) => ({
     default: m.InviterStats,
@@ -158,6 +164,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   inviter: {
     titleKey: 'Inviter Statistics',
   },
+  'request-analytics': {
+    titleKey: 'Request Response Analytics',
+  },
 }
 
 export function Dashboard() {
@@ -213,6 +222,12 @@ export function Dashboard() {
         if (section === 'inviter' && isAdmin) return false
         return true
       }),
+      DASHBOARD_SECTION_IDS.filter(
+        (section) =>
+          section !== 'overview' &&
+          (section !== 'users' || isAdmin) &&
+          (section !== 'request-analytics' || isAdmin)
+      ),
     [isAdmin]
   )
   const handleSectionChange = useCallback(
@@ -325,6 +340,13 @@ export function Dashboard() {
             <FadeIn>
               <Suspense fallback={<ModelChartsFallback />}>
                 <LazyTokenStats />
+              </Suspense>
+            </FadeIn>
+          )}
+          {activeSection === 'request-analytics' && isAdmin && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyRequestAnalytics />
               </Suspense>
             </FadeIn>
           )}

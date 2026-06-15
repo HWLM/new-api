@@ -45,6 +45,12 @@ const DASHBOARD_SECTIONS = [
     build: () => null,
   },
   {
+    id: 'request-analytics',
+    titleKey: 'Request Response Analytics',
+    adminOnly: true,
+    build: () => null,
+  },
+  {
     id: 'inviter',
     titleKey: 'Inviter Statistics',
     build: () => null,
@@ -53,7 +59,7 @@ const DASHBOARD_SECTIONS = [
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]['id']
 
-const ADMIN_ONLY_SECTIONS = new Set<string>(['users'])
+const ADMIN_ONLY_SECTIONS = new Set<string>(['users', 'request-analytics'])
 // 仅非管理员可见：'inviter' 只对普通用户展示，管理员看不到
 const COMMON_USER_ONLY_SECTIONS = new Set<string>(['inviter'])
 
