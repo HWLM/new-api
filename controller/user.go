@@ -233,6 +233,29 @@ func Register(c *gin.Context) {
 	return
 }
 
+// resolveInviterIdFromUsername 把表单里填的 inviter_username 反查成 inviter_id。
+//   - inviterUsername 为空 → 返回 (0, nil)，表示清除邀请人
+//   - inviterUsername 等于 selfUsername → 返回错误"邀请人不能是自己"
+//   - 反查找不到 → 返回错误"邀请人 'xxx' 不存在"
+//   - 找到 → 返回该 user.id
+func resolveInviterIdFromUsername(inviterUsername, selfUsername string) (int, error) {
+	inviterUsername = strings.TrimSpace(inviterUsername)
+	if inviterUsername == "" {
+		return 0, nil
+	}
+	if selfUsername != "" && inviterUsername == selfUsername {
+		return 0, fmt.Errorf("邀请人不能是自己")
+	}
+	id, err := model.GetUserIdByUsername(inviterUsername)
+	if err != nil {
+		return 0, err
+	}
+	if id == 0 {
+		return 0, fmt.Errorf("邀请人 '%s' 不存在", inviterUsername)
+	}
+	return id, nil
+}
+
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	users, total, err := model.GetAllUsers(pageInfo)
@@ -240,6 +263,7 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.FillInviterUsernames(users)
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -286,6 +310,7 @@ func SearchUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.FillInviterUsernames(users)
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -313,6 +338,7 @@ func GetUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
 		return
 	}
+	model.FillInviterUsernames([]*model.User{user})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -451,6 +477,7 @@ func GetSelf(c *gin.Context) {
 		"linux_do_id":       user.LinuxDOId,
 		"setting":           user.Setting,
 		"stripe_customer":   user.StripeCustomer,
+		"business_channel":  user.BusinessChannel,       // 用于"邀请用户统计" tab 判断是否商务账号
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,                // 新增权限字段
 	}
@@ -611,10 +638,23 @@ func UpdateUser(c *gin.Context) {
 	if updatedUser.Password == "$I_LOVE_U" {
 		updatedUser.Password = "" // rollback to what it should be
 	}
+	// 解析 inviter_username → inviter_id；空表示清除
+	inviterId, err := resolveInviterIdFromUsername(updatedUser.InviterUsername, originUser.Username)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	updatePassword := updatedUser.Password != ""
 	if err := updatedUser.Edit(updatePassword); err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	// Edit 不保存 inviter_id，独立更新；只在调用方明确传了 inviter_username 字段时才更新
+	if inviterId != originUser.InviterId {
+		if err := model.SetUserInviterId(updatedUser.Id, inviterId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -862,13 +902,21 @@ func CreateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserCannotCreateHigherLevel)
 		return
 	}
+	// 解析邀请人用户名 → user.id
+	inviterId, err := resolveInviterIdFromUsername(user.InviterUsername, user.Username)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	// Even for admin users, we cannot fully trust them!
 	cleanUser := model.User{
 		Username:    user.Username,
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 		Role:        user.Role, // 保持管理员设置的角色
+		InviterId:   inviterId,
 	}
+	// Insert 的入参 inviterId 用于发放邀请奖励；管理员手动创建不发奖励，传 0
 	if err := cleanUser.Insert(0); err != nil {
 		common.ApiError(c, err)
 		return
@@ -1310,6 +1358,34 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	common.ApiSuccessI18n(c, i18n.MsgSettingSaved, nil)
+}
+
+type SetBusinessChannelRequest struct {
+	Id      int    `json:"id"`
+	Channel string `json:"channel"`
+}
+
+// SetUserBusinessChannel 标记/变更/移除某个用户的商务渠道（仅管理员）
+// channel 非空 = 标记或变更；channel 空串 = 移除商务账号标记
+func SetUserBusinessChannel(c *gin.Context) {
+	var req SetBusinessChannelRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if req.Id <= 0 {
+		common.ApiErrorMsg(c, "user id 不合法")
+		return
+	}
+	if len(req.Channel) > 255 {
+		common.ApiErrorMsg(c, "归属渠道最长 255 字符")
+		return
+	}
+	if err := model.SetUserBusinessChannel(req.Id, req.Channel); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
 }
 
 type BatchMarkVipRequest struct {

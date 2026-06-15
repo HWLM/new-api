@@ -18,6 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 import type {
+  InviterCharts,
+  InviterDailyRow,
+  InviterStatCards,
+  InviterSummaryRow,
+  PromotionStats,
   QuotaDataItem,
   TokenDailyDetailFilters,
   TokenDailyDetailItem,
@@ -64,6 +69,71 @@ export async function getUserQuotaDataByUsers(params: {
 }) {
   const res = await api.get<{ success: boolean; data: QuotaDataItem[] }>(
     '/api/data/users',
+    { params }
+  )
+  return res.data
+}
+
+/**
+ * 渠道 / 销售 推广情况（admin）。时间窗口同时约束
+ *   - 被邀请用户的 created_at
+ *   - 这些用户的 logs 消耗 created_at
+ * 后端已按 total_consumed 倒序，前端按 topN 截取即可。
+ */
+export async function getPromotionStats(params: {
+  start_timestamp: number
+  end_timestamp: number
+}) {
+  const res = await api.get<{ success: boolean; data: PromotionStats }>(
+    '/api/data/promotion',
+    { params }
+  )
+  return res.data
+}
+
+// ----------------------------------------------------------------------------
+// Inviter Statistics (per-user, common-user only)
+// ----------------------------------------------------------------------------
+
+export async function getInviterStatCards() {
+  const res = await api.get<{ success: boolean; data: InviterStatCards }>(
+    '/api/user/inviter_stats/cards'
+  )
+  return res.data
+}
+
+export async function getInviterCharts(params: {
+  start_timestamp: number
+  end_timestamp: number
+}) {
+  const res = await api.get<{ success: boolean; data: InviterCharts }>(
+    '/api/user/inviter_stats/charts',
+    { params }
+  )
+  return res.data
+}
+
+export async function getInviterSummary(params: {
+  last_consumed_start?: number
+  last_consumed_end?: number
+  remaining_op?: string
+  remaining_value?: number
+  username?: string
+}) {
+  const res = await api.get<{ success: boolean; data: InviterSummaryRow[] }>(
+    '/api/user/inviter_stats/summary',
+    { params }
+  )
+  return res.data
+}
+
+export async function getInviterDaily(params: {
+  start_timestamp?: number
+  end_timestamp?: number
+  username?: string
+}) {
+  const res = await api.get<{ success: boolean; data: InviterDailyRow[] }>(
+    '/api/user/inviter_stats/daily',
     { params }
   )
   return res.data

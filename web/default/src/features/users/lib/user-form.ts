@@ -33,6 +33,7 @@ export const userFormSchema = z.object({
   quota_dollars: z.number().min(0).optional(),
   group: z.string().optional(),
   remark: z.string().optional(),
+  inviter_username: z.string().optional(),
 })
 
 export type UserFormValues = z.infer<typeof userFormSchema>
@@ -49,6 +50,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   quota_dollars: 0,
   group: DEFAULT_GROUP,
   remark: '',
+  inviter_username: '',
 }
 
 // ============================================================================
@@ -62,10 +64,13 @@ export function transformFormDataToPayload(
   data: UserFormValues,
   userId?: number
 ): UserFormData & { id?: number } {
+  // 邀请人字段 trim 一下；保留空串(明确表示"清除")也要传给后端
+  const inviterUsername = (data.inviter_username ?? '').trim()
   const payload: UserFormData & { id?: number } = {
     username: data.username,
     display_name: data.display_name || data.username,
     password: data.password || undefined,
+    inviter_username: inviterUsername,
   }
 
   // For create: only send required fields
@@ -93,5 +98,6 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,
     remark: user.remark || '',
+    inviter_username: user.inviter_username || '',
   }
 }

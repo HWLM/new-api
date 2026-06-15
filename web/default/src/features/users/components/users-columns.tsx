@@ -138,6 +138,23 @@ export function useUsersColumns(): ColumnDef<User>[] {
       meta: { label: t('Username'), mobileTitle: true },
     },
     {
+      accessorKey: 'business_channel',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Business Channel')} />
+      ),
+      cell: ({ row }) => {
+        const channel = row.original.business_channel
+        if (!channel) {
+          return <span className='text-muted-foreground text-sm'>-</span>
+        }
+        return (
+          <LongText className='max-w-[160px] text-sm'>{channel}</LongText>
+        )
+      },
+      enableSorting: false,
+      meta: { label: t('Business Channel') },
+    },
+    {
       accessorKey: 'status',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title={t('Status')} />
@@ -331,16 +348,18 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 <TooltipTrigger
                   render={
                     <StatusBadge
-                      label={`${t('Inviter')}: ${inviterId}`}
+                      label={`${t('Inviter')}: ${user.inviter_username || `#${inviterId}`}`}
                       variant='neutral'
                       copyable={false}
-                      className='cursor-help'
+                      className='max-w-[140px] cursor-help truncate'
                     />
                   }
                 />
                 <TooltipContent>
                   <p className='text-xs'>
-                    {t('Invited by user ID')} {inviterId}
+                    {user.inviter_username
+                      ? `${t('Inviter')}: ${user.inviter_username} (#${inviterId})`
+                      : `${t('Invited by user ID')} ${inviterId}`}
                   </p>
                 </TooltipContent>
               </Tooltip>

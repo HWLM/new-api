@@ -49,6 +49,7 @@ export const userSchema = z.object({
   aff_quota: z.number().optional(),
   aff_history_quota: z.number().optional(),
   inviter_id: z.number().optional(),
+  inviter_username: z.string().optional(),
   linux_do_id: z.string().optional(),
   status: userStatusSchema,
   role: userRoleSchema,
@@ -58,6 +59,7 @@ export const userSchema = z.object({
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
   is_vip_customer: z.boolean().optional(),
+  business_channel: z.string().optional(),
 })
 export type User = z.infer<typeof userSchema>
 
@@ -113,6 +115,8 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
+  /** 邀请人用户名；空串表示清除邀请人。后端反查 → inviter_id */
+  inviter_username?: string
 }
 
 export type ManageUserAction =
@@ -163,6 +167,10 @@ export interface VipStatsRow {
   daily: number[]
   daily_requests: number[]
   daily_tokens: number[]
+  /** 归属邀请人：当前 VIP 客户邀请人的 username；无邀请人则为空 */
+  inviter_username: string
+  /** 归属渠道：当前 VIP 客户邀请人的 business_channel；无邀请人/邀请人非商务账号则为空 */
+  inviter_business_channel: string
 }
 
 export interface VipStatsDetail {

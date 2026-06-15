@@ -44,11 +44,18 @@ const DASHBOARD_SECTIONS = [
     titleKey: 'Token Statistics',
     build: () => null,
   },
+  {
+    id: 'inviter',
+    titleKey: 'Inviter Statistics',
+    build: () => null,
+  },
 ] as const
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]['id']
 
 const ADMIN_ONLY_SECTIONS = new Set<string>(['users'])
+// 仅非管理员可见：'inviter' 只对普通用户展示，管理员看不到
+const COMMON_USER_ONLY_SECTIONS = new Set<string>(['inviter'])
 
 const dashboardRegistry = createSectionRegistry<
   DashboardSectionId,
@@ -69,8 +76,11 @@ export function getDashboardSectionNavItems(
   options?: { isAdmin?: boolean }
 ) {
   const all = dashboardRegistry.getSectionNavItems(t)
-  if (options?.isAdmin) return all
-  return all.filter(
-    (_, idx) => !ADMIN_ONLY_SECTIONS.has(DASHBOARD_SECTIONS[idx].id)
-  )
+  const isAdmin = !!options?.isAdmin
+  return all.filter((_, idx) => {
+    const id = DASHBOARD_SECTIONS[idx].id
+    if (isAdmin && COMMON_USER_ONLY_SECTIONS.has(id)) return false
+    if (!isAdmin && ADMIN_ONLY_SECTIONS.has(id)) return false
+    return true
+  })
 }

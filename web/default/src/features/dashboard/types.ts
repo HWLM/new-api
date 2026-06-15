@@ -34,6 +34,74 @@ export interface QuotaDataItem {
 }
 
 // ============================================================================
+// Inviter Statistics Types
+// ============================================================================
+
+export interface InviterStatCards {
+  invited_count: number
+  total_consumed: number // quota 单位
+  today_active_users: number
+  today_consumed: number // quota 单位
+}
+
+export interface InviterChartUserSpend {
+  username: string
+  quota: number
+}
+
+export interface InviterChartDayPoint {
+  date: string // YYYY-MM-DD
+  quota: number
+  requests: number
+}
+
+export interface InviterCharts {
+  top_users: InviterChartUserSpend[]
+  daily: InviterChartDayPoint[]
+}
+
+export interface InviterSummaryRow {
+  user_id: number
+  username: string
+  created_at: number
+  last_consumed_at: number // 0 = never
+  total_requests: number
+  total_consumed: number
+  total_tokens: number
+  current_remaining: number
+}
+
+export interface InviterDailyRow {
+  date: string // YYYY-MM-DD
+  username: string
+  total_requests: number
+  total_consumed: number
+  total_tokens: number
+}
+
+// ============================================================================
+// Promotion Statistics Types
+// ============================================================================
+
+export interface ChannelPromotionRow {
+  channel: string
+  invited_count: number
+  total_consumed: number // quota 内部单位，前端转 USD
+}
+
+export interface SalesPromotionRow {
+  username: string
+  channel: string
+  invited_count: number
+  total_consumed: number
+}
+
+export interface PromotionStats {
+  channels: ChannelPromotionRow[]
+  sales: SalesPromotionRow[]
+}
+
+// ============================================================================
 // Uptime Monitoring Types
 // ============================================================================
 

@@ -39,6 +39,7 @@ import {
   processUserChartData,
 } from '@/features/dashboard/lib'
 import type { ProcessedUserChartData } from '@/features/dashboard/types'
+import { PromotionTables } from './promotion-tables'
 
 let themeManagerPromise: Promise<
   (typeof import('@visactor/vchart'))['ThemeManager']
@@ -255,6 +256,9 @@ export function UserCharts() {
           )
         })}
       </div>
+
+      {/* 渠道 / 销售 推广情况：共享 timeRange + topUserLimit；时间粒度不参与（Q2=A） */}
+      <PromotionTables timeRange={timeRange} topN={topUserLimit} />
     </div>
   )
 }

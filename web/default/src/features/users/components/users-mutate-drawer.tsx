@@ -313,6 +313,24 @@ export function UsersMutateDrawer({
                     </FormItem>
                   )}
                 />
+
+                {/* 邀请人：创建和编辑都显示，填用户名（不是 id） */}
+                <FormField
+                  control={form.control}
+                  name='inviter_username'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Inviter')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder={t('Enter username, leave empty for no inviter')}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </SideDrawerSection>
 
               {/* Group & Quota Settings (Update only) */}

@@ -77,12 +77,14 @@ func CollectVipStat() (*VipStat, error) {
 
 // VipDetailRow 明细页表格一行（一个客户）
 type VipDetailRow struct {
-	UserId        int     `json:"user_id"`
-	Username      string  `json:"username"`
-	Remaining     int64   `json:"remaining"`
-	Daily         []int64 `json:"daily"`          // 与 dates 一一对应，最后一个元素是今天的实时消耗 quota
-	DailyRequests []int64 `json:"daily_requests"` // 同上，每天请求次数
-	DailyTokens   []int64 `json:"daily_tokens"`   // 同上，每天 token 总数
+	UserId                 int     `json:"user_id"`
+	Username               string  `json:"username"`
+	Remaining              int64   `json:"remaining"`
+	Daily                  []int64 `json:"daily"`          // 与 dates 一一对应，最后一个元素是今天的实时消耗 quota
+	DailyRequests          []int64 `json:"daily_requests"` // 同上，每天请求次数
+	DailyTokens            []int64 `json:"daily_tokens"`   // 同上，每天 token 总数
+	InviterUsername        string  `json:"inviter_username"`         // 归属邀请人（邀请人的 username；无邀请人则为空）
+	InviterBusinessChannel string  `json:"inviter_business_channel"` // 归属渠道（邀请人的 business_channel；无则为空）
 }
 
 // VipDetailResp 明细页接口返回
@@ -154,17 +156,53 @@ func sumLogsTodayPerUser(userIds []int, startTs, endTs int64) (map[int]todayLogA
 // 列规则：近 7 天的日期数组（[today-6, today]），今天是实时聚合 logs，其余天查统计表
 func GetVipStatsDetail() (*VipDetailResp, error) {
 	type idQuota struct {
-		Id       int
-		Username string
-		Quota    int64
+		Id        int
+		Username  string
+		Quota     int64
+		InviterId int
 	}
 	var users []idQuota
 	if err := DB.Model(&User{}).
-		Select("id, username, quota").
+		Select("id, username, quota, inviter_id").
 		Where("is_vip_customer = ?", commonTrueVal).
 		Order("id asc").
 		Find(&users).Error; err != nil {
 		return nil, err
+	}
+
+	// 批量查所有邀请人的 username + business_channel（避免 N+1）
+	inviterMap := map[int]struct {
+		Username        string
+		BusinessChannel string
+	}{}
+	inviterIdSet := map[int]struct{}{}
+	for _, u := range users {
+		if u.InviterId > 0 {
+			inviterIdSet[u.InviterId] = struct{}{}
+		}
+	}
+	if len(inviterIdSet) > 0 {
+		inviterIds := make([]int, 0, len(inviterIdSet))
+		for id := range inviterIdSet {
+			inviterIds = append(inviterIds, id)
+		}
+		type inviterRow struct {
+			Id              int
+			Username        string
+			BusinessChannel string
+		}
+		var inviters []inviterRow
+		if err := DB.Model(&User{}).
+			Select("id, username, business_channel").
+			Where("id IN ?", inviterIds).
+			Find(&inviters).Error; err == nil {
+			for _, r := range inviters {
+				inviterMap[r.Id] = struct {
+					Username        string
+					BusinessChannel string
+				}{r.Username, r.BusinessChannel}
+			}
+		}
 	}
 
 	// 最近 7 天的日期数组（最后一个是今天）
@@ -216,6 +254,12 @@ func GetVipStatsDetail() (*VipDetailResp, error) {
 			Daily:         make([]int64, 7),
 			DailyRequests: make([]int64, 7),
 			DailyTokens:   make([]int64, 7),
+		}
+		if u.InviterId > 0 {
+			if info, ok := inviterMap[u.InviterId]; ok {
+				row.InviterUsername = info.Username
+				row.InviterBusinessChannel = info.BusinessChannel
+			}
 		}
 		for i, date := range dates {
 			var quota, requests, tokens int64

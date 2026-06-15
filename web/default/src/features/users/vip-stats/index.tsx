@@ -276,6 +276,10 @@ function DetailTable(props: {
                 </TableHead>
               ))}
               <TableHead className='text-center'>{t('Remaining')}</TableHead>
+              <TableHead className='text-center'>
+                {t('Business Channel')}
+              </TableHead>
+              <TableHead className='text-center'>{t('Inviter')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -290,6 +294,12 @@ function DetailTable(props: {
                     {formatCurrencyFromUSD(quotaToUsd(v))}
                   </TableCell>
                 ))}
+                <TableCell className='text-muted-foreground text-center'>
+                  /
+                </TableCell>
+                <TableCell className='text-muted-foreground text-center'>
+                  /
+                </TableCell>
                 <TableCell className='text-muted-foreground text-center'>
                   /
                 </TableCell>
@@ -313,13 +323,19 @@ function DetailTable(props: {
                 <TableCell className='text-center tabular-nums'>
                   {formatCurrencyFromUSD(quotaToUsd(r.remaining))}
                 </TableCell>
+                <TableCell className='text-center'>
+                  {r.inviter_business_channel || ''}
+                </TableCell>
+                <TableCell className='text-center'>
+                  {r.inviter_username || ''}
+                </TableCell>
               </TableRow>
             ))}
 
             {!props.isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={dates.length + 2}
+                  colSpan={dates.length + 4}
                   className='text-muted-foreground text-center'
                 >
                   {t('No VIP customers found')}
@@ -329,7 +345,7 @@ function DetailTable(props: {
             {props.isLoading && (
               <TableRow>
                 <TableCell
-                  colSpan={Math.max(dates.length + 2, 9)}
+                  colSpan={Math.max(dates.length + 4, 11)}
                   className='text-muted-foreground text-center'
                 >
                   {t('Loading...')}
@@ -378,6 +394,10 @@ function RequestTokenTable(props: {
                 </TableHead>
               ))}
               <TableHead className='text-center'>{t('Total')}</TableHead>
+              <TableHead className='text-center'>
+                {t('Business Channel')}
+              </TableHead>
+              <TableHead className='text-center'>{t('Inviter')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -401,6 +421,18 @@ function RequestTokenTable(props: {
                   ))}
                   <TableCell className='text-center font-medium tabular-nums'>
                     {fmtInt(totalRequests.reduce((a, b) => a + b, 0))}
+                  </TableCell>
+                  <TableCell
+                    rowSpan={2}
+                    className='text-muted-foreground text-center align-middle'
+                  >
+                    /
+                  </TableCell>
+                  <TableCell
+                    rowSpan={2}
+                    className='text-muted-foreground text-center align-middle'
+                  >
+                    /
                   </TableCell>
                 </TableRow>
                 <TableRow className='bg-amber-50 hover:bg-amber-50 dark:bg-amber-950/30 dark:hover:bg-amber-950/30'>
@@ -450,6 +482,18 @@ function RequestTokenTable(props: {
                     <TableCell className='text-center tabular-nums'>
                       {fmtInt(rowRequestsTotal)}
                     </TableCell>
+                    <TableCell
+                      rowSpan={2}
+                      className='text-center align-middle'
+                    >
+                      {r.inviter_business_channel || ''}
+                    </TableCell>
+                    <TableCell
+                      rowSpan={2}
+                      className='text-center align-middle'
+                    >
+                      {r.inviter_username || ''}
+                    </TableCell>
                   </TableRow>
                   <TableRow>
                     <TableCell>{t('Tokens')}</TableCell>
@@ -475,7 +519,7 @@ function RequestTokenTable(props: {
             {!props.isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={dates.length + 3}
+                  colSpan={dates.length + 5}
                   className='text-muted-foreground text-center'
                 >
                   {t('No VIP customers found')}
@@ -485,7 +529,7 @@ function RequestTokenTable(props: {
             {props.isLoading && (
               <TableRow>
                 <TableCell
-                  colSpan={Math.max(dates.length + 3, 10)}
+                  colSpan={Math.max(dates.length + 5, 12)}
                   className='text-muted-foreground text-center'
                 >
                   {t('Loading...')}

@@ -46,12 +46,14 @@ type User struct {
 	AffQuota         int            `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
 	AffHistoryQuota  int            `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
 	InviterId        int            `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	InviterUsername  string         `json:"inviter_username,omitempty" gorm:"-"` // 非持久化字段：通过 inviter_id 关联查询填充
 	DeletedAt        gorm.DeletedAt `gorm:"index"`
 	LinuxDOId        string         `json:"linux_do_id" gorm:"column:linux_do_id;index"`
 	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
 	Remark           string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
 	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 	IsVipCustomer    bool           `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
+	BusinessChannel  string         `json:"business_channel" gorm:"type:varchar(255);default:'';column:business_channel" validate:"max=255"`
 	CreatedAt        int64          `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64          `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 }
@@ -349,6 +351,79 @@ func BatchMarkVipCustomer(ids []int, isVip bool) (int64, error) {
 	}
 	res := DB.Model(&User{}).Where("id IN ?", ids).Update("is_vip_customer", isVip)
 	return res.RowsAffected, res.Error
+}
+
+// FillInviterUsernames 批量给一组 user 填充 InviterUsername 字段。
+// 单次查询：先把所有 inviter_id (去重) 一次性查出来，避免 N+1。
+func FillInviterUsernames(users []*User) {
+	if len(users) == 0 {
+		return
+	}
+	idSet := make(map[int]struct{})
+	for _, u := range users {
+		if u.InviterId > 0 {
+			idSet[u.InviterId] = struct{}{}
+		}
+	}
+	if len(idSet) == 0 {
+		return
+	}
+	ids := make([]int, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	type row struct {
+		Id       int
+		Username string
+	}
+	var rows []row
+	if err := DB.Model(&User{}).
+		Select("id, username").
+		Where("id IN ?", ids).
+		Find(&rows).Error; err != nil {
+		return // 静默失败：InviterUsername 留空即可
+	}
+	usernameById := make(map[int]string, len(rows))
+	for _, r := range rows {
+		usernameById[r.Id] = r.Username
+	}
+	for _, u := range users {
+		if u.InviterId > 0 {
+			u.InviterUsername = usernameById[u.InviterId]
+		}
+	}
+}
+
+// SetUserInviterId 直接更新某个用户的 inviter_id 字段
+func SetUserInviterId(id int, inviterId int) error {
+	if id == 0 {
+		return errors.New("id 为空")
+	}
+	return DB.Model(&User{}).Where("id = ?", id).Update("inviter_id", inviterId).Error
+}
+
+// GetUserIdByUsername 按 username 反查 user.id。找不到返回 0 + nil。
+func GetUserIdByUsername(username string) (int, error) {
+	if username == "" {
+		return 0, nil
+	}
+	var user User
+	err := DB.Select("id").Where("username = ?", username).First(&user).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return user.Id, nil
+}
+
+// SetUserBusinessChannel 设置用户的商务渠道（空串表示移除商务账号标记）
+func SetUserBusinessChannel(id int, channel string) error {
+	if id == 0 {
+		return errors.New("id 为空")
+	}
+	return DB.Model(&User{}).Where("id = ?", id).Update("business_channel", channel).Error
 }
 
 func inviteUser(inviterId int) (err error) {

@@ -83,6 +83,12 @@ const LazyTokenStats = lazy(() =>
   }))
 )
 
+const LazyInviterStats = lazy(() =>
+  import('./components/inviter/inviter-stats').then((m) => ({
+    default: m.InviterStats,
+  }))
+)
+
 function LogStatCardsFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -149,6 +155,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   tokens: {
     titleKey: 'Token Statistics',
   },
+  inviter: {
+    titleKey: 'Inviter Statistics',
+  },
 }
 
 export function Dashboard() {
@@ -196,9 +205,14 @@ export function Dashboard() {
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
   const visibleSections = useMemo(
     () =>
-      DASHBOARD_SECTION_IDS.filter(
-        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
-      ),
+      DASHBOARD_SECTION_IDS.filter((section) => {
+        if (section === 'overview') return false
+        // users: 仅管理员可见
+        if (section === 'users' && !isAdmin) return false
+        // inviter: 仅非管理员可见
+        if (section === 'inviter' && isAdmin) return false
+        return true
+      }),
     [isAdmin]
   )
   const handleSectionChange = useCallback(
@@ -311,6 +325,13 @@ export function Dashboard() {
             <FadeIn>
               <Suspense fallback={<ModelChartsFallback />}>
                 <LazyTokenStats />
+              </Suspense>
+            </FadeIn>
+          )}
+          {activeSection === 'inviter' && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyInviterStats />
               </Suspense>
             </FadeIn>
           )}

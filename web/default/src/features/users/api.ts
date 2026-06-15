@@ -215,6 +215,18 @@ export async function batchMarkVipCustomer(
 }
 
 /**
+ * Set / change / clear the business channel of a user (admin).
+ * Empty string = remove the business account marker.
+ */
+export async function setUserBusinessChannel(
+  id: number,
+  channel: string
+): Promise<ApiResponse> {
+  const res = await api.post('/api/user/business_channel', { id, channel })
+  return res.data
+}
+
+/**
  * Get TG notification group settings (admin)
  */
 export async function getTgNotifySettings(): Promise<

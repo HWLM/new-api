@@ -30,6 +30,9 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Briefcase,
+  BriefcaseBusiness,
+  Repeat,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -44,7 +47,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
-import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
+import {
+  manageUser,
+  resetUserPasskey,
+  resetUserTwoFA,
+  setUserBusinessChannel,
+} from '../api'
 import {
   USER_STATUS,
   USER_ROLE,
@@ -53,6 +61,7 @@ import {
 } from '../constants'
 import { getUserActionMessage } from '../lib'
 import { type User, type ManageUserAction } from '../types'
+import { BusinessChannelDialog } from './dialogs/business-channel-dialog'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
 
@@ -68,6 +77,11 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [businessDialogOpen, setBusinessDialogOpen] = useState(false)
+  const [businessDialogMode, setBusinessDialogMode] = useState<
+    'mark' | 'change'
+  >('mark')
+  const [unmarkBusinessOpen, setUnmarkBusinessOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -108,6 +122,22 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetPasskeyOpen(false)
+    }
+  }
+
+  const handleUnmarkBusiness = async () => {
+    try {
+      const result = await setUserBusinessChannel(user.id, '')
+      if (result.success) {
+        toast.success(t('Business account removed'))
+        triggerRefresh()
+      } else {
+        toast.error(result.message || t('Operation failed'))
+      }
+    } catch (_error) {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setUnmarkBusinessOpen(false)
     }
   }
 
@@ -222,6 +252,50 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
           <DropdownMenuSeparator />
 
+          {/* 商务账号：未标记显示"标记"；已标记显示"变更"+"移除" */}
+          {!user.business_channel ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault()
+                setBusinessDialogMode('mark')
+                setBusinessDialogOpen(true)
+              }}
+            >
+              {t('Mark as Business Account')}
+              <DropdownMenuShortcut>
+                <Briefcase size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          ) : (
+            <>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault()
+                  setBusinessDialogMode('change')
+                  setBusinessDialogOpen(true)
+                }}
+              >
+                {t('Change Business Channel')}
+                <DropdownMenuShortcut>
+                  <Repeat size={16} />
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault()
+                  setUnmarkBusinessOpen(true)
+                }}
+              >
+                {t('Remove Business Account')}
+                <DropdownMenuShortcut>
+                  <BriefcaseBusiness size={16} />
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </>
+          )}
+
+          <DropdownMenuSeparator />
+
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault()
@@ -293,6 +367,27 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
+      />
+
+      <BusinessChannelDialog
+        open={businessDialogOpen}
+        onOpenChange={setBusinessDialogOpen}
+        userId={user.id}
+        username={user.username}
+        initialChannel={user.business_channel ?? ''}
+        mode={businessDialogMode}
+        onSuccess={triggerRefresh}
+      />
+
+      <ConfirmDialog
+        open={unmarkBusinessOpen}
+        onOpenChange={setUnmarkBusinessOpen}
+        title={t('Remove Business Account')}
+        desc={t('Remove business account marker for {{username}}?', {
+          username: user.username,
+        })}
+        confirmText={t('Remove Business Account')}
+        handleConfirm={handleUnmarkBusiness}
       />
     </>
   )

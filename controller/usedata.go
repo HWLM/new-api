@@ -42,6 +42,23 @@ func GetQuotaDatesByUser(c *gin.Context) {
 	})
 }
 
+// GetPromotionStats 返回渠道推广 + 销售推广统计（仅管理员）
+// 时间窗口同时约束：被邀请用户的注册时间 + 这些用户的 logs 消耗时间（Q1=C）
+func GetPromotionStats(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	resp, err := model.GetPromotionStats(startTimestamp, endTimestamp)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    resp,
+	})
+}
+
 func GetUserQuotaDates(c *gin.Context) {
 	userId := c.GetInt("id")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
