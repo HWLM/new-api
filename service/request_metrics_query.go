@@ -401,11 +401,17 @@ type TrendResult struct {
 	Series        []TrendPoint `json:"series"`
 }
 
-func QueryTrend(ctx context.Context, from, to int64, bucketSeconds int, userIdFilter int) (*TrendResult, error) {
+func QueryTrend(ctx context.Context, from, to int64, bucketSeconds int, userIdFilter int, channelTypeFilter int) (*TrendResult, error) {
 	if bucketSeconds <= 0 {
 		bucketSeconds = 60
 	}
-	userFilter, args := buildUserFilter(userIdFilter)
+	userFilter, userArgs := buildUserFilter(userIdFilter)
+	channelFilter := ""
+	var channelArgs []any
+	if channelTypeFilter > 0 {
+		channelFilter = " AND channel_type = ?"
+		channelArgs = []any{channelTypeFilter}
+	}
 	sql := `
 SELECT
     (floor(created_at::FLOAT / ?) * ?)::BIGINT AS bucket_at,
@@ -415,10 +421,11 @@ SELECT
         / NULLIF(COUNT(*), 0), 0) AS error_rate,
     COALESCE(AVG(duration_ms), 0)::INT AS avg_duration_ms
 FROM request_metrics_logs
-WHERE created_at >= ? AND created_at < ? ` + userFilter + `
+WHERE created_at >= ? AND created_at < ? ` + userFilter + channelFilter + `
 GROUP BY bucket_at
 ORDER BY bucket_at`
-	allArgs := append([]any{bucketSeconds, bucketSeconds, from, to}, args...)
+	allArgs := append([]any{bucketSeconds, bucketSeconds, from, to}, userArgs...)
+	allArgs = append(allArgs, channelArgs...)
 	var points []TrendPoint
 	if err := model.LOG_DB.WithContext(ctx).Raw(sql, allArgs...).Scan(&points).Error; err != nil {
 		return nil, err
