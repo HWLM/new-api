@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, Lock, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -255,8 +255,20 @@ function DetailTable(props: {
   const { t } = useTranslation()
   const data = props.data
   const dates = data?.dates ?? []
-  const rows = data?.rows ?? []
+  const rawRows = data?.rows ?? []
   const totals = data?.totals ?? []
+  // 按"今天"列消耗倒序；并列时按 user_id 升序（稳定 fallback）
+  // 第二张表不受影响（保留后端原顺序）
+  const rows = useMemo(() => {
+    const sorted = [...rawRows]
+    sorted.sort((a, b) => {
+      const ta = a.daily[a.daily.length - 1] ?? 0
+      const tb = b.daily[b.daily.length - 1] ?? 0
+      if (ta !== tb) return tb - ta
+      return a.user_id - b.user_id
+    })
+    return sorted
+  }, [rawRows])
 
   return (
     <Card>
