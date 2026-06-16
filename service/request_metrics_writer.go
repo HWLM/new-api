@@ -82,7 +82,7 @@ func buildRequestMetricsRow(c *gin.Context, info *relaycommon.RelayInfo, statusC
 		errMessage = TruncateErrorMessage(apiErr.Error(), 512)
 		rawCode := string(apiErr.GetErrorCode())
 		errType, isBusiness = ClassifyError(finalStatusCode, errMessage)
-		errCode = NormalizeErrorCode(rawCode, finalStatusCode)
+		errCode = NormalizeErrorCode(rawCode, finalStatusCode, errMessage)
 	} else if finalStatusCode == 0 {
 		finalStatusCode = 200
 	}
