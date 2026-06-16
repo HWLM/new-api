@@ -76,12 +76,12 @@ func GetPromotionStats(startTs, endTs int64) (*PromotionStatsResp, error) {
 		salesById[s.Id] = s
 	}
 
-	// 2. 在时间窗口内创建的、且 inviter_id 属于销售群 的用户
+	// 2a. 时间窗口内创建的被邀请用户 → 仅用于 InvitedCount
 	type invitee struct {
 		Id        int
 		InviterId int
 	}
-	var invitees []invitee
+	var newInvitees []invitee
 	tx := DB.Model(&User{}).
 		Select("id, inviter_id").
 		Where("inviter_id IN ?", salesIds)
@@ -91,17 +91,28 @@ func GetPromotionStats(startTs, endTs int64) (*PromotionStatsResp, error) {
 	if endTs > 0 {
 		tx = tx.Where("created_at <= ?", endTs)
 	}
-	if err := tx.Find(&invitees).Error; err != nil {
+	if err := tx.Find(&newInvitees).Error; err != nil {
 		return nil, err
 	}
 
-	// 3. 时间窗口内 logs 表按 user_id 聚合消耗（被邀请用户）
-	inviteeIds := make([]int, 0, len(invitees))
-	for _, u := range invitees {
-		inviteeIds = append(inviteeIds, u.Id)
+	// 2b. 所有历史被邀请用户 → 用于消耗聚合（不限创建时间）
+	var allInvitees []invitee
+	if err := DB.Model(&User{}).
+		Select("id, inviter_id").
+		Where("inviter_id IN ?", salesIds).
+		Find(&allInvitees).Error; err != nil {
+		return nil, err
+	}
+
+	// 3. 时间窗口内 logs 表按 user_id 聚合消耗（针对所有历史被邀请用户）
+	allInviteeIds := make([]int, 0, len(allInvitees))
+	inviterByUser := make(map[int]int, len(allInvitees))
+	for _, u := range allInvitees {
+		allInviteeIds = append(allInviteeIds, u.Id)
+		inviterByUser[u.Id] = u.InviterId
 	}
 	consumedByUser := map[int]int64{}
-	if len(inviteeIds) > 0 {
+	if len(allInviteeIds) > 0 {
 		type logRow struct {
 			UserId int
 			Total  int64
@@ -109,7 +120,7 @@ func GetPromotionStats(startTs, endTs int64) (*PromotionStatsResp, error) {
 		var rows []logRow
 		logTx := LOG_DB.Model(&Log{}).
 			Where("type = ?", LogTypeConsume).
-			Where("user_id IN ?", inviteeIds)
+			Where("user_id IN ?", allInviteeIds)
 		if startTs > 0 {
 			logTx = logTx.Where("created_at >= ?", startTs)
 		}
@@ -135,13 +146,18 @@ func GetPromotionStats(startTs, endTs int64) (*PromotionStatsResp, error) {
 			Channel:  s.BusinessChannel,
 		}
 	}
-	for _, u := range invitees {
-		row, ok := salesAgg[u.InviterId]
-		if !ok {
-			continue
+	// InvitedCount：只统计窗口内新增的被邀请用户
+	for _, u := range newInvitees {
+		if row, ok := salesAgg[u.InviterId]; ok {
+			row.InvitedCount++
 		}
-		row.InvitedCount++
-		row.TotalConsumed += consumedByUser[u.Id]
+	}
+	// TotalConsumed：累加所有历史被邀请用户在窗口内的消耗
+	for userId, q := range consumedByUser {
+		inviterId := inviterByUser[userId]
+		if row, ok := salesAgg[inviterId]; ok {
+			row.TotalConsumed += q
+		}
 	}
 
 	// 5. 内存聚合 → 渠道维度
