@@ -58,6 +58,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminMetrics.GET("/channel/:id/models", controller.GetChannelModels)
 				adminMetrics.GET("/trend", controller.GetMetricsTrend)
 				adminMetrics.GET("/errors/top", controller.GetErrorsTop)
+				adminMetrics.GET("/errors/trend", controller.GetErrorTrend)
 				adminMetrics.GET("/errors/detail", controller.GetErrorsDetail)
 				adminMetrics.GET("/settings", controller.GetMetricsSettings)
 				adminMetrics.PUT("/settings", controller.UpdateMetricsSettings)

@@ -4697,6 +4697,24 @@
         "Disabled (Stats)": "Disabled",
         "Deleted (Stats)": "Deleted",
         "Error (Stats)": "Error",
-        "No Data (Stats)": "No Data"
+        "No Data (Stats)": "No Data",
+        "Change Rate": "Change Rate",
+        "Compare": "Compare",
+        "Compare Period": "Compare Period",
+        "Current": "Current",
+        "Current Period": "Current Period",
+        "Difference": "Difference",
+        "Enable time comparison": "Enable time comparison (same-time on another date)",
+        "Failure Trend": "Failure Trend",
+        "Failure Trend Summary": "Failure Trend Summary",
+        "Invalid time range, please adjust": "Invalid time range, please adjust",
+        "Slow Response Requests": "Slow Response Requests",
+        "Slow TTFT Requests": "Slow TTFT Requests",
+        "compared with": "compared with",
+        "same time period": "same time period",
+        "Compare Requests": "Compare Requests",
+        "Error Count": "Error Count",
+        "Compare Errors": "Compare Errors",
+        "slow": "slow"
     }
 }

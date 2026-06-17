@@ -27,12 +27,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  TimeRange,
+  TimeRangeBar,
+  defaultTimeRange,
+  toWindowParams,
+  validateTimeRange,
+} from './time-range-bar'
 
 // ============================
 // 类型定义
 // ============================
-
-type Range = '30m' | '1h' | '6h' | '24h' | '48h'
 
 interface OverviewTotal {
   req_total: number
@@ -50,22 +55,49 @@ interface OverviewPlatform {
   channel_type: number
   platform_name: string
   req_total: number
+  err_count: number
   avg_duration_ms: number
   p50_ms: number
   p95_ms: number
   error_rate: number
   slow_resp_rate: number
+  avg_ttft_ms: number
+  ttft_p50_ms: number
+  ttft_p95_ms: number
   slow_ttft_rate?: number
 }
 interface OverviewResult {
   total: OverviewTotal
   platforms: OverviewPlatform[]
+  compare_total?: OverviewTotal
+  compare_platforms?: OverviewPlatform[]
+}
+
+interface UserCompare {
+  req_total: number
+  avg_duration_ms: number
+  p50_ms: number
+  p95_ms: number
+  error_rate: number
+  slow_resp_rate: number
+  slow_ttft_rate: number
 }
 
 interface UserRow {
   user_id: number
   username: string
   platforms: string[]
+  req_total: number
+  avg_duration_ms: number
+  p50_ms: number
+  p95_ms: number
+  error_rate: number
+  slow_resp_rate: number
+  slow_ttft_rate: number
+  compare?: UserCompare
+}
+
+interface ChannelCompare {
   req_total: number
   avg_duration_ms: number
   p50_ms: number
@@ -85,6 +117,17 @@ interface ChannelRow {
   error_rate: number
   slow_resp_rate: number
   slow_ttft_rate: number
+  compare?: ChannelCompare
+}
+
+interface ModelCompare {
+  req_total: number
+  avg_duration_ms: number
+  p50_ms: number
+  p95_ms: number
+  error_rate: number
+  slow_resp_rate: number
+  slow_ttft_rate: number
 }
 
 interface ModelRow {
@@ -96,6 +139,7 @@ interface ModelRow {
   error_rate: number
   slow_resp_rate: number
   slow_ttft_rate: number
+  compare?: ModelCompare
 }
 
 interface ErrorTopRow {
@@ -105,18 +149,22 @@ interface ErrorTopRow {
   channel_types: number[]
   platform_names: string[]
   sample_message: string
+  compare_count?: number
 }
 
 interface TrendPoint {
   ts: number
   req_total: number
   err_count: number
+  slow_resp_count: number
+  slow_ttft_count: number
   error_rate: number
   avg_duration_ms: number
 }
 interface TrendResult {
   bucket_seconds: number
   series: TrendPoint[]
+  compare_series?: TrendPoint[]
 }
 
 interface MetricsSettings {
@@ -145,18 +193,6 @@ interface AlertRule {
   updated_at: number
 }
 
-const RANGES: Range[] = ['30m', '1h', '6h', '24h', '48h']
-
-function rangeKey(r: Range) {
-  return {
-    '30m': 'Last 30 minutes',
-    '1h': 'Last 1 hour',
-    '6h': 'Last 6 hours',
-    '24h': 'Last 24 hours',
-    '48h': 'Last 48 hours',
-  }[r]
-}
-
 function fmtPct(v: number) {
   return ((v ?? 0) * 100).toFixed(2) + '%'
 }
@@ -165,6 +201,32 @@ function fmtMs(v: number) {
 }
 function fmtNum(v: number) {
   return (v ?? 0).toLocaleString()
+}
+
+// 同比变化百分比：(cur - base) / base * 100。
+// 边界处理：
+//   base == null（未开启对比）         → null，UI 显示 "—"
+//   base === 0 && cur === 0              → 0，无变化
+//   base === 0 && cur !== 0              → ±100%（从无到有约定 +100%；反向同理 -100%）
+function pctDelta(cur: number, base: number | undefined | null): number | null {
+  if (base == null) return null
+  if (base === 0) {
+    if (cur === 0) return 0
+    return cur > 0 ? 100 : -100
+  }
+  return ((cur - base) / Math.abs(base)) * 100
+}
+
+// 颜色规则按用户确认：统一"上涨红 / 下降绿"，与指标好坏无关。
+function deltaColorClass(deltaPct: number | null): string {
+  if (deltaPct == null || deltaPct === 0) return 'text-muted-foreground'
+  return deltaPct > 0 ? 'text-red-600' : 'text-green-600'
+}
+
+function fmtDelta(deltaPct: number | null): string {
+  if (deltaPct == null) return '—'
+  const sign = deltaPct > 0 ? '↑' : deltaPct < 0 ? '↓' : ''
+  return `${sign}${Math.abs(deltaPct).toFixed(2)}%`
 }
 
 // ============================
@@ -178,27 +240,19 @@ function fmtNum(v: number) {
 
 export function RequestAnalytics() {
   const { t } = useTranslation()
-  const [range, setRange] = useState<Range>('1h')
+  const [timeRange, setTimeRange] = useState<TimeRange>(defaultTimeRange)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [drilldownUserId, setDrilldownUserId] = useState<number | null>(null)
   const [drilldownUsername, setDrilldownUsername] = useState<string>('')
 
+  // 输入合法性：未通过校验时不下发 query，避免无效请求。
+  const valid = useMemo(() => validateTimeRange(timeRange) == null, [timeRange])
+
   return (
     <div className='space-y-4'>
-      {/* Header: 仅时间筛选 + 设置按钮(标题由 dashboard 外层渲染,避免重复) */}
+      {/* Header: 时间筛选 + 设置按钮(标题由 dashboard 外层渲染,避免重复) */}
       <div className='flex flex-wrap items-center justify-end gap-2'>
-        <div className='flex items-center gap-1'>
-          {RANGES.map((r) => (
-            <Button
-              key={r}
-              size='sm'
-              variant={range === r ? 'default' : 'outline'}
-              onClick={() => setRange(r)}
-            >
-              {t(rangeKey(r))}
-            </Button>
-          ))}
-        </div>
+        <TimeRangeBar value={timeRange} onChange={setTimeRange} />
         <Button
           size='sm'
           variant='outline'
@@ -209,31 +263,37 @@ export function RequestAnalytics() {
         </Button>
       </div>
 
+      {!valid && (
+        <div className='rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700'>
+          {t('Invalid time range, please adjust')}
+        </div>
+      )}
+
       {/* 汇总卡片 + 折线图(总览 + 各平台并排) */}
-      <SummarySection range={range} />
+      <SummarySection timeRange={timeRange} />
 
       {/* 客户请求-响应明细 */}
       <UsersTable
-        range={range}
+        timeRange={timeRange}
         onDrill={(uid, username) => {
           setDrilldownUserId(uid)
           setDrilldownUsername(username)
         }}
       />
 
-      {/* 设置 Dialog */}
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-
-      {/* 客户下钻 Dialog(点击客户表行) */}
+      {/* 用户下钻弹窗(保持当前 UI,内部按 timeRange 取数;不展示对比) */}
       <DrilldownDialog
         userId={drilldownUserId}
         username={drilldownUsername}
-        range={range}
+        timeRange={timeRange}
         onClose={() => {
           setDrilldownUserId(null)
           setDrilldownUsername('')
         }}
       />
+
+      {/* 设置 Dialog */}
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }
@@ -257,29 +317,36 @@ interface SummaryMetrics {
   slow_ttft_rate: number
 }
 
-function SummarySection({ range }: { range: Range }) {
+function SummarySection({ timeRange }: { timeRange: TimeRange }) {
   const { t } = useTranslation()
   const [data, setData] = useState<OverviewResult | null>(null)
   const [loading, setLoading] = useState(false)
   // 选中的 channel_type:0 表示总览(不过滤),其它为 channel_type
   const [selectedChannelType, setSelectedChannelType] = useState<number>(0)
+  const winParams = useMemo(() => toWindowParams(timeRange), [timeRange])
 
   useEffect(() => {
+    if (validateTimeRange(timeRange) != null) return
     setLoading(true)
     api
-      .get('/api/metrics/overview', { params: { range } })
+      .get('/api/metrics/overview', { params: winParams })
       .then((res) => setData(res.data?.data ?? null))
       .catch(() => toast.error(t('Failed to load summary data')))
       .finally(() => setLoading(false))
-  }, [range, t])
+  }, [winParams, timeRange, t])
 
   if (loading && !data) return <div className='text-sm text-muted-foreground'>{t('Loading')}…</div>
   if (!data) return <div className='text-sm text-muted-foreground'>{t('No Data (Stats)')}</div>
 
   const total = data.total ?? ({} as OverviewTotal)
   const platforms = data.platforms ?? []
+  const compareTotal = data.compare_total
+  const comparePlatforms = data.compare_platforms ?? []
   const platformMap = new Map<number, OverviewPlatform>(
     platforms.map((p) => [p.channel_type, p])
+  )
+  const comparePlatformMap = new Map<number, OverviewPlatform>(
+    comparePlatforms.map((p) => [p.channel_type, p])
   )
 
   // 固定置顶的平台(无数据时显示 0)
@@ -312,7 +379,7 @@ function SummarySection({ range }: { range: Range }) {
     avg_ttft_ms: 0,
     ttft_p50_ms: 0,
     ttft_p95_ms: 0,
-    slow_ttft_rate: 0,
+    slow_ttft_rate: p.slow_ttft_rate ?? 0,
   })
 
   // 卡片 = 总览 + 固定平台(OpenAI/Anthropic,缺数据填 0) + 其他平台(若有数据)
@@ -321,58 +388,82 @@ function SummarySection({ range }: { range: Range }) {
     key: string
     title: string
     metrics: SummaryMetrics
+    compare?: SummaryMetrics
     channelType: number
   }> = [
     {
       key: 'total',
       title: t('Total Requests'),
       metrics: total,
+      compare: compareTotal,
       channelType: 0,
     },
     ...PINNED_PLATFORMS.map(({ type, name }) => {
       const p = platformMap.get(type)
+      const cp = comparePlatformMap.get(type)
       return {
         key: `p-${type}`,
         title: name + ' ' + t('Total Requests'),
         metrics: p ? platformToMetrics(p) : zeroMetrics,
+        compare: cp ? platformToMetrics(cp) : (timeRange.compareEnabled ? zeroMetrics : undefined),
         channelType: type,
       }
     }),
     ...platforms
       .filter((p) => !pinnedTypes.has(p.channel_type))
-      .map((p) => ({
-        key: `p-${p.channel_type}`,
-        title: p.platform_name + ' ' + t('Total Requests'),
-        metrics: platformToMetrics(p),
-        channelType: p.channel_type,
-      })),
+      .map((p) => {
+        const cp = comparePlatformMap.get(p.channel_type)
+        return {
+          key: `p-${p.channel_type}`,
+          title: p.platform_name + ' ' + t('Total Requests'),
+          metrics: platformToMetrics(p),
+          compare: cp ? platformToMetrics(cp) : (timeRange.compareEnabled ? zeroMetrics : undefined),
+          channelType: p.channel_type,
+        }
+      }),
   ]
+
+  // 拆分：总览卡片固定在左侧，平台卡片放进可横向滚动的容器
+  // cards[0] 总是 total 卡（见上面 cards 数组构造）
+  const [totalCard, ...platformCards] = cards
+  const CARD_W = 'w-[460px]' // 单卡固定宽度；保留同步参数化便于以后改
 
   return (
     <div className='space-y-3'>
-      {/* 第一行:汇总卡片 */}
-      <div
-        className='grid gap-3'
-        style={{ gridTemplateColumns: `repeat(${Math.max(cards.length, 1)}, minmax(0, 1fr))` }}
-      >
-        {cards.map((c) => (
+      {/* 第一行:汇总卡片 — 总览固定 + 平台横向滚动 */}
+      <div className='flex gap-3'>
+        <div className={cn(CARD_W, 'shrink-0')}>
           <SummaryCard
-            key={c.key}
-            title={c.title}
-            metrics={c.metrics}
-            selected={selectedChannelType === c.channelType}
-            onClick={() => setSelectedChannelType(c.channelType)}
+            key={totalCard.key}
+            title={totalCard.title}
+            metrics={totalCard.metrics}
+            compare={totalCard.compare}
+            selected={selectedChannelType === totalCard.channelType}
+            onClick={() => setSelectedChannelType(totalCard.channelType)}
           />
-        ))}
+        </div>
+        <div className='min-w-0 flex-1 overflow-x-auto'>
+          <div className='flex gap-3'>
+            {platformCards.map((c) => (
+              <div key={c.key} className={cn(CARD_W, 'shrink-0')}>
+                <SummaryCard
+                  title={c.title}
+                  metrics={c.metrics}
+                  compare={c.compare}
+                  selected={selectedChannelType === c.channelType}
+                  onClick={() => setSelectedChannelType(c.channelType)}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* 第二行:4 张图 — 失败 top10 + 错误折线 + 请求量折线 + 平均响应时长折线 */}
-      <div className='grid grid-cols-1 gap-3 lg:grid-cols-4'>
-        <ErrorTopList range={range} channelType={selectedChannelType} />
-        <SingleTrendChart range={range} channelType={selectedChannelType} metric='err_count' title={t('Request Errors (count)')} color='#ef4444' />
-        <SingleTrendChart range={range} channelType={selectedChannelType} metric='req_total' title={t('Request Count (Stats)')} color='#ef4444' />
-        <SingleTrendChart range={range} channelType={selectedChannelType} metric='avg_duration_ms' title={t('Average Response Time')} color='#ef4444' />
-      </div>
+      {/* 第二行:折线图(4 指标 Tab 切换 + 对比虚线 + 4 块汇总) */}
+      <MetricTrendChart timeRange={timeRange} channelType={selectedChannelType} />
+
+      {/* 第三行:左 Top10 + 右联动小图 */}
+      <ErrorTopPanel timeRange={timeRange} channelType={selectedChannelType} />
     </div>
   )
 }
@@ -380,15 +471,18 @@ function SummarySection({ range }: { range: Range }) {
 function SummaryCard({
   title,
   metrics,
+  compare,
   selected,
   onClick,
 }: {
   title: string
   metrics: SummaryMetrics
+  compare?: SummaryMetrics
   selected?: boolean
   onClick?: () => void
 }) {
   const { t } = useTranslation()
+  const headDelta = compare ? pctDelta(metrics.req_total, compare.req_total) : null
   return (
     <Card
       onClick={onClick}
@@ -401,130 +495,191 @@ function SummaryCard({
         <CardTitle className='text-sm font-medium text-muted-foreground'>{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className='text-3xl font-semibold'>{fmtNum(metrics.req_total)}</div>
-        <div className='mt-3 grid grid-cols-3 gap-x-3 gap-y-1.5 text-xs'>
-          <SmallStat label={t('Average Duration')} value={fmtMs(metrics.avg_duration_ms)} />
-          <SmallStat label={t('Average TTFT (Stats)')} value={fmtMs(metrics.avg_ttft_ms)} />
-          <SmallStat label={t('Slow Response Rate')} value={fmtPct(metrics.slow_resp_rate)} />
-          <SmallStat label='P50' value={fmtMs(metrics.p50_ms)} />
-          <SmallStat label='TTFT-P50' value={fmtMs(metrics.ttft_p50_ms)} />
-          <SmallStat label={t('Slow TTFT Rate')} value={fmtPct(metrics.slow_ttft_rate)} />
-          <SmallStat label='P95' value={fmtMs(metrics.p95_ms)} />
-          <SmallStat label='TTFT-P95' value={fmtMs(metrics.ttft_p95_ms)} />
-          <SmallStat label={t('Error Rate')} value={fmtPct(metrics.error_rate)} />
+        <div className='flex items-baseline gap-2'>
+          <div className='text-3xl font-semibold'>{fmtNum(metrics.req_total)}</div>
+          {compare && (
+            <span className={cn('text-xs font-medium', deltaColorClass(headDelta))}>
+              {fmtDelta(headDelta)}
+            </span>
+          )}
+        </div>
+        {/*
+         * 2 列 5 行排布：
+         *   行 1: 平均请求时长 | 平均 TTFT 时长
+         *   行 2: P50          | TTFT-P50
+         *   行 3: P95          | TTFT-P95
+         *   行 4: 响应慢请求率 | 首字慢请求率
+         *   行 5: 请求错误率   | (空)
+         * 左列时长系，右列对应 TTFT，最后一行错误率单列。
+         */}
+        <div className='mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs'>
+          <SmallStat
+            label={t('Average Duration')}
+            value={fmtMs(metrics.avg_duration_ms)}
+            deltaPct={compare ? pctDelta(metrics.avg_duration_ms, compare.avg_duration_ms) : null}
+          />
+          <SmallStat
+            label={t('Average TTFT (Stats)')}
+            value={fmtMs(metrics.avg_ttft_ms)}
+            deltaPct={compare ? pctDelta(metrics.avg_ttft_ms, compare.avg_ttft_ms) : null}
+          />
+          <SmallStat
+            label='P50'
+            value={fmtMs(metrics.p50_ms)}
+            deltaPct={compare ? pctDelta(metrics.p50_ms, compare.p50_ms) : null}
+          />
+          <SmallStat
+            label='TTFT-P50'
+            value={fmtMs(metrics.ttft_p50_ms)}
+            deltaPct={compare ? pctDelta(metrics.ttft_p50_ms, compare.ttft_p50_ms) : null}
+          />
+          <SmallStat
+            label='P95'
+            value={fmtMs(metrics.p95_ms)}
+            deltaPct={compare ? pctDelta(metrics.p95_ms, compare.p95_ms) : null}
+          />
+          <SmallStat
+            label='TTFT-P95'
+            value={fmtMs(metrics.ttft_p95_ms)}
+            deltaPct={compare ? pctDelta(metrics.ttft_p95_ms, compare.ttft_p95_ms) : null}
+          />
+          <SmallStat
+            label={t('Slow Response Rate')}
+            value={fmtPct(metrics.slow_resp_rate)}
+            deltaPct={compare ? pctDelta(metrics.slow_resp_rate, compare.slow_resp_rate) : null}
+          />
+          <SmallStat
+            label={t('Slow TTFT Rate')}
+            value={fmtPct(metrics.slow_ttft_rate)}
+            deltaPct={compare ? pctDelta(metrics.slow_ttft_rate, compare.slow_ttft_rate) : null}
+          />
+          <SmallStat
+            label={t('Error Rate')}
+            value={fmtPct(metrics.error_rate)}
+            deltaPct={compare ? pctDelta(metrics.error_rate, compare.error_rate) : null}
+          />
         </div>
       </CardContent>
     </Card>
   )
 }
 
-function SmallStat({ label, value }: { label: string; value: string }) {
+function SmallStat({ label, value, deltaPct }: { label: string; value: string; deltaPct?: number | null }) {
   return (
-    <div className='flex items-baseline gap-1 whitespace-nowrap'>
+    // 单行不换行；卡片宽度已保证每个 cell 装得下；min-w-0 让 grid 允许收缩，
+    // 真装不下时由父容器 overflow-hidden 截断（而不是溢出覆盖到相邻格）。
+    <div className='flex min-w-0 items-baseline gap-1 overflow-hidden whitespace-nowrap'>
       <span className='text-muted-foreground'>{label}:</span>
       <span className='font-medium'>{value}</span>
+      {deltaPct != null && (
+        <span className={cn('text-[10px]', deltaColorClass(deltaPct))}>({fmtDelta(deltaPct)})</span>
+      )}
     </div>
   )
 }
 
 // ============================
-// 失败原因 top10 列表(对齐原型左下)
+// 折线图(4 指标 Tab 切换 + 对比虚线 + 4 块汇总)
 // ============================
 
-function ErrorTopList({ range, channelType }: { range: Range; channelType: number }) {
+type TrendMetric = 'req_total' | 'slow_resp_count' | 'slow_ttft_count' | 'avg_duration_ms'
+// 折线图渲染组件可绘制的全部 metric（含错误码联动折线的 err_count）
+type ChartMetric = TrendMetric | 'err_count'
+
+const METRIC_LABEL_KEY: Record<TrendMetric, string> = {
+  req_total: 'Request Count (Stats)',
+  slow_resp_count: 'Slow Response Requests',
+  slow_ttft_count: 'Slow TTFT Requests',
+  avg_duration_ms: 'Average Response Time',
+}
+
+function MetricTrendChart({
+  timeRange,
+  channelType,
+  userId,
+}: {
+  timeRange: TimeRange
+  channelType: number
+  userId?: number
+}) {
   const { t } = useTranslation()
-  const [rows, setRows] = useState<ErrorTopRow[]>([])
+  const [metric, setMetric] = useState<TrendMetric>('req_total')
+  const [data, setData] = useState<TrendResult | null>(null)
+  const winParams = useMemo(() => toWindowParams(timeRange), [timeRange])
+
   useEffect(() => {
-    const params: Record<string, string | number> = { range, limit: 10 }
+    if (validateTimeRange(timeRange) != null) return
+    const params: Record<string, string | number> = { ...winParams }
     if (channelType > 0) params.channel_type = channelType
+    if (userId && userId > 0) params.user_id = userId
     api
-      .get('/api/metrics/errors/top', { params })
-      .then((res) => setRows(res.data?.data ?? []))
+      .get('/api/metrics/trend', { params })
+      .then((res) => setData(res.data?.data ?? null))
       .catch(() => {})
-  }, [range, channelType])
-  const safeRows = rows ?? []
+  }, [winParams, timeRange, channelType, userId])
+
   return (
     <Card>
-      <CardHeader className='pb-1'>
+      <CardHeader className='flex flex-row items-center justify-between gap-2 pb-1'>
         <CardTitle className='text-sm font-medium text-muted-foreground'>
-          {t('Request Failure Top 10')}
+          {t('Trend')}
         </CardTitle>
+        <div className='flex items-center gap-1 rounded bg-muted p-0.5'>
+          {(Object.keys(METRIC_LABEL_KEY) as TrendMetric[]).map((m) => (
+            <button
+              key={m}
+              type='button'
+              className={cn(
+                'rounded px-2.5 py-0.5 text-xs transition-colors',
+                metric === m ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => setMetric(m)}
+            >
+              {t(METRIC_LABEL_KEY[m])}
+            </button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent>
-        {safeRows.length === 0 ? (
-          <div className='flex h-[200px] items-center justify-center text-xs text-muted-foreground'>
-            {t('No Data (Stats)')}
-          </div>
-        ) : (
-          <div className='space-y-1.5'>
-            {safeRows.map((r) => (
-              <div
-                key={r.error_code}
-                className='flex items-center justify-between text-sm'
-              >
-                <span className='truncate' title={r.sample_message}>
-                  {r.error_code}
-                </span>
-                <span className='ms-2 shrink-0 text-muted-foreground'>
-                  {fmtNum(r.err_count)} {t('times')}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+        <TrendChartSVG metric={metric} series={data?.series ?? []} compareSeries={data?.compare_series} />
+        <TrendSummaryRow metric={metric} series={data?.series ?? []} compareSeries={data?.compare_series} compareEnabled={timeRange.compareEnabled} />
       </CardContent>
     </Card>
   )
 }
 
-// ============================
-// 单指标折线图(SVG)
-// ============================
-
-function SingleTrendChart({
-  range,
-  channelType,
+// 通用 SVG 折线渲染：series 主线（实线 #2563eb），compareSeries 对比虚线（#dc2626）。
+function TrendChartSVG({
   metric,
-  title,
-  color,
+  series,
+  compareSeries,
+  height = 240,
 }: {
-  range: Range
-  channelType: number
-  metric: 'req_total' | 'err_count' | 'avg_duration_ms'
-  title: string
-  color: string
+  metric: ChartMetric
+  series: TrendPoint[]
+  compareSeries?: TrendPoint[]
+  height?: number
 }) {
-  const [data, setData] = useState<TrendResult | null>(null)
-  useEffect(() => {
-    const params: Record<string, string | number> = { range }
-    if (channelType > 0) params.channel_type = channelType
-    api
-      .get('/api/metrics/trend', { params })
-      .then((res) => setData(res.data?.data ?? null))
-      .catch(() => {})
-  }, [range, channelType])
-  const points = data?.series ?? []
-
-  const w = 360
-  const h = 200
-  const padLeft = 38
+  const { t } = useTranslation()
+  const w = 720
+  const h = height
+  const padLeft = 40
   const padRight = 12
   const padBottom = 28
-  const padTop = 8
+  const padTop = 10
   const yBaseline = h - padBottom
   const innerW = w - padLeft - padRight
   const innerH = h - padTop - padBottom
 
-  const values = points.map((p) => p[metric])
-  const max = Math.max(...values, 1)
+  // 主线和对比线共享 Y 轴最大值
+  const valuesMain = series.map((p) => p[metric] as number)
+  const valuesCmp = compareSeries?.map((p) => p[metric] as number) ?? []
+  const max = Math.max(...valuesMain, ...valuesCmp, 1)
 
-  // 无数据时:合成一个零值的占位线(基于 range 计算时间区间)
   const formatHM = (ts: number) => {
     const d = new Date(ts * 1000)
-    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }
-
-  // Y 轴刻度格式化(根据 metric 决定单位)
   const formatY = (v: number) => {
     if (metric === 'avg_duration_ms') {
       if (v >= 1000) return (v / 1000).toFixed(1) + 's'
@@ -533,116 +688,308 @@ function SingleTrendChart({
     if (v >= 1000) return (v / 1000).toFixed(1) + 'k'
     return String(Math.round(v))
   }
-
-  // 取 0 / max/2 / max 三档刻度
   const yTicks = [0, max / 2, max]
 
-  let path = ''
-  let area = ''
-  let labels: Array<{ ts: number; x: number }> = []
+  const pointsLen = Math.max(series.length, compareSeries?.length ?? 0)
+  const xStep = pointsLen > 1 ? innerW / (pointsLen - 1) : 0
+  const yOf = (v: number) => padTop + innerH - (v / max) * innerH
+  const buildPath = (pts: TrendPoint[]) =>
+    pts.length >= 2
+      ? pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${padLeft + i * xStep} ${yOf(p[metric] as number)}`).join(' ')
+      : ''
 
-  if (points.length >= 2) {
-    const xStep = innerW / (points.length - 1)
-    const yOf = (v: number) => padTop + innerH - (v / max) * innerH
-    path = points
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${padLeft + i * xStep} ${yOf(p[metric])}`)
-      .join(' ')
-    area =
-      `M ${padLeft} ${yBaseline} ` +
-      points.map((p, i) => `L ${padLeft + i * xStep} ${yOf(p[metric])}`).join(' ') +
-      ` L ${padLeft + (points.length - 1) * xStep} ${yBaseline} Z`
+  const mainPath = buildPath(series)
+  const cmpPath = compareSeries ? buildPath(compareSeries) : ''
+
+  // X 轴标签（取主序列的首/中/末）
+  let labels: Array<{ ts: number; x: number }> = []
+  if (series.length >= 2) {
     labels = [
-      { ts: points[0].ts, x: padLeft },
-      { ts: points[Math.floor(points.length / 2)].ts, x: padLeft + innerW / 2 },
-      { ts: points[points.length - 1].ts, x: padLeft + innerW },
-    ]
-  } else {
-    // 占位:画一条贴底的零线 + 当前时间区间的 X 轴标签
-    const now = Math.floor(Date.now() / 1000)
-    const spans: Record<Range, number> = {
-      '30m': 30 * 60,
-      '1h': 3600,
-      '6h': 6 * 3600,
-      '24h': 24 * 3600,
-      '48h': 48 * 3600,
-    }
-    const span = spans[range]
-    const start = now - span
-    const mid = now - Math.floor(span / 2)
-    path = `M ${padLeft} ${yBaseline} L ${padLeft + innerW} ${yBaseline}`
-    area = ''
-    labels = [
-      { ts: start, x: padLeft },
-      { ts: mid, x: padLeft + innerW / 2 },
-      { ts: now, x: padLeft + innerW },
+      { ts: series[0].ts, x: padLeft },
+      { ts: series[Math.floor(series.length / 2)].ts, x: padLeft + innerW / 2 },
+      { ts: series[series.length - 1].ts, x: padLeft + innerW },
     ]
   }
 
   return (
-    <Card>
-      <CardHeader className='pb-1'>
-        <CardTitle className='text-sm font-medium text-muted-foreground'>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <svg viewBox={`0 0 ${w} ${h}`} className='w-full'>
-          {/* Y 轴刻度线 + 标签 */}
-          {yTicks.map((v, i) => {
-            const y = padTop + innerH - (v / max) * innerH
-            return (
-              <g key={i}>
-                <line
-                  x1={padLeft}
-                  y1={y}
-                  x2={padLeft + innerW}
-                  y2={y}
-                  stroke='currentColor'
-                  strokeOpacity={i === 0 ? 0.2 : 0.08}
-                  strokeWidth='1'
-                  strokeDasharray={i === 0 ? '' : '2 3'}
-                />
-                <text
-                  x={padLeft - 4}
-                  y={y + 3}
-                  fontSize='9'
-                  textAnchor='end'
-                  fill='currentColor'
-                  opacity='0.55'
-                >
-                  {formatY(v)}
-                </text>
-              </g>
-            )
-          })}
-          {area && <path d={area} fill={color} fillOpacity='0.12' />}
-          <path
-            d={path}
-            fill='none'
-            stroke={color}
-            strokeWidth='1.5'
-            strokeOpacity={points.length >= 2 ? 1 : 0.5}
-          />
-          {labels.map((l, i) => (
-            <text
-              key={i}
-              x={l.x}
-              y={h - 6}
-              fontSize='10'
-              textAnchor={i === 0 ? 'start' : i === labels.length - 1 ? 'end' : 'middle'}
-              fill='currentColor'
-              opacity='0.6'
-            >
-              {formatHM(l.ts)}
-            </text>
-          ))}
-        </svg>
-      </CardContent>
-    </Card>
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} className='w-full'>
+        {yTicks.map((v, i) => {
+          const y = padTop + innerH - (v / max) * innerH
+          return (
+            <g key={i}>
+              <line
+                x1={padLeft}
+                y1={y}
+                x2={padLeft + innerW}
+                y2={y}
+                stroke='currentColor'
+                strokeOpacity={i === 0 ? 0.2 : 0.08}
+                strokeWidth='1'
+                strokeDasharray={i === 0 ? '' : '2 3'}
+              />
+              <text
+                x={padLeft - 4}
+                y={y + 3}
+                fontSize='10'
+                textAnchor='end'
+                fill='currentColor'
+                opacity='0.55'
+              >
+                {formatY(v)}
+              </text>
+            </g>
+          )
+        })}
+        {cmpPath && (
+          <path d={cmpPath} fill='none' stroke='#dc2626' strokeWidth='1.5' strokeDasharray='4 3' />
+        )}
+        {mainPath ? (
+          <path d={mainPath} fill='none' stroke='#2563eb' strokeWidth='1.5' />
+        ) : (
+          <line x1={padLeft} y1={yBaseline} x2={padLeft + innerW} y2={yBaseline} stroke='#2563eb' strokeWidth='1' strokeOpacity='0.4' />
+        )}
+        {labels.map((l, i) => (
+          <text
+            key={i}
+            x={l.x}
+            y={h - 6}
+            fontSize='10'
+            textAnchor={i === 0 ? 'start' : i === labels.length - 1 ? 'end' : 'middle'}
+            fill='currentColor'
+            opacity='0.6'
+          >
+            {formatHM(l.ts)}
+          </text>
+        ))}
+      </svg>
+      {/* 图例 */}
+      <div className='mt-1 flex items-center justify-center gap-4 text-xs text-muted-foreground'>
+        <span className='flex items-center gap-1'>
+          <span className='inline-block h-[2px] w-4 bg-[#2563eb]' />
+          {t('Current')}
+        </span>
+        {compareSeries && (
+          <span className='flex items-center gap-1'>
+            <span className='inline-block h-[2px] w-4 border-t border-dashed border-[#dc2626]' />
+            {t('Compare')}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// 折线图下方 4 块汇总：本周期 / 对比周期 / 差值 / 环比变化率
+function TrendSummaryRow({
+  metric,
+  series,
+  compareSeries,
+  compareEnabled,
+}: {
+  metric: ChartMetric
+  series: TrendPoint[]
+  compareSeries?: TrendPoint[]
+  compareEnabled: boolean
+}) {
+  const { t } = useTranslation()
+  const reduce = (pts: TrendPoint[]) => {
+    if (metric === 'avg_duration_ms') {
+      // 加权平均：sum(avg*req_total) / sum(req_total)
+      let totalReq = 0
+      let weighted = 0
+      for (const p of pts) {
+        totalReq += p.req_total
+        weighted += p.avg_duration_ms * p.req_total
+      }
+      return totalReq > 0 ? Math.round(weighted / totalReq) : 0
+    }
+    return pts.reduce((acc, p) => acc + ((p[metric] as number) ?? 0), 0)
+  }
+  const cur = reduce(series)
+  const cmp = compareSeries ? reduce(compareSeries) : 0
+  const diff = cur - cmp
+  const delta = pctDelta(cur, cmp)
+  const fmt = (v: number) => (metric === 'avg_duration_ms' ? fmtMs(v) : fmtNum(v))
+
+  return (
+    <div className='mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4'>
+      <div className='rounded border bg-muted/30 px-3 py-2'>
+        <div className='text-xs text-muted-foreground'>{t('Current Period')}</div>
+        <div className='mt-0.5 text-base font-semibold'>{fmt(cur)}</div>
+      </div>
+      <div className='rounded border bg-muted/30 px-3 py-2'>
+        <div className='text-xs text-muted-foreground'>{t('Compare Period')}</div>
+        <div className='mt-0.5 text-base font-semibold'>
+          {compareEnabled ? fmt(cmp) : '—'}
+        </div>
+      </div>
+      <div className='rounded border bg-muted/30 px-3 py-2'>
+        <div className='text-xs text-muted-foreground'>{t('Difference')}</div>
+        <div className='mt-0.5 text-base font-semibold'>
+          {compareEnabled ? `${diff >= 0 ? '+' : ''}${fmt(diff)}` : '—'}
+        </div>
+      </div>
+      <div className='rounded border bg-muted/30 px-3 py-2'>
+        <div className='text-xs text-muted-foreground'>{t('Change Rate')}</div>
+        <div className={cn('mt-0.5 text-base font-semibold', compareEnabled ? deltaColorClass(delta) : '')}>
+          {compareEnabled ? fmtDelta(delta) : '—'}
+        </div>
+      </div>
+    </div>
   )
 }
 
 // ============================
-// Trend Chart(单个平台,SVG 折线)
+// 失败原因 Top10 + 行点击联动右侧折线（左右 2:3 布局）
 // ============================
+
+function ErrorTopPanel({
+  timeRange,
+  channelType,
+  userId,
+}: {
+  timeRange: TimeRange
+  channelType: number
+  userId?: number
+}) {
+  const { t } = useTranslation()
+  const [rows, setRows] = useState<ErrorTopRow[]>([])
+  const [selectedCode, setSelectedCode] = useState<string | null>(null)
+  const winParams = useMemo(() => toWindowParams(timeRange), [timeRange])
+
+  useEffect(() => {
+    if (validateTimeRange(timeRange) != null) return
+    const params: Record<string, string | number> = { ...winParams, limit: 10 }
+    if (channelType > 0) params.channel_type = channelType
+    if (userId && userId > 0) params.user_id = userId
+    api
+      .get('/api/metrics/errors/top', { params })
+      .then((res) => {
+        const data: ErrorTopRow[] = res.data?.data ?? []
+        setRows(data)
+        // 保留已选中态（若仍在 top10 内）；否则置空 → 右侧默认展示"全部失败汇总趋势"。
+        setSelectedCode((prev) => (prev && data.some((r) => r.error_code === prev) ? prev : null))
+      })
+      .catch(() => {})
+  }, [winParams, timeRange, channelType, userId])
+
+  const safeRows = rows ?? []
+
+  return (
+    <div className='grid grid-cols-1 gap-3 lg:grid-cols-5'>
+      {/* 左 Top10（占 2 列） */}
+      <Card className='lg:col-span-2'>
+        <CardHeader className='pb-1'>
+          <CardTitle className='text-sm font-medium text-muted-foreground'>
+            {t('Request Failure Top 10')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {safeRows.length === 0 ? (
+            <div className='flex h-[200px] items-center justify-center text-xs text-muted-foreground'>
+              {t('No Data (Stats)')}
+            </div>
+          ) : (
+            <div className='space-y-1'>
+              {safeRows.map((r) => {
+                const delta = timeRange.compareEnabled ? pctDelta(r.err_count, r.compare_count ?? 0) : null
+                const selected = selectedCode === r.error_code
+                return (
+                  <button
+                    key={r.error_code}
+                    type='button'
+                    // 再点已选中行 = 取消选中，回到汇总趋势
+                    onClick={() => setSelectedCode(selected ? null : r.error_code)}
+                    className={cn(
+                      'flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted/40',
+                      selected && 'bg-muted',
+                    )}
+                  >
+                    <span className='truncate' title={r.sample_message}>
+                      {r.error_code}
+                    </span>
+                    <span className='flex shrink-0 items-center gap-2 whitespace-nowrap'>
+                      <span className='font-medium'>{fmtNum(r.err_count)} {t('times')}</span>
+                      {timeRange.compareEnabled && (
+                        <>
+                          <span className={cn('text-[11px]', deltaColorClass(delta))}>{fmtDelta(delta)}</span>
+                          <span className='text-[11px] text-muted-foreground'>
+                            {t('Compare')}: {fmtNum(r.compare_count ?? 0)}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 右联动折线（占 3 列）— 未选中时汇总 top10 这些 error_code 的趋势，选中后只展示该项 */}
+      <Card className='lg:col-span-3'>
+        <CardHeader className='pb-1'>
+          <CardTitle className='text-sm font-medium text-muted-foreground'>
+            {selectedCode ? `${t('Failure Trend')}: ${selectedCode}` : t('Failure Trend Summary')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorTrendChart
+            timeRange={timeRange}
+            channelType={channelType}
+            userId={userId}
+            // selectedCode 非空 → 单错误码；为空 → 汇总 top10 列表里所有 error_code
+            codes={selectedCode ? [selectedCode] : safeRows.map((r) => r.error_code)}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function ErrorTrendChart({
+  timeRange,
+  channelType,
+  userId,
+  codes,
+}: {
+  timeRange: TimeRange
+  channelType: number
+  userId?: number
+  codes: string[]
+}) {
+  const [data, setData] = useState<TrendResult | null>(null)
+  const winParams = useMemo(() => toWindowParams(timeRange), [timeRange])
+  // 用 JSON 串作为 effect 依赖键，避免数组引用变化引发的重复请求
+  const codesKey = useMemo(() => codes.join(','), [codes])
+  useEffect(() => {
+    if (validateTimeRange(timeRange) != null) return
+    if (codes.length === 0) {
+      setData(null)
+      return
+    }
+    const params: Record<string, string | number> = { ...winParams, error_codes: codesKey }
+    if (channelType > 0) params.channel_type = channelType
+    if (userId && userId > 0) params.user_id = userId
+    api
+      .get('/api/metrics/errors/trend', { params })
+      .then((res) => setData(res.data?.data ?? null))
+      .catch(() => {})
+  }, [winParams, timeRange, channelType, userId, codes.length, codesKey])
+  return (
+    <div>
+      <TrendChartSVG metric='err_count' series={data?.series ?? []} compareSeries={data?.compare_series} height={200} />
+      <TrendSummaryRow
+        metric='err_count'
+        series={data?.series ?? []}
+        compareSeries={data?.compare_series}
+        compareEnabled={timeRange.compareEnabled}
+      />
+    </div>
+  )
+}
 
 // ============================
 // 客户请求-响应明细表(原型主下半部分)
@@ -688,10 +1035,10 @@ function SortableHead({
 }
 
 function UsersTable({
-  range,
+  timeRange,
   onDrill,
 }: {
-  range: Range
+  timeRange: TimeRange
   onDrill?: (userId: number, username: string) => void
 }) {
   const { t } = useTranslation()
@@ -707,6 +1054,7 @@ function UsersTable({
   const [platformsFromApi, setPlatformsFromApi] = useState<OverviewPlatform[]>([])
   const [sortKey, setSortKey] = useState<UserSortKey | null>('req_total')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>('desc')
+  const winParams = useMemo(() => toWindowParams(timeRange), [timeRange])
 
   const handleSort = (key: UserSortKey) => {
     if (sortKey === key) {
@@ -722,14 +1070,15 @@ function UsersTable({
     }
   }
 
-  // 切换 range/筛选时回到第一页
+  // 切换 timeRange/筛选时回到第一页
   useEffect(() => {
     setPage(1)
-  }, [range, appliedUsername, channelTypeFilter])
+  }, [winParams, appliedUsername, channelTypeFilter])
 
   useEffect(() => {
+    if (validateTimeRange(timeRange) != null) return
     setLoading(true)
-    const params: Record<string, string | number> = { range, page, size: pageSize }
+    const params: Record<string, string | number> = { ...winParams, page, size: pageSize }
     if (appliedUsername) params.username = appliedUsername
     if (channelTypeFilter > 0) params.channel_type = channelTypeFilter
     api
@@ -747,15 +1096,16 @@ function UsersTable({
       })
       .catch(() => toast.error(t('Failed to load user dimension')))
       .finally(() => setLoading(false))
-  }, [range, appliedUsername, channelTypeFilter, page, t])
+  }, [winParams, timeRange, appliedUsername, channelTypeFilter, page, t])
 
   // 平台下拉:走后端 /api/metrics/platforms 接口
   useEffect(() => {
+    if (validateTimeRange(timeRange) != null) return
     api
-      .get('/api/metrics/platforms', { params: { range } })
+      .get('/api/metrics/platforms', { params: { from: winParams.from, to: winParams.to } })
       .then((res) => setPlatformsFromApi(res.data?.data ?? []))
       .catch(() => {})
-  }, [range])
+  }, [winParams, timeRange])
 
   const safeRows = rows ?? []
 
@@ -785,6 +1135,8 @@ function UsersTable({
     if (!map.has(14)) map.set(14, 'Anthropic')
     return Array.from(map.entries()).map(([value, label]) => ({ value, label }))
   }, [platformsFromApi])
+
+  const compareEnabled = timeRange.compareEnabled
 
   return (
     <Card>
@@ -910,15 +1262,13 @@ function UsersTable({
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell className='text-right font-medium'>
-                    {fmtNum(r.req_total)}
-                  </TableCell>
-                  <TableCell className='text-right'>{fmtMs(r.avg_duration_ms)}</TableCell>
-                  <TableCell className='text-right'>{fmtMs(r.p50_ms)}</TableCell>
-                  <TableCell className='text-right'>{fmtMs(r.p95_ms)}</TableCell>
-                  <TableCell className='text-right'>{fmtPct(r.error_rate)}</TableCell>
-                  <TableCell className='text-right'>{fmtPct(r.slow_resp_rate)}</TableCell>
-                  <TableCell className='text-right'>{fmtPct(r.slow_ttft_rate)}</TableCell>
+                  <CompareCell value={r.req_total} compare={r.compare?.req_total} compareEnabled={compareEnabled} formatter={fmtNum} bold />
+                  <CompareCell value={r.avg_duration_ms} compare={r.compare?.avg_duration_ms} compareEnabled={compareEnabled} formatter={fmtMs} />
+                  <CompareCell value={r.p50_ms} compare={r.compare?.p50_ms} compareEnabled={compareEnabled} formatter={fmtMs} />
+                  <CompareCell value={r.p95_ms} compare={r.compare?.p95_ms} compareEnabled={compareEnabled} formatter={fmtMs} />
+                  <CompareCell value={r.error_rate} compare={r.compare?.error_rate} compareEnabled={compareEnabled} formatter={fmtPct} />
+                  <CompareCell value={r.slow_resp_rate} compare={r.compare?.slow_resp_rate} compareEnabled={compareEnabled} formatter={fmtPct} />
+                  <CompareCell value={r.slow_ttft_rate} compare={r.compare?.slow_ttft_rate} compareEnabled={compareEnabled} formatter={fmtPct} />
                 </TableRow>
               ))}
             </TableBody>
@@ -930,31 +1280,220 @@ function UsersTable({
   )
 }
 
+// 数值单元格 + 对比同期；compareEnabled 时显示"较同期 ↑/↓N.NN%"。
+function CompareCell({
+  value,
+  compare,
+  compareEnabled,
+  formatter,
+  bold,
+}: {
+  value: number
+  compare?: number
+  compareEnabled: boolean
+  formatter: (v: number) => string
+  bold?: boolean
+}) {
+  const delta = compareEnabled ? pctDelta(value, compare ?? 0) : null
+  return (
+    <TableCell className='text-right'>
+      <div className='flex items-center justify-end gap-1 whitespace-nowrap'>
+        <span className={cn(bold && 'font-medium')}>{formatter(value)}</span>
+        {compareEnabled && (
+          <span className={cn('text-[11px]', deltaColorClass(delta))}>({fmtDelta(delta)})</span>
+        )}
+      </div>
+    </TableCell>
+  )
+}
+
 // ============================
 // 渠道-模型下钻 Dialog
 // ============================
 
+// 把 "YYYY-MM-DD" 转为 "YYYY-M-D"（月份/日不补 0），用于时段小字。
+function trimDateZeros(ymd: string): string {
+  const [y, m, d] = ymd.split('-')
+  return `${y}-${Number(m)}-${Number(d)}`
+}
+
+// "2026-6-16 00:00-12:00 对比 2026-6-15 同时段"
+function formatTimeRangeText(r: TimeRange, t: (k: string) => string): string {
+  const main = `${trimDateZeros(r.date)} ${r.startHM}-${r.endHM}`
+  if (!r.compareEnabled) return main
+  return `${main} ${t('compared with')} ${trimDateZeros(r.compareDate)} ${t('same time period')}`
+}
+
+// 平均时长差值（ms），单位明确为绝对差，开启对比时非空。
+function diffMs(cur: number, base: number | undefined | null): number | null {
+  if (base == null) return null
+  return cur - base
+}
+
+function fmtDeltaMs(d: number | null): string {
+  if (d == null) return '—'
+  if (d === 0) return '0ms'
+  return `${d > 0 ? '+' : ''}${d}ms`
+}
+
+// ============================
+// 用户下钻弹窗 — 平台 4 卡片（对齐原型）
+//   1. 总请求：环比百分比 + "对比请求"
+//   2. 平均响应时长：差值 ms + P50/P95 + "X% 慢"小徽标(slow_resp_rate)
+//   3. 平均 TTFT 时长：差值 ms + TTFT-P50/P95 + "X% 慢"小徽标(slow_ttft_rate)
+//   4. 请求错误率：环比百分比 + "错误次数 / 对比错误次数"
+// ============================
+function PlatformMetricCards({
+  cur,
+  cmp,
+  compareEnabled,
+}: {
+  cur: OverviewPlatform
+  cmp: OverviewPlatform | undefined
+  compareEnabled: boolean
+}) {
+  const { t } = useTranslation()
+  const dReq = compareEnabled ? pctDelta(cur.req_total, cmp?.req_total ?? 0) : null
+  const dErr = compareEnabled ? pctDelta(cur.error_rate, cmp?.error_rate ?? 0) : null
+  const dAvg = compareEnabled ? diffMs(cur.avg_duration_ms, cmp?.avg_duration_ms ?? 0) : null
+  const dAvgTtft = compareEnabled ? diffMs(cur.avg_ttft_ms, cmp?.avg_ttft_ms ?? 0) : null
+
+  return (
+    <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4'>
+      {/* 1. 总请求 */}
+      <Card>
+        <CardHeader className='pb-1'>
+          <CardTitle className='text-sm font-medium text-muted-foreground'>
+            {t('Total Requests')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className='flex items-baseline gap-2'>
+            <span className='text-3xl font-semibold'>{fmtNum(cur.req_total)}</span>
+            {compareEnabled && (
+              <span className={cn('text-xs font-medium', deltaColorClass(dReq))}>
+                {fmtDelta(dReq)}
+              </span>
+            )}
+          </div>
+          <div className='mt-2 text-xs text-muted-foreground'>
+            {t('Compare Requests')}: {fmtNum(cmp?.req_total ?? 0)}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 2. 平均响应时长 */}
+      <Card>
+        <CardHeader className='pb-1'>
+          <CardTitle className='flex items-center justify-between gap-1 text-sm font-medium text-muted-foreground'>
+            <span>{t('Average Response Time')}</span>
+            <span className='rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-normal text-orange-600'>
+              {fmtPct(cur.slow_resp_rate)} {t('slow')}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className='flex items-baseline gap-1'>
+            <span className='text-3xl font-semibold'>{fmtNum(cur.avg_duration_ms)}</span>
+            <span className='text-xs text-muted-foreground'>ms</span>
+            {compareEnabled && (
+              <span className={cn('ms-1 text-xs font-medium', diffColorClass(dAvg))}>
+                {fmtDeltaMs(dAvg)}
+              </span>
+            )}
+          </div>
+          <div className='mt-2 text-xs text-muted-foreground'>
+            P50: {fmtNum(cur.p50_ms)}ms&nbsp;&nbsp;P95: {fmtNum(cur.p95_ms)}ms
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 3. 平均 TTFT 时长 */}
+      <Card>
+        <CardHeader className='pb-1'>
+          <CardTitle className='flex items-center justify-between gap-1 text-sm font-medium text-muted-foreground'>
+            <span>{t('Average TTFT (Stats)')}</span>
+            <span className='rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-normal text-blue-600'>
+              {fmtPct(cur.slow_ttft_rate ?? 0)} {t('slow')}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className='flex items-baseline gap-1'>
+            <span className='text-3xl font-semibold'>{fmtNum(cur.avg_ttft_ms)}</span>
+            <span className='text-xs text-muted-foreground'>ms</span>
+            {compareEnabled && (
+              <span className={cn('ms-1 text-xs font-medium', diffColorClass(dAvgTtft))}>
+                {fmtDeltaMs(dAvgTtft)}
+              </span>
+            )}
+          </div>
+          <div className='mt-2 text-xs text-muted-foreground'>
+            P50: {fmtNum(cur.ttft_p50_ms)}ms&nbsp;&nbsp;P95: {fmtNum(cur.ttft_p95_ms)}ms
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 4. 请求错误率 */}
+      <Card>
+        <CardHeader className='pb-1'>
+          <CardTitle className='text-sm font-medium text-muted-foreground'>
+            {t('Error Rate')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className='flex items-baseline gap-2'>
+            <span className='text-3xl font-semibold'>{fmtPct(cur.error_rate)}</span>
+            {compareEnabled && (
+              <span className={cn('text-xs font-medium', deltaColorClass(dErr))}>
+                {fmtDelta(dErr)}
+              </span>
+            )}
+          </div>
+          <div className='mt-2 text-xs text-muted-foreground'>
+            {t('Error Count')}: {fmtNum(cur.err_count)}
+            {compareEnabled && (
+              <>
+                &nbsp;|&nbsp;{t('Compare Errors')}: {fmtNum(cmp?.err_count ?? 0)}
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// 差值用染色：和 pctDelta 一样按"上涨红 / 下降绿"
+function diffColorClass(d: number | null): string {
+  if (d == null || d === 0) return 'text-muted-foreground'
+  return d > 0 ? 'text-red-600' : 'text-green-600'
+}
+
 function DrilldownDialog({
   userId,
   username,
-  range,
+  timeRange,
   onClose,
 }: {
   userId: number | null
   username: string
-  range: Range
+  timeRange: TimeRange
   onClose: () => void
 }) {
   const { t } = useTranslation()
   const [platforms, setPlatforms] = useState<OverviewPlatform[]>([])
+  const [comparePlatforms, setComparePlatforms] = useState<OverviewPlatform[]>([])
   const [overviewTotal, setOverviewTotal] = useState<OverviewTotal | null>(null)
-  const [errors, setErrors] = useState<ErrorTopRow[]>([])
   const [allChannels, setAllChannels] = useState<Array<ChannelRow & { channel_type: number }>>([])
   const [expandedChannel, setExpandedChannel] = useState<number | null>(null)
   // 选中的 channel_type:0 表示全部(不过滤),其它为某个平台
   const [selectedChannelType, setSelectedChannelType] = useState<number>(0)
+  // 弹窗内部完整传 compare_*，所有数据展示同比与主页面保持一致
+  const winParams = useMemo(() => toWindowParams(timeRange), [timeRange])
 
   const open = userId != null
+  const compareEnabled = timeRange.compareEnabled
 
   // 关闭/切换用户时重置选中态,避免下次打开沿用旧状态
   useEffect(() => {
@@ -968,30 +1507,20 @@ function DrilldownDialog({
     setExpandedChannel(null)
   }, [userId])
 
-  // 1. 用户级别总览 + 平台子卡
+  // 1. 用户级别总览 + 平台子卡（含对比）
   useEffect(() => {
     if (!open || userId == null) return
     api
-      .get('/api/metrics/overview', { params: { range, user_id: userId } })
+      .get('/api/metrics/overview', { params: { ...winParams, user_id: userId } })
       .then((res) => {
         setPlatforms(res.data?.data?.platforms ?? [])
+        setComparePlatforms(res.data?.data?.compare_platforms ?? [])
         setOverviewTotal(res.data?.data?.total ?? null)
       })
       .catch(() => {})
-  }, [open, userId, range])
+  }, [open, userId, winParams])
 
-  // 2. 用户级别错误明细(按选中平台过滤)
-  useEffect(() => {
-    if (!open || userId == null) return
-    const params: Record<string, string | number> = { range, user_id: userId, limit: 10 }
-    if (selectedChannelType > 0) params.channel_type = selectedChannelType
-    api
-      .get('/api/metrics/errors/top', { params })
-      .then((res) => setErrors(res.data?.data ?? []))
-      .catch(() => {})
-  }, [open, userId, range, selectedChannelType])
-
-  // 3. 用户所有渠道(从每个 platform 拉 channels 然后合并)
+  // 2. 用户所有渠道(从每个 platform 拉 channels 然后合并；后端已支持 compare_*，每行带 compare 字段)
   useEffect(() => {
     if (!open || userId == null || platforms.length === 0) {
       setAllChannels([])
@@ -1001,7 +1530,7 @@ function DrilldownDialog({
       platforms.map((p) =>
         api
           .get(`/api/metrics/platform/${p.channel_type}/channels`, {
-            params: { range, user_id: userId },
+            params: { ...winParams, user_id: userId },
           })
           .then((res) => {
             const rows: ChannelRow[] = res.data?.data ?? []
@@ -1014,7 +1543,7 @@ function DrilldownDialog({
       flat.sort((a, b) => b.req_total - a.req_total)
       setAllChannels(flat)
     })
-  }, [open, userId, range, platforms])
+  }, [open, userId, winParams, platforms])
 
   // 渠道耗时明细:按选中平台过滤;切换平台后收起展开行,避免引用到隐藏渠道
   const filteredChannels = useMemo(() => {
@@ -1027,7 +1556,27 @@ function DrilldownDialog({
     }
   }, [filteredChannels, expandedChannel])
 
-  // overview 卡里显示的"5300ms(P95)"用平台 P95 突出展示
+  // 对比平台映射：channel_type → OverviewPlatform，用于卡片同比计算
+  const comparePlatformMap = useMemo(() => {
+    return new Map<number, OverviewPlatform>(
+      (comparePlatforms ?? []).map((p) => [p.channel_type, p])
+    )
+  }, [comparePlatforms])
+
+  // 平台 Tab 默认选中第一个；切换用户时也复位到第一个
+  useEffect(() => {
+    if (platforms.length > 0 && (selectedChannelType <= 0 || !platforms.some((p) => p.channel_type === selectedChannelType))) {
+      setSelectedChannelType(platforms[0].channel_type)
+    }
+  }, [platforms, selectedChannelType])
+
+  // 当前选中平台的主/对比数据
+  const currentPlatform = useMemo(
+    () => platforms.find((p) => p.channel_type === selectedChannelType),
+    [platforms, selectedChannelType],
+  )
+  const currentCompare = currentPlatform ? comparePlatformMap.get(currentPlatform.channel_type) : undefined
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className='flex max-h-[90vh] w-[95vw] max-w-[1600px] flex-col overflow-hidden sm:max-w-[1600px]'>
@@ -1038,89 +1587,54 @@ function DrilldownDialog({
               {t('User (Stats)')}
             </Badge>
           </DialogTitle>
+          {/* 时段小字：2026-6-16 00:00-12:00 对比 2026-6-15 同时段 */}
+          <div className='text-xs text-muted-foreground'>{formatTimeRangeText(timeRange, t)}</div>
         </DialogHeader>
         <div className='flex-1 space-y-4 overflow-y-auto overflow-x-hidden pe-1'>
-          {/* 平台子卡片(横向) — 严格对齐原型,可点击联动下方明细 */}
+          {/* 平台 Tab — 切换后所有数据按选中平台过滤 */}
           {platforms.length > 0 && (
-            <div
-              className='grid gap-3'
-              style={{ gridTemplateColumns: `repeat(${platforms.length}, minmax(0, 1fr))` }}
-            >
+            <div className='flex flex-wrap items-center gap-2 border-b'>
               {platforms.map((p) => {
-                const selected = selectedChannelType === p.channel_type
+                const active = selectedChannelType === p.channel_type
                 return (
-                  <Card
+                  <button
                     key={p.channel_type}
-                    onClick={() =>
-                      setSelectedChannelType(selected ? 0 : p.channel_type)
-                    }
+                    type='button'
+                    onClick={() => setSelectedChannelType(p.channel_type)}
                     className={cn(
-                      'cursor-pointer transition-colors hover:bg-muted/40',
-                      selected && 'ring-2 ring-primary ring-offset-1',
+                      'border-b-2 px-3 py-2 text-sm transition-colors',
+                      active
+                        ? 'border-blue-600 font-semibold text-blue-600'
+                        : 'border-transparent text-muted-foreground hover:text-foreground',
                     )}
                   >
-                    <CardHeader className='pb-1'>
-                      <CardTitle className='flex items-center justify-between gap-1 text-sm font-medium'>
-                        <span>{p.platform_name}</span>
-                        <span className='flex items-center gap-1'>
-                          <span className='rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-normal text-blue-600'>
-                            {fmtPct(p.slow_ttft_rate ?? 0)} {t('Slow TTFT')}
-                          </span>
-                          <span className='rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-normal text-orange-600'>
-                            {fmtPct(p.slow_resp_rate)} {t('Slow Response')}
-                          </span>
-                        </span>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className='flex items-baseline gap-1'>
-                        <span className='text-3xl font-semibold text-blue-600'>
-                          {fmtNum(p.p95_ms)}
-                        </span>
-                        <span className='text-xs text-muted-foreground'>ms(P95)</span>
-                      </div>
-                      <div className='mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground'>
-                        <span>{t('Average Duration')}: {fmtMs(p.avg_duration_ms)}</span>
-                        <span>| {t('Request Times')}: {fmtNum(p.req_total)}</span>
-                        <span>| {t('Error (Stats)')}: {fmtPct(p.error_rate)}</span>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    {p.platform_name}
+                  </button>
                 )
               })}
             </div>
+          )}
+
+          {/* 4 个卡片：总请求 / 平均响应时长 / 平均 TTFT 时长 / 请求错误率 */}
+          {currentPlatform && (
+            <PlatformMetricCards
+              cur={currentPlatform}
+              cmp={currentCompare}
+              compareEnabled={compareEnabled}
+            />
           )}
           {platforms.length === 0 && overviewTotal && (
             <div className='text-sm text-muted-foreground'>{t('No Data (Stats)')}</div>
           )}
 
-          {/* 错误明细 */}
-          <div>
-            <div className='mb-2 text-sm font-semibold'>{t('Error Details')}</div>
-            {errors.length === 0 ? (
-              <div className='rounded border bg-muted/30 px-3 py-2 text-xs text-muted-foreground'>
-                {t('No Data (Stats)')}
-              </div>
-            ) : (
-              <div className='space-y-1 rounded border'>
-                {errors.map((e) => (
-                  <div
-                    key={e.error_code}
-                    className='flex items-center justify-between border-b px-3 py-2 text-sm last:border-b-0'
-                  >
-                    <span className='truncate' title={e.sample_message}>
-                      {e.error_code}
-                    </span>
-                    <span className='ms-2 shrink-0 text-muted-foreground'>
-                      {fmtNum(e.err_count)} {t('times')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* 折线图区：5 Tab 切换；前 4 个 metric 用普通折线，err_count 切换为 Top10+联动折线 */}
+          <UserTrendSection
+            timeRange={timeRange}
+            userId={userId ?? 0}
+            channelType={selectedChannelType}
+          />
 
-          {/* 渠道耗时明细 — 单行 | 分隔的字段名严格对齐原型 */}
+          {/* 渠道耗时明细 — 单行 | 分隔的字段名严格对齐原型，加同比小字 */}
           <div>
             <div className='mb-2 text-sm font-semibold'>{t('Channel Latency Details')}</div>
             {filteredChannels.length === 0 ? (
@@ -1129,41 +1643,68 @@ function DrilldownDialog({
               </div>
             ) : (
               <div className='space-y-2'>
-                {filteredChannels.map((r) => (
-                  <div key={r.channel_id} className='rounded border'>
-                    <div className='flex items-center justify-between gap-3 px-3 py-2'>
-                      <div className='min-w-0 flex-1'>
-                        <div className='font-medium'>{r.channel_name || `#${r.channel_id}`}</div>
-                        <div className='mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground'>
-                          <span>{t('Average Duration')}: {fmtMs(r.avg_duration_ms)}</span>
-                          <span>| {t('Request Duration P95')}: {fmtMs(r.p95_ms)}</span>
-                          <span>| {t('Request Times')}: {fmtNum(r.req_total)}</span>
-                          <span>| {t('Error (Stats)')}: {fmtPct(r.error_rate)}</span>
-                          <span>| {t('Slow TTFT')}: {fmtPct(r.slow_ttft_rate)}</span>
-                          <span>| {t('Slow Response')}: {fmtPct(r.slow_resp_rate)}</span>
+                {filteredChannels.map((r) => {
+                  const c = r.compare
+                  const dAvg = compareEnabled ? pctDelta(r.avg_duration_ms, c?.avg_duration_ms ?? 0) : null
+                  const dP95 = compareEnabled ? pctDelta(r.p95_ms, c?.p95_ms ?? 0) : null
+                  const dReq = compareEnabled ? pctDelta(r.req_total, c?.req_total ?? 0) : null
+                  const dErr = compareEnabled ? pctDelta(r.error_rate, c?.error_rate ?? 0) : null
+                  const dST = compareEnabled ? pctDelta(r.slow_ttft_rate, c?.slow_ttft_rate ?? 0) : null
+                  const dSR = compareEnabled ? pctDelta(r.slow_resp_rate, c?.slow_resp_rate ?? 0) : null
+                  return (
+                    <div key={r.channel_id} className='rounded border'>
+                      <div className='flex items-center justify-between gap-3 px-3 py-2'>
+                        <div className='min-w-0 flex-1'>
+                          <div className='font-medium'>{r.channel_name || `#${r.channel_id}`}</div>
+                          <div className='mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground'>
+                            <span>
+                              {t('Average Duration')}: {fmtMs(r.avg_duration_ms)}
+                              {compareEnabled && <span className={cn('ms-1', deltaColorClass(dAvg))}>({fmtDelta(dAvg)})</span>}
+                            </span>
+                            <span>
+                              | {t('Request Duration P95')}: {fmtMs(r.p95_ms)}
+                              {compareEnabled && <span className={cn('ms-1', deltaColorClass(dP95))}>({fmtDelta(dP95)})</span>}
+                            </span>
+                            <span>
+                              | {t('Request Times')}: {fmtNum(r.req_total)}
+                              {compareEnabled && <span className={cn('ms-1', deltaColorClass(dReq))}>({fmtDelta(dReq)})</span>}
+                            </span>
+                            <span>
+                              | {t('Error (Stats)')}: {fmtPct(r.error_rate)}
+                              {compareEnabled && <span className={cn('ms-1', deltaColorClass(dErr))}>({fmtDelta(dErr)})</span>}
+                            </span>
+                            <span>
+                              | {t('Slow TTFT')}: {fmtPct(r.slow_ttft_rate)}
+                              {compareEnabled && <span className={cn('ms-1', deltaColorClass(dST))}>({fmtDelta(dST)})</span>}
+                            </span>
+                            <span>
+                              | {t('Slow Response')}: {fmtPct(r.slow_resp_rate)}
+                              {compareEnabled && <span className={cn('ms-1', deltaColorClass(dSR))}>({fmtDelta(dSR)})</span>}
+                            </span>
+                          </div>
                         </div>
+                        <button
+                          type='button'
+                          className='shrink-0 text-sm text-blue-600 hover:underline'
+                          onClick={() =>
+                            setExpandedChannel(expandedChannel === r.channel_id ? null : r.channel_id)
+                          }
+                        >
+                          {expandedChannel === r.channel_id ? t('Collapse') : t('Expand')}
+                        </button>
                       </div>
-                      <button
-                        type='button'
-                        className='shrink-0 text-sm text-blue-600 hover:underline'
-                        onClick={() =>
-                          setExpandedChannel(expandedChannel === r.channel_id ? null : r.channel_id)
-                        }
-                      >
-                        {expandedChannel === r.channel_id ? t('Collapse') : t('Expand')}
-                      </button>
+                      {expandedChannel === r.channel_id && (
+                        <div className='border-t bg-muted/20 p-3'>
+                          <UserChannelModels
+                            channelId={r.channel_id}
+                            userId={userId ?? 0}
+                            timeRange={timeRange}
+                          />
+                        </div>
+                      )}
                     </div>
-                    {expandedChannel === r.channel_id && (
-                      <div className='border-t bg-muted/20 p-3'>
-                        <UserChannelModels
-                          channelId={r.channel_id}
-                          userId={userId ?? 0}
-                          range={range}
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1176,31 +1717,117 @@ function DrilldownDialog({
   )
 }
 
+// ============================
+// 弹窗专用折线图区：5 个 metric Tab
+//   前 4 个：普通折线 + 4 块汇总（请求量 / 响应慢 / 首字慢 / 平均响应时长）
+//   第 5 个：err_count → 左 Top10 + 右联动折线（复用 ErrorTopPanel）
+// ============================
+
+type UserTrendMetric = 'req_total' | 'slow_resp_count' | 'slow_ttft_count' | 'avg_duration_ms' | 'err_count'
+
+const USER_METRIC_LABEL: Record<UserTrendMetric, string> = {
+  req_total: 'Request Count (Stats)',
+  slow_resp_count: 'Slow Response Requests',
+  slow_ttft_count: 'Slow TTFT Requests',
+  avg_duration_ms: 'Average Response Time',
+  err_count: 'Request Errors (count)',
+}
+
+function UserTrendSection({
+  timeRange,
+  userId,
+  channelType,
+}: {
+  timeRange: TimeRange
+  userId: number
+  channelType: number
+}) {
+  const { t } = useTranslation()
+  const [metric, setMetric] = useState<UserTrendMetric>('req_total')
+  const [data, setData] = useState<TrendResult | null>(null)
+  const winParams = useMemo(() => toWindowParams(timeRange), [timeRange])
+
+  // 仅前 4 个 metric 需要拉 /trend；err_count 切换到 ErrorTopPanel 自己拉。
+  useEffect(() => {
+    if (metric === 'err_count') return
+    if (validateTimeRange(timeRange) != null) return
+    const params: Record<string, string | number> = { ...winParams }
+    if (channelType > 0) params.channel_type = channelType
+    if (userId > 0) params.user_id = userId
+    api
+      .get('/api/metrics/trend', { params })
+      .then((res) => setData(res.data?.data ?? null))
+      .catch(() => {})
+  }, [metric, winParams, timeRange, channelType, userId])
+
+  return (
+    <Card>
+      <CardHeader className='flex flex-row items-center justify-between gap-2 pb-1'>
+        <CardTitle className='text-sm font-medium text-muted-foreground'>{t('Trend')}</CardTitle>
+        <div className='flex items-center gap-1 rounded bg-muted p-0.5'>
+          {(Object.keys(USER_METRIC_LABEL) as UserTrendMetric[]).map((m) => (
+            <button
+              key={m}
+              type='button'
+              className={cn(
+                'rounded px-2.5 py-0.5 text-xs transition-colors',
+                metric === m ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => setMetric(m)}
+            >
+              {t(USER_METRIC_LABEL[m])}
+            </button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {metric === 'err_count' ? (
+          // 复用主页面 ErrorTopPanel —— 左 Top10 + 右联动折线；带 userId/channelType 过滤
+          <ErrorTopPanel timeRange={timeRange} channelType={channelType} userId={userId} />
+        ) : (
+          <>
+            <TrendChartSVG metric={metric} series={data?.series ?? []} compareSeries={data?.compare_series} />
+            <TrendSummaryRow
+              metric={metric}
+              series={data?.series ?? []}
+              compareSeries={data?.compare_series}
+              compareEnabled={timeRange.compareEnabled}
+            />
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // 渠道展开的模型表格(带搜索 + 内存分页)
 function UserChannelModels({
   channelId,
   userId,
-  range,
+  timeRange,
 }: {
   channelId: number
   userId: number
-  range: Range
+  timeRange: TimeRange
 }) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<ModelRow[]>([])
   const [search, setSearch] = useState<string>('')
   const [page, setPage] = useState<number>(1)
   const pageSize = 10
+  // 模型表单元格透传 compare_*，用 CompareCell 渲染同比
+  const winParams = useMemo(() => toWindowParams(timeRange), [timeRange])
+  const compareEnabled = timeRange.compareEnabled
 
   useEffect(() => {
     api
       .get(`/api/metrics/channel/${channelId}/models`, {
-        params: { range, user_id: userId || undefined },
+        params: { ...winParams, user_id: userId || undefined },
       })
       .then((res) => setRows(res.data?.data ?? []))
       .catch(() => {})
     setPage(1)
-  }, [channelId, userId, range])
+  }, [channelId, userId, winParams])
 
   const filtered = useMemo(() => {
     const safe = rows ?? []
@@ -1246,13 +1873,13 @@ function UserChannelModels({
           {pageRows.map((r) => (
             <TableRow key={r.model_name}>
               <TableCell>{r.model_name}</TableCell>
-              <TableCell className='text-right'>{fmtNum(r.req_total)}</TableCell>
-              <TableCell className='text-right'>{fmtMs(r.avg_duration_ms)}</TableCell>
-              <TableCell className='text-right'>{fmtMs(r.p50_ms)}</TableCell>
-              <TableCell className='text-right'>{fmtMs(r.p95_ms)}</TableCell>
-              <TableCell className='text-right'>{fmtPct(r.error_rate)}</TableCell>
-              <TableCell className='text-right'>{fmtPct(r.slow_resp_rate)}</TableCell>
-              <TableCell className='text-right'>{fmtPct(r.slow_ttft_rate)}</TableCell>
+              <CompareCell value={r.req_total} compare={r.compare?.req_total} compareEnabled={compareEnabled} formatter={fmtNum} bold />
+              <CompareCell value={r.avg_duration_ms} compare={r.compare?.avg_duration_ms} compareEnabled={compareEnabled} formatter={fmtMs} />
+              <CompareCell value={r.p50_ms} compare={r.compare?.p50_ms} compareEnabled={compareEnabled} formatter={fmtMs} />
+              <CompareCell value={r.p95_ms} compare={r.compare?.p95_ms} compareEnabled={compareEnabled} formatter={fmtMs} />
+              <CompareCell value={r.error_rate} compare={r.compare?.error_rate} compareEnabled={compareEnabled} formatter={fmtPct} />
+              <CompareCell value={r.slow_resp_rate} compare={r.compare?.slow_resp_rate} compareEnabled={compareEnabled} formatter={fmtPct} />
+              <CompareCell value={r.slow_ttft_rate} compare={r.compare?.slow_ttft_rate} compareEnabled={compareEnabled} formatter={fmtPct} />
             </TableRow>
           ))}
         </TableBody>
@@ -1637,8 +2264,10 @@ function AlertRuleDialog({
   // Dialog 打开时拉一次平台列表(用 48h 窗口尽量全)
   useEffect(() => {
     if (!open) return
+    const to = Math.floor(Date.now() / 1000)
+    const from = to - 48 * 3600
     api
-      .get('/api/metrics/platforms', { params: { range: '48h' } })
+      .get('/api/metrics/platforms', { params: { from, to } })
       .then((res) => setPlatformsFromApi(res.data?.data ?? []))
       .catch(() => {})
   }, [open])
