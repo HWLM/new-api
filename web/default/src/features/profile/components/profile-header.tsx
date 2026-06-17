@@ -113,11 +113,11 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
               <h1 className='truncate text-xl font-semibold tracking-tight sm:text-2xl'>
                 {displayName}
               </h1>
-              <StatusBadge
+              {/* <StatusBadge
                 label={roleLabel}
                 variant='neutral'
                 copyable={false}
-              />
+              /> */}
             </div>
 
             <div className='text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs sm:gap-x-4 sm:text-sm'>
@@ -128,12 +128,12 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
                   <span className='truncate'>{profile.email}</span>
                 </>
               )}
-              {profile.group && (
+              {/* {profile.group && (
                 <>
                   <span>•</span>
                   <span className='truncate'>{profile.group}</span>
                 </>
-              )}
+              )} */}
             </div>
           </div>
         </div>
