@@ -496,6 +496,10 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		client = service.GetHttpClient()
 	}
 
+	if reqId := c.GetString(common2.RequestIdKey); reqId != "" {
+		req.Header.Set("X-Client-Request-ID", reqId)
+	}
+
 	var stopPinger context.CancelFunc
 	if info.IsStream {
 		helper.SetEventStreamHeaders(c)
