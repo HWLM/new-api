@@ -4667,6 +4667,25 @@
         "Disabled (Stats)": "無効",
         "Deleted (Stats)": "削除済み",
         "Error (Stats)": "エラー",
-        "No Data (Stats)": "データなし"
+        "No Data (Stats)": "データなし",
+        "Change Rate": "変化率",
+        "Compare": "比較",
+        "Compare Period": "比較期間",
+        "Current": "現在",
+        "Current Period": "当期間",
+        "Difference": "差分",
+        "Enable time comparison": "時間比較を有効化（同時間帯の別日付）",
+        "Failure Trend": "失敗トレンド",
+        "Failure Trend Summary": "失敗トレンド集計",
+        "Invalid time range, please adjust": "時間範囲が無効です。調整してください",
+        "Slow Response Requests": "遅延応答リクエスト",
+        "Slow TTFT Requests": "TTFT 遅延リクエスト",
+        "compared with": "と比較",
+        "same time period": "同時間帯",
+        "Compare Requests": "比較リクエスト",
+        "Error Count": "エラー件数",
+        "Compare Errors": "比較エラー件数",
+        "slow": "遅い"
   }
 }
+

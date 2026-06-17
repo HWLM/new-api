@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -15,15 +14,21 @@ import (
 
 // 请求-响应统计分析:HTTP handlers。
 // 管理员端走 /api/metrics/*  自助端走 /api/metrics/self/* (自动注入当前用户过滤)。
+//
+// 时间窗口参数（统一）：
+//   from / to                必填，unix 秒，左闭右开 [from, to)
+//   compare_from / compare_to 可选，开启对比时一并传入；缺省即不对比
 
-func parseMetricsRange(c *gin.Context) (from, to int64, rangeStr string, ok bool) {
-	rangeStr = c.DefaultQuery("range", "30m")
-	from, to, err := service.ParseTimeRange(rangeStr, time.Now().Unix())
+func parseMetricsWindow(c *gin.Context) (service.TimeWindow, bool) {
+	win, err := service.ParseTimeWindow(
+		c.Query("from"), c.Query("to"),
+		c.Query("compare_from"), c.Query("compare_to"),
+	)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
-		return 0, 0, "", false
+		return service.TimeWindow{}, false
 	}
-	return from, to, rangeStr, true
+	return win, true
 }
 
 func currentUserIdOrZero(c *gin.Context) int {
@@ -40,12 +45,12 @@ func responseErr(c *gin.Context, status int, msg string) {
 
 // GET /api/metrics/overview
 func GetMetricsOverview(c *gin.Context) {
-	from, to, _, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
 	userIdFilter, _ := strconv.Atoi(c.DefaultQuery("user_id", "0"))
-	result, err := service.QueryOverview(c.Request.Context(), from, to, userIdFilter)
+	result, err := service.QueryOverview(c.Request.Context(), win, userIdFilter)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -55,7 +60,7 @@ func GetMetricsOverview(c *gin.Context) {
 
 // GET /api/metrics/self/overview
 func GetSelfMetricsOverview(c *gin.Context) {
-	from, to, _, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
@@ -64,7 +69,7 @@ func GetSelfMetricsOverview(c *gin.Context) {
 		responseErr(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	result, err := service.QueryOverview(c.Request.Context(), from, to, uid)
+	result, err := service.QueryOverview(c.Request.Context(), win, uid)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -74,7 +79,7 @@ func GetSelfMetricsOverview(c *gin.Context) {
 
 // GET /api/metrics/users
 func GetUserMetrics(c *gin.Context) {
-	from, to, _, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
@@ -87,12 +92,12 @@ func GetUserMetrics(c *gin.Context) {
 	if ct, err := strconv.Atoi(c.DefaultQuery("channel_type", "0")); err == nil {
 		filter.ChannelType = ct
 	}
-	rows, err := service.QueryUserMetrics(c.Request.Context(), from, to, page, size, filter)
+	rows, err := service.QueryUserMetrics(c.Request.Context(), win, page, size, filter)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	total, _ := service.QueryUserMetricsCount(c.Request.Context(), from, to, filter)
+	total, _ := service.QueryUserMetricsCount(c.Request.Context(), win.From, win.To, filter)
 	responseOK(c, gin.H{
 		"rows":  rows,
 		"total": total,
@@ -103,11 +108,11 @@ func GetUserMetrics(c *gin.Context) {
 
 // GET /api/metrics/platforms
 func GetPlatformMetrics(c *gin.Context) {
-	from, to, _, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
-	rows, err := service.QueryPlatformMetrics(c.Request.Context(), from, to)
+	rows, err := service.QueryPlatformMetrics(c.Request.Context(), win.From, win.To)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -117,7 +122,7 @@ func GetPlatformMetrics(c *gin.Context) {
 
 // GET /api/metrics/platform/:type/channels
 func GetPlatformChannels(c *gin.Context) {
-	from, to, _, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
@@ -127,7 +132,7 @@ func GetPlatformChannels(c *gin.Context) {
 		return
 	}
 	userIdFilter, _ := strconv.Atoi(c.DefaultQuery("user_id", "0"))
-	rows, err := service.QueryPlatformChannels(c.Request.Context(), t, from, to, userIdFilter)
+	rows, err := service.QueryPlatformChannels(c.Request.Context(), t, win, userIdFilter)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -137,7 +142,7 @@ func GetPlatformChannels(c *gin.Context) {
 
 // GET /api/metrics/channel/:id/models
 func GetChannelModels(c *gin.Context) {
-	from, to, _, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
@@ -147,7 +152,7 @@ func GetChannelModels(c *gin.Context) {
 		return
 	}
 	userIdFilter, _ := strconv.Atoi(c.DefaultQuery("user_id", "0"))
-	rows, err := service.QueryChannelModels(c.Request.Context(), id, from, to, userIdFilter)
+	rows, err := service.QueryChannelModels(c.Request.Context(), id, win, userIdFilter)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -157,13 +162,14 @@ func GetChannelModels(c *gin.Context) {
 
 // GET /api/metrics/trend
 func GetMetricsTrend(c *gin.Context) {
-	from, to, rangeStr, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
 	channelType, _ := strconv.Atoi(c.DefaultQuery("channel_type", "0"))
-	bucket := service.BucketSecondsForRange(rangeStr)
-	result, err := service.QueryTrend(c.Request.Context(), from, to, bucket, 0, channelType)
+	userIdFilter, _ := strconv.Atoi(c.DefaultQuery("user_id", "0"))
+	bucket := service.BucketSecondsForSpan(win.Span())
+	result, err := service.QueryTrend(c.Request.Context(), win, bucket, userIdFilter, channelType)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -173,7 +179,7 @@ func GetMetricsTrend(c *gin.Context) {
 
 // GET /api/metrics/self/trend
 func GetSelfMetricsTrend(c *gin.Context) {
-	from, to, rangeStr, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
@@ -183,8 +189,8 @@ func GetSelfMetricsTrend(c *gin.Context) {
 		return
 	}
 	channelType, _ := strconv.Atoi(c.DefaultQuery("channel_type", "0"))
-	bucket := service.BucketSecondsForRange(rangeStr)
-	result, err := service.QueryTrend(c.Request.Context(), from, to, bucket, uid, channelType)
+	bucket := service.BucketSecondsForSpan(win.Span())
+	result, err := service.QueryTrend(c.Request.Context(), win, bucket, uid, channelType)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -194,7 +200,7 @@ func GetSelfMetricsTrend(c *gin.Context) {
 
 // GET /api/metrics/errors/top
 func GetErrorsTop(c *gin.Context) {
-	from, to, _, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
@@ -202,7 +208,7 @@ func GetErrorsTop(c *gin.Context) {
 	ct, _ := strconv.Atoi(c.DefaultQuery("channel_type", "0"))
 	cid, _ := strconv.Atoi(c.DefaultQuery("channel_id", "0"))
 	uid, _ := strconv.Atoi(c.DefaultQuery("user_id", "0"))
-	rows, err := service.QueryErrorsTop(c.Request.Context(), from, to, limit, service.ErrorTopFilter{
+	rows, err := service.QueryErrorsTop(c.Request.Context(), win, limit, service.ErrorTopFilter{
 		ChannelType: ct, ChannelId: cid, UserId: uid,
 	})
 	if err != nil {
@@ -212,15 +218,52 @@ func GetErrorsTop(c *gin.Context) {
 	responseOK(c, rows)
 }
 
+// GET /api/metrics/errors/trend
+// 单错误码折线，用于"失败 Top10 行点击"的右侧联动图；
+// 也支持 error_codes=A,B,C 形式聚合多个 code 的趋势（用于"未选中行时" top10 汇总）。
+func GetErrorTrend(c *gin.Context) {
+	win, ok := parseMetricsWindow(c)
+	if !ok {
+		return
+	}
+	codes := []string{}
+	if single := strings.TrimSpace(c.Query("error_code")); single != "" {
+		codes = append(codes, single)
+	}
+	if csv := strings.TrimSpace(c.Query("error_codes")); csv != "" {
+		for _, s := range strings.Split(csv, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				codes = append(codes, s)
+			}
+		}
+	}
+	if len(codes) == 0 {
+		responseErr(c, http.StatusBadRequest, "error_code or error_codes is required")
+		return
+	}
+	ct, _ := strconv.Atoi(c.DefaultQuery("channel_type", "0"))
+	cid, _ := strconv.Atoi(c.DefaultQuery("channel_id", "0"))
+	uid, _ := strconv.Atoi(c.DefaultQuery("user_id", "0"))
+	bucket := service.BucketSecondsForSpan(win.Span())
+	result, err := service.QueryErrorTrend(c.Request.Context(), win, bucket, codes, service.ErrorTopFilter{
+		ChannelType: ct, ChannelId: cid, UserId: uid,
+	})
+	if err != nil {
+		responseErr(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	responseOK(c, result)
+}
+
 // GET /api/metrics/errors/detail
 func GetErrorsDetail(c *gin.Context) {
-	from, to, _, ok := parseMetricsRange(c)
+	win, ok := parseMetricsWindow(c)
 	if !ok {
 		return
 	}
 	code := c.Query("error_code")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	rows, err := service.QueryErrorsDetail(c.Request.Context(), from, to, code, limit)
+	rows, err := service.QueryErrorsDetail(c.Request.Context(), win.From, win.To, code, limit)
 	if err != nil {
 		responseErr(c, http.StatusBadRequest, err.Error())
 		return
