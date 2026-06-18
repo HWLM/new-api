@@ -93,6 +93,70 @@ func VerifyVipStatsPassword(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
+// GetVipStatsTrend 单个 VIP 用户的"两周期对比"查询。
+//
+// GET /api/vip_stats/trend?user_id=&granularity=day|hour
+//
+//	&current_start=YYYY-MM-DD&current_end=YYYY-MM-DD
+//	&compare_start=YYYY-MM-DD&compare_end=YYYY-MM-DD
+//	[&current_start_hour=&current_end_hour=&compare_start_hour=&compare_end_hour=]
+//
+// 公开接口（与 detail 一样要求 X-VIP-Stats-Password header）。
+func GetVipStatsTrend(c *gin.Context) {
+	if !checkVipStatsPassword(c) {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": "password required or incorrect",
+		})
+		return
+	}
+	userId, _ := strconv.Atoi(c.Query("user_id"))
+	if userId <= 0 {
+		common.ApiErrorMsg(c, "user_id required")
+		return
+	}
+	granularity := c.Query("granularity")
+	if granularity == "" {
+		granularity = "day"
+	}
+	currStart := c.Query("current_start")
+	currEnd := c.Query("current_end")
+	compStart := c.Query("compare_start")
+	compEnd := c.Query("compare_end")
+	if currStart == "" || currEnd == "" || compStart == "" || compEnd == "" {
+		common.ApiErrorMsg(c, "current_start/current_end/compare_start/compare_end required")
+		return
+	}
+	// 小时范围（仅 granularity=hour 用；day 时建议传 0/23）
+	currStartHour, _ := strconv.Atoi(c.DefaultQuery("current_start_hour", "0"))
+	currEndHour, _ := strconv.Atoi(c.DefaultQuery("current_end_hour", "23"))
+	compStartHour, _ := strconv.Atoi(c.DefaultQuery("compare_start_hour", "0"))
+	compEndHour, _ := strconv.Atoi(c.DefaultQuery("compare_end_hour", "23"))
+
+	currQ := model.TrendQuery{
+		UserId:      userId,
+		Granularity: granularity,
+		StartDate:   currStart,
+		EndDate:     currEnd,
+		StartHour:   currStartHour,
+		EndHour:     currEndHour,
+	}
+	compQ := model.TrendQuery{
+		UserId:      userId,
+		Granularity: granularity,
+		StartDate:   compStart,
+		EndDate:     compEnd,
+		StartHour:   compStartHour,
+		EndHour:     compEndHour,
+	}
+	resp, err := model.GetVipStatsTrend(currQ, compQ)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	common.ApiSuccess(c, resp)
+}
+
 // BackfillVipDailyStats 手动回填过去 N 天的统计数据（仅管理员）。
 //
 // 用法：POST /api/user/vip_stats/backfill?days=7
@@ -111,5 +175,31 @@ func BackfillVipDailyStats(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{
 		"days":     days,
 		"per_date": result,
+	})
+}
+
+// BackfillVipHourlyStats 手动回填指定日期区间的小时统计数据（仅管理员）。
+// 写入表：vip_hourly_consumption。
+//
+// 用法：POST /api/user/vip_stats/backfill_hourly?start=YYYY-MM-DD&end=YYYY-MM-DD
+//
+// 闭区间，每天回填 0~23 共 24 个小时桶；最多 90 天。
+// 同 daily 接口，所有回填以"调用时刻的当前 VIP 客户"为口径。
+func BackfillVipHourlyStats(c *gin.Context) {
+	start := c.Query("start")
+	end := c.Query("end")
+	if start == "" || end == "" {
+		common.ApiErrorMsg(c, "start and end (YYYY-MM-DD) required")
+		return
+	}
+	result, err := service.BackfillVipHourlyStats(start, end)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"start":      start,
+		"end":        end,
+		"per_bucket": result,
 	})
 }

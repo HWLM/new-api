@@ -68,10 +68,11 @@ func ParseTimeWindow(fromStr, toStr, cmpFromStr, cmpToStr string) (TimeWindow, e
 // BucketSecondsForSpan 根据时间跨度（秒）选择折线时间桶大小。
 //
 // 与原 BucketSecondsForRange 的映射保持兼容：
-//   ≤ 1h    → 60s
-//   ≤ 6h    → 300s
-//   ≤ 24h   → 900s
-//   > 24h   → 1800s
+//
+//	≤ 1h    → 60s
+//	≤ 6h    → 300s
+//	≤ 24h   → 900s
+//	> 24h   → 1800s
 func BucketSecondsForSpan(span int64) int {
 	switch {
 	case span <= 3600:
@@ -825,14 +826,14 @@ ORDER BY bucket_at`
 // ===== Errors Top10 =====
 
 type ErrorTopRow struct {
-	ErrorCode      string  `json:"error_code"`
-	ErrCount       int64   `json:"err_count"`
-	AvgDurationMs  int     `json:"avg_duration_ms"`
-	ChannelTypes   []int   `json:"channel_types" gorm:"-"`
-	ChannelTypeCSV string  `json:"-" gorm:"column:channel_types"`
+	ErrorCode      string   `json:"error_code"`
+	ErrCount       int64    `json:"err_count"`
+	AvgDurationMs  int      `json:"avg_duration_ms"`
+	ChannelTypes   []int    `json:"channel_types" gorm:"-"`
+	ChannelTypeCSV string   `json:"-" gorm:"column:channel_types"`
 	PlatformNames  []string `json:"platform_names" gorm:"-"`
-	SampleMessage  string  `json:"sample_message"`
-	CompareCount   int64   `json:"compare_count,omitempty" gorm:"-"`
+	SampleMessage  string   `json:"sample_message"`
+	CompareCount   int64    `json:"compare_count,omitempty" gorm:"-"`
 }
 
 type ErrorTopFilter struct {
@@ -946,7 +947,7 @@ LIMIT ?`
 }
 
 // queryErrorsCompareCounts 返回指定 error_code 列表在 [from, to) 时段的出现次数。
-// codes 中如包含 "unknown" 会被翻译为 (error_code = '' OR error_code = 'unknown')。
+// codes 中如包含 "unknown" 会被翻译为 (error_code = ” OR error_code = 'unknown')。
 func queryErrorsCompareCounts(ctx context.Context, from, to int64, codes []string, f ErrorTopFilter) (map[string]int64, error) {
 	if len(codes) == 0 {
 		return map[string]int64{}, nil
@@ -1012,9 +1013,10 @@ GROUP BY COALESCE(NULLIF(error_code, ''), 'unknown')`
 // 仅统计 status_code >= 400 且非业务错误的请求；series 每桶只携带 err_count 一个值。
 //
 // errorCodes 长度：
-//   1 个   → 单错误码趋势（行点击联动）
-//   >1 个  → 汇总趋势（默认状态，常用于"top10 全部错误"汇总）
-//   0 个   → 报错
+//
+//	1 个   → 单错误码趋势（行点击联动）
+//	>1 个  → 汇总趋势（默认状态，常用于"top10 全部错误"汇总）
+//	0 个   → 报错
 func QueryErrorTrend(ctx context.Context, win TimeWindow, bucketSeconds int, errorCodes []string, f ErrorTopFilter) (*TrendResult, error) {
 	if len(errorCodes) == 0 {
 		return nil, errors.New("error_code is required")
@@ -1122,17 +1124,17 @@ ORDER BY bucket_at`
 // ===== Errors Detail =====
 
 type ErrorDetailRow struct {
-	RequestId     string `json:"request_id"`
-	UserId        int    `json:"user_id"`
-	Username      string `json:"username"`
-	ChannelId     int    `json:"channel_id"`
-	ChannelType   int    `json:"channel_type"`
-	PlatformName  string `json:"platform_name" gorm:"-"`
-	ModelName     string `json:"model_name"`
-	StatusCode    int    `json:"status_code"`
-	DurationMs    int    `json:"duration_ms"`
-	ErrorMessage  string `json:"error_message"`
-	CreatedAt     int64  `json:"created_at"`
+	RequestId    string `json:"request_id"`
+	UserId       int    `json:"user_id"`
+	Username     string `json:"username"`
+	ChannelId    int    `json:"channel_id"`
+	ChannelType  int    `json:"channel_type"`
+	PlatformName string `json:"platform_name" gorm:"-"`
+	ModelName    string `json:"model_name"`
+	StatusCode   int    `json:"status_code"`
+	DurationMs   int    `json:"duration_ms"`
+	ErrorMessage string `json:"error_message"`
+	CreatedAt    int64  `json:"created_at"`
 }
 
 func QueryErrorsDetail(ctx context.Context, from, to int64, errorCode string, limit int) ([]ErrorDetailRow, error) {

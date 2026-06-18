@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import React, { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, Lock, RefreshCw } from 'lucide-react'
+import { ArrowDown, ArrowUp, Loader2, Lock, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { formatCurrencyFromUSD } from '@/lib/currency'
@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/table'
 import { getVipStatsDetail, verifyVipStatsPassword } from '../api'
 import type { VipStatsDetail } from '../types'
+import { TrendDialog } from './trend-dialog'
 
 const SESSION_KEY = 'vip_stats_password'
 
@@ -137,6 +138,10 @@ function VipStatsContent(props: {
   onAuthFail: () => void
 }) {
   const { t } = useTranslation()
+  const [trendTarget, setTrendTarget] = useState<{
+    userId: number
+    username: string
+  } | null>(null)
   const { data, isLoading, isFetching, refetch } = useQuery<VipStatsDetail>({
     queryKey: ['vip-stats-detail', props.password],
     queryFn: async () => {
@@ -155,6 +160,11 @@ function VipStatsContent(props: {
     },
     retry: false,
   })
+
+  const openTrend = useCallback(
+    (userId: number, username: string) => setTrendTarget({ userId, username }),
+    []
+  )
 
   return (
     <div className='bg-background min-h-screen p-6'>
@@ -179,9 +189,64 @@ function VipStatsContent(props: {
         </div>
 
         <SummaryCards data={data} isLoading={isLoading} />
-        <DetailTable data={data} isLoading={isLoading} />
-        <RequestTokenTable data={data} isLoading={isLoading} />
+        <DetailTable
+          data={data}
+          isLoading={isLoading}
+          onOpenTrend={openTrend}
+        />
+        <RequestTokenTable
+          data={data}
+          isLoading={isLoading}
+          onOpenTrend={openTrend}
+        />
+
+        <TrendDialog
+          open={trendTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setTrendTarget(null)
+          }}
+          password={props.password}
+          userId={trendTarget?.userId ?? null}
+          username={trendTarget?.username}
+        />
       </div>
+    </div>
+  )
+}
+
+/**
+ * 计算环比百分比。规则与 token-summary-cards 保持一致：
+ *  - prev 为 0、curr 为 0  → 0%（灰色，无箭头）
+ *  - prev 为 0、curr > 0   → +100%（绿色，↑）
+ *  - 其他                  → ((curr-prev)/prev)*100，保留 1 位小数
+ */
+function computeDelta(curr: number, prev: number): {
+  label: string
+  positive: boolean | null
+} {
+  if (prev === 0) {
+    if (curr === 0) return { label: '0%', positive: null }
+    return { label: '100%', positive: true }
+  }
+  const pct = ((curr - prev) / prev) * 100
+  const positive = pct === 0 ? null : pct > 0
+  return { label: `${Math.abs(pct).toFixed(1)}%`, positive }
+}
+
+function DeltaText(props: { label: string; delta: ReturnType<typeof computeDelta> }) {
+  const { label, delta } = props
+  const colorClass =
+    delta.positive === true
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : delta.positive === false
+        ? 'text-rose-600 dark:text-rose-400'
+        : 'text-muted-foreground'
+  return (
+    <div className={cn('mt-1 flex items-center gap-1 text-xs', colorClass)}>
+      <span className='text-muted-foreground'>{label}</span>
+      {delta.positive === true && <ArrowUp className='h-3 w-3' />}
+      {delta.positive === false && <ArrowDown className='h-3 w-3' />}
+      <span className='tabular-nums'>{delta.label}</span>
     </div>
   )
 }
@@ -193,38 +258,81 @@ function SummaryCards(props: {
   const { t } = useTranslation()
   const s = props.data?.summary
   const fmtInt = (n: number) => n.toLocaleString()
+  const vsYesterday = t('vs Yesterday')
+  const vsPrevPeriod = t('vs Previous Period')
   const cards = [
     {
       label: t('Customer Count'),
       value: s ? String(s.user_count) : '-',
+      delta: null as null | {
+        compareLabel: string
+        delta: ReturnType<typeof computeDelta>
+      },
     },
     {
       label: t('Today Consumed ($)'),
       value: s ? formatCurrencyFromUSD(quotaToUsd(s.today_consumed)) : '-',
+      delta: s
+        ? {
+            compareLabel: vsYesterday,
+            delta: computeDelta(s.today_consumed, s.yesterday_consumed),
+          }
+        : null,
     },
     {
       label: t('7-Day Consumed ($)'),
       value: s ? formatCurrencyFromUSD(quotaToUsd(s.weekly_consumed)) : '-',
+      delta: s
+        ? {
+            compareLabel: vsPrevPeriod,
+            delta: computeDelta(s.weekly_consumed, s.prev_week_consumed),
+          }
+        : null,
     },
     {
       label: t('Total Remaining ($)'),
       value: s ? formatCurrencyFromUSD(quotaToUsd(s.current_remaining)) : '-',
+      delta: null,
     },
     {
       label: t('Today Requests'),
       value: s ? fmtInt(s.today_requests) : '-',
+      delta: s
+        ? {
+            compareLabel: vsYesterday,
+            delta: computeDelta(s.today_requests, s.yesterday_requests),
+          }
+        : null,
     },
     {
       label: t('Today Tokens'),
       value: s ? fmtInt(s.today_tokens) : '-',
+      delta: s
+        ? {
+            compareLabel: vsYesterday,
+            delta: computeDelta(s.today_tokens, s.yesterday_tokens),
+          }
+        : null,
     },
     {
       label: t('7-Day Requests'),
       value: s ? fmtInt(s.weekly_requests) : '-',
+      delta: s
+        ? {
+            compareLabel: vsPrevPeriod,
+            delta: computeDelta(s.weekly_requests, s.prev_week_requests),
+          }
+        : null,
     },
     {
       label: t('7-Day Tokens'),
       value: s ? fmtInt(s.weekly_tokens) : '-',
+      delta: s
+        ? {
+            compareLabel: vsPrevPeriod,
+            delta: computeDelta(s.weekly_tokens, s.prev_week_tokens),
+          }
+        : null,
     },
   ]
 
@@ -241,6 +349,12 @@ function SummaryCards(props: {
             <div className='text-2xl font-semibold tabular-nums'>
               {props.isLoading ? '…' : c.value}
             </div>
+            {!props.isLoading && c.delta && (
+              <DeltaText
+                label={c.delta.compareLabel}
+                delta={c.delta.delta}
+              />
+            )}
           </CardContent>
         </Card>
       ))}
@@ -251,6 +365,7 @@ function SummaryCards(props: {
 function DetailTable(props: {
   data: VipStatsDetail | undefined
   isLoading: boolean
+  onOpenTrend: (userId: number, username: string) => void
 }) {
   const { t } = useTranslation()
   const data = props.data
@@ -282,6 +397,7 @@ function DetailTable(props: {
           <TableHeader>
             <TableRow>
               <TableHead>{t('Customer')}</TableHead>
+              <TableHead>{t('Short Name')}</TableHead>
               {dates.map((d) => (
                 <TableHead key={d} className='text-center'>
                   {formatMonthDay(d)}
@@ -292,12 +408,14 @@ function DetailTable(props: {
                 {t('Business Channel')}
               </TableHead>
               <TableHead className='text-center'>{t('Inviter')}</TableHead>
+              <TableHead className='text-center'>{t('Action')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {data && rows.length > 0 && (
               <TableRow className='bg-amber-50 hover:bg-amber-50 dark:bg-amber-950/30 dark:hover:bg-amber-950/30'>
                 <TableCell className='font-medium'>{t('Total')}</TableCell>
+                <TableCell className='text-muted-foreground'>/</TableCell>
                 {totals.map((v, i) => (
                   <TableCell
                     key={i}
@@ -315,12 +433,16 @@ function DetailTable(props: {
                 <TableCell className='text-muted-foreground text-center'>
                   /
                 </TableCell>
+                <TableCell className='text-muted-foreground text-center'>
+                  /
+                </TableCell>
               </TableRow>
             )}
 
             {rows.map((r) => (
               <TableRow key={r.user_id}>
                 <TableCell className='font-medium'>{r.username}</TableCell>
+                <TableCell>{r.display_name || ''}</TableCell>
                 {r.daily.map((v, i) => (
                   <TableCell
                     key={i}
@@ -341,13 +463,21 @@ function DetailTable(props: {
                 <TableCell className='text-center'>
                   {r.inviter_username || ''}
                 </TableCell>
+                <TableCell className='text-center'>
+                  <span
+                    className='cursor-pointer text-blue-600 underline underline-offset-2 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300'
+                    onClick={() => props.onOpenTrend(r.user_id, r.username)}
+                  >
+                    {t('Trend Change')}
+                  </span>
+                </TableCell>
               </TableRow>
             ))}
 
             {!props.isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={dates.length + 4}
+                  colSpan={dates.length + 6}
                   className='text-muted-foreground text-center'
                 >
                   {t('No VIP customers found')}
@@ -357,7 +487,7 @@ function DetailTable(props: {
             {props.isLoading && (
               <TableRow>
                 <TableCell
-                  colSpan={Math.max(dates.length + 4, 11)}
+                  colSpan={Math.max(dates.length + 6, 14)}
                   className='text-muted-foreground text-center'
                 >
                   {t('Loading...')}
@@ -373,11 +503,12 @@ function DetailTable(props: {
 
 /**
  * 第二张表格："客户请求次数/token 数"。每个客户占两行(请求次数 / 消耗 TOKEN)，
- * 列头跟第一张表一样是动态 7 天日期 + 合计列。
+ * 列头跟第一张表一样是动态 8 天日期 + 合计列。
  */
 function RequestTokenTable(props: {
   data: VipStatsDetail | undefined
   isLoading: boolean
+  onOpenTrend: (userId: number, username: string) => void
 }) {
   const { t } = useTranslation()
   const data = props.data
@@ -399,6 +530,7 @@ function RequestTokenTable(props: {
           <TableHeader>
             <TableRow>
               <TableHead>{t('Customer')}</TableHead>
+              <TableHead>{t('Short Name')}</TableHead>
               <TableHead>{t('Dimension')}</TableHead>
               {dates.map((d) => (
                 <TableHead key={d} className='text-center'>
@@ -410,6 +542,7 @@ function RequestTokenTable(props: {
                 {t('Business Channel')}
               </TableHead>
               <TableHead className='text-center'>{t('Inviter')}</TableHead>
+              <TableHead className='text-center'>{t('Action')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -419,6 +552,12 @@ function RequestTokenTable(props: {
                 <TableRow className='bg-amber-50 hover:bg-amber-50 dark:bg-amber-950/30 dark:hover:bg-amber-950/30'>
                   <TableCell rowSpan={2} className='align-middle font-medium'>
                     {t('Total')}
+                  </TableCell>
+                  <TableCell
+                    rowSpan={2}
+                    className='text-muted-foreground align-middle'
+                  >
+                    /
                   </TableCell>
                   <TableCell className='font-medium'>
                     {t('Requests')}
@@ -433,6 +572,12 @@ function RequestTokenTable(props: {
                   ))}
                   <TableCell className='text-center font-medium tabular-nums'>
                     {fmtInt(totalRequests.reduce((a, b) => a + b, 0))}
+                  </TableCell>
+                  <TableCell
+                    rowSpan={2}
+                    className='text-muted-foreground text-center align-middle'
+                  >
+                    /
                   </TableCell>
                   <TableCell
                     rowSpan={2}
@@ -479,6 +624,9 @@ function RequestTokenTable(props: {
                     <TableCell rowSpan={2} className='align-middle font-medium'>
                       {r.username}
                     </TableCell>
+                    <TableCell rowSpan={2} className='align-middle'>
+                      {r.display_name || ''}
+                    </TableCell>
                     <TableCell>{t('Requests')}</TableCell>
                     {r.daily_requests.map((v, i) => (
                       <TableCell
@@ -506,6 +654,17 @@ function RequestTokenTable(props: {
                     >
                       {r.inviter_username || ''}
                     </TableCell>
+                    <TableCell
+                      rowSpan={2}
+                      className='text-center align-middle'
+                    >
+                      <span
+                        className='cursor-pointer text-blue-600 underline underline-offset-2 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300'
+                        onClick={() => props.onOpenTrend(r.user_id, r.username)}
+                      >
+                        {t('Trend Change')}
+                      </span>
+                    </TableCell>
                   </TableRow>
                   <TableRow>
                     <TableCell>{t('Tokens')}</TableCell>
@@ -531,7 +690,7 @@ function RequestTokenTable(props: {
             {!props.isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={dates.length + 5}
+                  colSpan={dates.length + 7}
                   className='text-muted-foreground text-center'
                 >
                   {t('No VIP customers found')}
@@ -541,7 +700,7 @@ function RequestTokenTable(props: {
             {props.isLoading && (
               <TableRow>
                 <TableCell
-                  colSpan={Math.max(dates.length + 5, 12)}
+                  colSpan={Math.max(dates.length + 7, 15)}
                   className='text-muted-foreground text-center'
                 >
                   {t('Loading...')}

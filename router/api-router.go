@@ -99,6 +99,7 @@ func SetApiRouter(router *gin.Engine) {
 		// Public VIP stats page (password-gated, no auth required)
 		apiRouter.POST("/vip_stats/verify", controller.VerifyVipStatsPassword)
 		apiRouter.GET("/vip_stats/detail", controller.GetVipStatsDetail)
+		apiRouter.GET("/vip_stats/trend", controller.GetVipStatsTrend)
 
 		userRoute := apiRouter.Group("/user")
 		{
@@ -185,6 +186,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.POST("/tg_notify/trigger", controller.TriggerTgNotifyManually)
 				adminRoute.POST("/tg_notify/low_balance_trigger", controller.TriggerVipLowBalanceManually)
 				adminRoute.POST("/vip_stats/backfill", controller.BackfillVipDailyStats)
+				adminRoute.POST("/vip_stats/backfill_hourly", controller.BackfillVipHourlyStats)
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)

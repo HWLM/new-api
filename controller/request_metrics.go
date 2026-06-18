@@ -379,4 +379,3 @@ func TestAlertNotification(c *gin.Context) {
 	}
 	responseOK(c, gin.H{"sent": true})
 }
-

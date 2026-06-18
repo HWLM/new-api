@@ -158,11 +158,21 @@ export interface VipStatsSummary {
   today_tokens: number
   weekly_requests: number
   weekly_tokens: number
+  /** 较昨日同时段（昨天 00:00 ~ now-24h） */
+  yesterday_consumed: number
+  yesterday_requests: number
+  yesterday_tokens: number
+  /** 较上周期（[today-14, today-8] 这 7 个整天） */
+  prev_week_consumed: number
+  prev_week_requests: number
+  prev_week_tokens: number
 }
 
 export interface VipStatsRow {
   user_id: number
   username: string
+  /** 客户简称，来自 users.display_name */
+  display_name: string
   remaining: number
   daily: number[]
   daily_requests: number[]
@@ -180,6 +190,47 @@ export interface VipStatsDetail {
   totals: number[]
   total_requests: number[]
   total_tokens: number[]
+}
+
+// ============================================================================
+// VIP Stats Trend (单用户 两周期对比)
+// ============================================================================
+
+export type TrendMode = 'daily' | 'weekly' | 'monthly' | 'custom'
+export type TrendGranularity = 'day' | 'hour'
+
+export interface TrendSeries {
+  /** x 轴 label：day → "MM-DD"；hour → "MM-DD HH:00" */
+  buckets: string[]
+  /** 对应 quota 数值（前端转 $ 显示） */
+  values: number[]
+  total: number
+}
+
+export interface VipStatsTrend {
+  granularity: TrendGranularity
+  current: TrendSeries
+  compare: TrendSeries
+  current_total: number
+  compare_total: number
+  diff: number
+  /** 已乘 100，单位 %；compare_total=0 时返回 0 */
+  change_rate: number
+}
+
+/** trend 接口请求参数 */
+export interface VipStatsTrendParams {
+  user_id: number
+  granularity: TrendGranularity
+  current_start: string // YYYY-MM-DD
+  current_end: string
+  compare_start: string
+  compare_end: string
+  /** 仅 granularity=hour 时使用；day 时省略走默认 0/23 */
+  current_start_hour?: number
+  current_end_hour?: number
+  compare_start_hour?: number
+  compare_end_hour?: number
 }
 
 // ============================================================================

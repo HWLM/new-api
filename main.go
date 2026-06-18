@@ -130,6 +130,9 @@ func main() {
 	// VIP customer daily consumption stat task (每天本地 2 点统计昨天消耗写入 vip_daily_consumption)
 	service.StartVipDailyStatTask()
 
+	// VIP customer hourly consumption stat task (每小时 :05 统计上一小时消耗写入 vip_hourly_consumption)
+	service.StartVipHourlyStatTask()
+
 	// VIP customer low balance alert (每小时检查，余额 < $100 的客户列表非空就发 TG)
 	service.StartVipLowBalanceTask()
 
