@@ -357,6 +357,7 @@
     "API Key Name": "Имя API ключа",
     "API Key updated successfully": "API ключ успешно обновлен",
     "API Keys": "Ключи API",
+    "API endpoint": "API endpoint",
     "API Private Key": "Секретный ключ API",
     "API Requests": "Запросы API",
     "API secret": "Секрет API",
@@ -4667,6 +4668,25 @@
         "Disabled (Stats)": "Отключено",
         "Deleted (Stats)": "Удалено",
         "Error (Stats)": "Ошибка",
-        "No Data (Stats)": "Нет данных"
+        "No Data (Stats)": "Нет данных",
+        "Change Rate": "Темп изменения",
+        "Compare": "Сравнение",
+        "Compare Period": "Период сравнения",
+        "Current": "Текущий",
+        "Current Period": "Текущий период",
+        "Difference": "Разница",
+        "Enable time comparison": "Включить сравнение по времени (тот же интервал в другой день)",
+        "Failure Trend": "Тренд ошибок",
+        "Failure Trend Summary": "Сводка тренда ошибок",
+        "Invalid time range, please adjust": "Недопустимый интервал времени, пожалуйста, отрегулируйте",
+        "Slow Response Requests": "Запросы с медленным ответом",
+        "Slow TTFT Requests": "Запросы с медленным TTFT",
+        "compared with": "по сравнению с",
+        "same time period": "тот же интервал",
+        "Compare Requests": "Запросы сравнения",
+        "Error Count": "Кол-во ошибок",
+        "Compare Errors": "Кол-во ошибок сравнения",
+        "slow": "медл."
   }
 }
+

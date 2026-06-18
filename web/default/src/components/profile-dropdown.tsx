@@ -85,14 +85,14 @@ export function ProfileDropdown() {
                 <span className='text-muted-foreground text-xs'>
                   {roleLabel}
                 </span>
-                {user?.group && (
+                {/* {user?.group && (
                   <>
                     <span className='text-muted-foreground text-xs'>·</span>
                     <span className='text-muted-foreground truncate text-xs'>
                       {String(user.group)}
                     </span>
                   </>
-                )}
+                )} */}
               </div>
             </div>
           </div>

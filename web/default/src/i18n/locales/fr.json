@@ -357,6 +357,7 @@
     "API Key Name": "Nom de la clé API",
     "API Key updated successfully": "Clé API mise à jour avec succès",
     "API Keys": "Clés API",
+    "API endpoint": "Point d'accès API",
     "API Private Key": "Clé privée de l'API",
     "API Requests": "Requêtes API",
     "API secret": "Secret API",
@@ -4667,6 +4668,24 @@
         "Disabled (Stats)": "Desactive",
         "Deleted (Stats)": "Supprime",
         "Error (Stats)": "Erreur",
-        "No Data (Stats)": "Aucune donnee"
+        "No Data (Stats)": "Aucune donnee",
+        "Change Rate": "Taux d'évolution",
+        "Compare": "Comparaison",
+        "Compare Period": "Période de comparaison",
+        "Current": "Actuel",
+        "Current Period": "Période actuelle",
+        "Difference": "Différence",
+        "Enable time comparison": "Activer la comparaison temporelle (même plage sur une autre date)",
+        "Failure Trend": "Tendance d'échec",
+        "Failure Trend Summary": "Synthèse de la tendance d'échec",
+        "Invalid time range, please adjust": "Plage horaire invalide, veuillez ajuster",
+        "Slow Response Requests": "Requêtes à réponse lente",
+        "Slow TTFT Requests": "Requêtes à TTFT lent",
+        "compared with": "comparé à",
+        "same time period": "même plage horaire",
+        "Compare Requests": "Requêtes comparées",
+        "Error Count": "Nombre d'erreurs",
+        "Compare Errors": "Erreurs comparées",
+        "slow": "lent"
   }
 }

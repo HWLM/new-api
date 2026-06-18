@@ -357,6 +357,7 @@
     "API Key Name": "Tên khóa API",
     "API Key updated successfully": "API Key đã được cập nhật thành công",
     "API Keys": "Khóa API",
+    "API endpoint": "API endpoint",
     "API Private Key": "Khóa riêng API",
     "API Requests": "Yêu cầu API",
     "API secret": "Bí mật API",
@@ -4667,6 +4668,25 @@
         "Disabled (Stats)": "Tat",
         "Deleted (Stats)": "Da xoa",
         "Error (Stats)": "Lỗi",
-        "No Data (Stats)": "Khong co du lieu"
+        "No Data (Stats)": "Khong co du lieu",
+        "Change Rate": "Tỷ lệ thay đổi",
+        "Compare": "So sánh",
+        "Compare Period": "Kỳ so sánh",
+        "Current": "Hiện tại",
+        "Current Period": "Kỳ hiện tại",
+        "Difference": "Chênh lệch",
+        "Enable time comparison": "Bật so sánh thời gian (cùng khung giờ ngày khác)",
+        "Failure Trend": "Xu hướng lỗi",
+        "Failure Trend Summary": "Tổng hợp xu hướng lỗi",
+        "Invalid time range, please adjust": "Khoảng thời gian không hợp lệ, vui lòng điều chỉnh",
+        "Slow Response Requests": "Yêu cầu phản hồi chậm",
+        "Slow TTFT Requests": "Yêu cầu TTFT chậm",
+        "compared with": "so với",
+        "same time period": "cùng khung giờ",
+        "Compare Requests": "Yêu cầu so sánh",
+        "Error Count": "Số lỗi",
+        "Compare Errors": "Số lỗi so sánh",
+        "slow": "chậm"
   }
 }
+

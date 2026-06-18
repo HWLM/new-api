@@ -82,7 +82,7 @@ func buildRequestMetricsRow(c *gin.Context, info *relaycommon.RelayInfo, statusC
 		errMessage = TruncateErrorMessage(apiErr.Error(), 512)
 		rawCode := string(apiErr.GetErrorCode())
 		errType, isBusiness = ClassifyError(finalStatusCode, errMessage)
-		errCode = NormalizeErrorCode(rawCode, finalStatusCode)
+		errCode = NormalizeErrorCode(rawCode, finalStatusCode, errMessage)
 	} else if finalStatusCode == 0 {
 		finalStatusCode = 200
 	}
@@ -93,23 +93,23 @@ func buildRequestMetricsRow(c *gin.Context, info *relaycommon.RelayInfo, statusC
 	}
 
 	return &model.RequestMetricsLog{
-		RequestId:        c.GetString(common.RequestIdKey),
-		UserId:           info.UserId,
-		Username:         c.GetString("username"),
-		TokenId:          info.TokenId,
-		ChannelId:        info.ChannelId,
-		ChannelType:      int16(info.ChannelType),
-		ModelName:        modelName,
-		Group:            info.UsingGroup,
-		StatusCode:       int16(finalStatusCode),
-		DurationMs:       durationMs,
-		FirstTokenMs:     firstTokenMs,
-		IsStream:         info.IsStream,
-		ErrorType:        errType,
-		IsBusinessError:  isBusiness,
-		ErrorCode:        errCode,
-		ErrorMessage:     errMessage,
-		CreatedAt:        now.Unix(),
+		RequestId:       c.GetString(common.RequestIdKey),
+		UserId:          info.UserId,
+		Username:        c.GetString("username"),
+		TokenId:         info.TokenId,
+		ChannelId:       info.ChannelId,
+		ChannelType:     int16(info.ChannelType),
+		ModelName:       modelName,
+		Group:           info.UsingGroup,
+		StatusCode:      int16(finalStatusCode),
+		DurationMs:      durationMs,
+		FirstTokenMs:    firstTokenMs,
+		IsStream:        info.IsStream,
+		ErrorType:       errType,
+		IsBusinessError: isBusiness,
+		ErrorCode:       errCode,
+		ErrorMessage:    errMessage,
+		CreatedAt:       now.Unix(),
 	}
 }
 
