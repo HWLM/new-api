@@ -74,9 +74,15 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     }
   }, [props.open, props.topupGroupRatio])
 
+  const isGift = quotaType === '赠送'
   const rechargeNum = parseFloat(rechargeAmount) || 0
   const ratioNum = parseFloat(ratio) || 0
-  const actualUsd = ratioNum > 0 ? rechargeNum / ratioNum : 0
+  // 赠送：1:1 直接按 USD 计入，不应用比例；充值：金额 ÷ 比例
+  const actualUsd = isGift
+    ? rechargeNum
+    : ratioNum > 0
+      ? rechargeNum / ratioNum
+      : 0
   // 预览用：把 USD → quota 单位 → 配置的展示单位
   const actualQuotaUnits = Math.round(actualUsd * QUOTA_PER_USD)
 
@@ -115,7 +121,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           toast.error(t('Please enter recharge amount'))
           return
         }
-        if (ratioNum < RATIO_MIN || ratioNum > RATIO_MAX) {
+        if (!isGift && (ratioNum < RATIO_MIN || ratioNum > RATIO_MAX)) {
           toast.error(
             t('Ratio must be between {{min}} and {{max}}', {
               min: RATIO_MIN,
@@ -130,7 +136,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           mode: 'add',
           quota_type: quotaType,
           recharge_amount: rechargeNum,
-          ratio: ratioNum,
+          ratio: isGift ? 1 : ratioNum,
         }
       } else {
         if (!amount) return
@@ -251,28 +257,41 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                 />
               </div>
 
-              <div className='space-y-2'>
-                <Label>{t('Recharge ratio')}</Label>
-                <Input
-                  type='number'
-                  step={0.01}
-                  min={RATIO_MIN}
-                  max={RATIO_MAX}
-                  placeholder={t('Default from user group ratio')}
-                  value={ratio}
-                  onChange={(e) => setRatio(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleConfirm()
-                  }}
-                />
-              </div>
+              {!isGift && (
+                <div className='space-y-2'>
+                  <Label>{t('Recharge ratio')}</Label>
+                  <Input
+                    type='number'
+                    step={0.01}
+                    min={RATIO_MIN}
+                    max={RATIO_MAX}
+                    placeholder={t('Default from user group ratio')}
+                    value={ratio}
+                    onChange={(e) => setRatio(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleConfirm()
+                    }}
+                  />
+                </div>
+              )}
 
               <div className='text-muted-foreground text-sm'>
-                {t('Actual credit')} = {t('Recharge Amount')} ÷{' '}
-                {t('Recharge ratio')} ={' '}
-                <span className='text-foreground font-medium'>
-                  {actualUsd.toFixed(4)} USD
-                </span>
+                {isGift ? (
+                  <>
+                    {t('Actual credit')} = {t('Recharge Amount')} ={' '}
+                    <span className='text-foreground font-medium'>
+                      {actualUsd.toFixed(4)} USD
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {t('Actual credit')} = {t('Recharge Amount')} ÷{' '}
+                    {t('Recharge ratio')} ={' '}
+                    <span className='text-foreground font-medium'>
+                      {actualUsd.toFixed(4)} USD
+                    </span>
+                  </>
+                )}
               </div>
             </>
           ) : (
