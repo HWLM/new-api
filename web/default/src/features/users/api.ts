@@ -28,6 +28,8 @@ import type {
   ApiResponse,
   TgNotifySettings,
   VipStatsDetail,
+  VipStatsTrend,
+  VipStatsTrendParams,
 } from './types'
 
 // ============================================================================
@@ -266,5 +268,32 @@ export async function verifyVipStatsPassword(
   password: string
 ): Promise<ApiResponse> {
   const res = await api.post('/api/vip_stats/verify', { password })
+  return res.data
+}
+
+/**
+ * Get single-user trend comparison (current period vs compare period).
+ * Password-gated via X-VIP-Stats-Password header.
+ */
+export async function getVipStatsTrend(
+  password: string,
+  params: VipStatsTrendParams
+): Promise<ApiResponse<VipStatsTrend>> {
+  const qs = new URLSearchParams()
+  qs.set('user_id', String(params.user_id))
+  qs.set('granularity', params.granularity)
+  qs.set('current_start', params.current_start)
+  qs.set('current_end', params.current_end)
+  qs.set('compare_start', params.compare_start)
+  qs.set('compare_end', params.compare_end)
+  if (params.granularity === 'hour') {
+    qs.set('current_start_hour', String(params.current_start_hour ?? 0))
+    qs.set('current_end_hour', String(params.current_end_hour ?? 23))
+    qs.set('compare_start_hour', String(params.compare_start_hour ?? 0))
+    qs.set('compare_end_hour', String(params.compare_end_hour ?? 23))
+  }
+  const res = await api.get(`/api/vip_stats/trend?${qs.toString()}`, {
+    headers: { 'X-VIP-Stats-Password': password },
+  })
   return res.data
 }

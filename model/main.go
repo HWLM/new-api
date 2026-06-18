@@ -287,6 +287,7 @@ func migrateDB() error {
 		&TokenQuotaData{},
 		&TokenExhaustingSnapshot{},
 		&VipDailyConsumption{},
+		&VipHourlyConsumption{},
 		&RequestAlertRule{},
 		&RequestAlertEvent{},
 		&RequestMetricsLog{},
