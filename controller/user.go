@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -342,7 +343,13 @@ func GetUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    user,
+		"data": struct {
+			*model.User
+			TopupGroupRatio float64 `json:"topup_group_ratio"`
+		}{
+			User:            user,
+			TopupGroupRatio: common.GetTopupGroupRatio(user.Group),
+		},
 	})
 	return
 }
@@ -934,7 +941,17 @@ type ManageRequest struct {
 	Action string `json:"action"`
 	Value  int    `json:"value"`
 	Mode   string `json:"mode"`
+
+	// 仅 action=add_quota + mode=add 使用：管理员录入的原始充值金额与比例，由后端权威换算 value。
+	QuotaType      string  `json:"quota_type,omitempty"`      // "充值" | "赠送"
+	RechargeAmount float64 `json:"recharge_amount,omitempty"` // 充值金额（USD）
+	Ratio          float64 `json:"ratio,omitempty"`           // 充值比例（0.1 ~ 100）
 }
+
+const (
+	manageQuotaRatioMin = 0.1
+	manageQuotaRatioMax = 100.0
+)
 
 // ManageUser Only admin user can do this
 func ManageUser(c *gin.Context) {
@@ -1014,16 +1031,41 @@ func ManageUser(c *gin.Context) {
 		}
 		switch req.Mode {
 		case "add":
-			if req.Value <= 0 {
+			// 类型必须明确为 充值 / 赠送
+			if req.QuotaType != model.QuotaTypeRecharge && req.QuotaType != model.QuotaTypeGift {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			if req.RechargeAmount <= 0 {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
-			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
+			if req.Ratio < manageQuotaRatioMin || req.Ratio > manageQuotaRatioMax {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			// 后端权威换算：actual_quota = round(金额 / 比例 × QuotaPerUnit)
+			quotaValue := int(math.Round((req.RechargeAmount / req.Ratio) * common.QuotaPerUnit))
+			if quotaValue <= 0 {
+				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
+				return
+			}
+			oldQuota := user.Quota
+			if err := model.IncreaseUserQuota(user.Id, quotaValue, true); err != nil {
 				common.ApiError(c, err)
 				return
 			}
-			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
-				fmt.Sprintf("管理员增加用户额度 %s", logger.LogQuota(req.Value)), adminInfo)
+			actionVerb := "充值"
+			if req.QuotaType == model.QuotaTypeGift {
+				actionVerb = "赠送"
+			}
+			model.RecordManageLog(user.Id,
+				fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f USD，比例 %.2f，余额 %s → %s）",
+					actionVerb,
+					logger.LogQuota(quotaValue),
+					req.RechargeAmount, req.Ratio,
+					logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue)),
+				model.OperationTypeQuota, req.QuotaType, adminInfo)
 		case "subtract":
 			if req.Value <= 0 {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
@@ -1033,16 +1075,16 @@ func ManageUser(c *gin.Context) {
 				common.ApiError(c, err)
 				return
 			}
-			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
-				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), adminInfo)
+			model.RecordManageLog(user.Id,
+				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo)
 		case "override":
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
 				common.ApiError(c, err)
 				return
 			}
-			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
-				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), adminInfo)
+			model.RecordManageLog(user.Id,
+				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo)
 		default:
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return

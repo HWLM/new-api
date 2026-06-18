@@ -91,6 +91,10 @@ export function UsersMutateDrawer({
   const { triggerRefresh } = useUsers()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  /** GET /api/user/:id 返回的分组充值比例，给调整额度弹窗回显 */
+  const [topupGroupRatio, setTopupGroupRatio] = useState<number | undefined>(
+    undefined
+  )
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -113,11 +117,13 @@ export function UsersMutateDrawer({
       getUser(currentRow.id).then((result) => {
         if (result.success && result.data) {
           form.reset(transformUserToFormDefaults(result.data))
+          setTopupGroupRatio(result.data.topup_group_ratio)
         }
       })
     } else if (open && !isUpdate) {
       // For create, reset to defaults
       form.reset(USER_FORM_DEFAULT_VALUES)
+      setTopupGroupRatio(undefined)
     }
   }, [open, isUpdate, currentRow, form])
 
@@ -174,6 +180,7 @@ export function UsersMutateDrawer({
     const result = await getUser(currentRow.id)
     if (result.success && result.data) {
       form.reset(transformUserToFormDefaults(result.data))
+      setTopupGroupRatio(result.data.topup_group_ratio)
     }
     triggerRefresh()
   }
@@ -485,6 +492,7 @@ export function UsersMutateDrawer({
           onOpenChange={setQuotaDialogOpen}
           userId={currentRow.id}
           currentQuota={parseQuotaFromDollars(currentQuotaRaw || 0)}
+          topupGroupRatio={topupGroupRatio}
           onSuccess={refreshUserData}
         />
       )}

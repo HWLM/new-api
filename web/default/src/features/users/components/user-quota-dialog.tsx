@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
@@ -34,64 +34,121 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { adjustUserQuota } from '../api'
-import type { QuotaAdjustMode } from '../types'
+import type {
+  ManageUserQuotaPayload,
+  QuotaAdjustMode,
+  QuotaType,
+} from '../types'
+
+const RATIO_MIN = 0.1
+const RATIO_MAX = 100
+const QUOTA_PER_USD = 500_000 // 与后端 common.QuotaPerUnit 对齐，仅用于预览展示
 
 interface UserQuotaDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   userId: number
   currentQuota: number
+  /** 用户所在分组的充值比例，来自 GET /api/user/:id 的 topup_group_ratio */
+  topupGroupRatio?: number
   onSuccess: () => void
 }
 
 export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount] = useState('') // subtract / override 用
+  const [quotaType, setQuotaType] = useState<QuotaType>('充值')
+  const [rechargeAmount, setRechargeAmount] = useState('') // add 模式：USD
+  const [ratio, setRatio] = useState('1')
   const [loading, setLoading] = useState(false)
 
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
   const tokensOnly = currencyMeta.kind === 'tokens'
 
+  // 弹窗打开 / 切换用户 时，将比例回显为分组充值比例
+  useEffect(() => {
+    if (props.open) {
+      setRatio(String(props.topupGroupRatio ?? 1))
+    }
+  }, [props.open, props.topupGroupRatio])
+
+  const rechargeNum = parseFloat(rechargeAmount) || 0
+  const ratioNum = parseFloat(ratio) || 0
+  const actualUsd = ratioNum > 0 ? rechargeNum / ratioNum : 0
+  // 预览用：把 USD → quota 单位 → 配置的展示单位
+  const actualQuotaUnits = Math.round(actualUsd * QUOTA_PER_USD)
+
   const amountValue = parseFloat(amount) || 0
-  const quotaValue = parseQuotaFromDollars(Math.abs(amountValue))
+  const subtractQuotaValue = parseQuotaFromDollars(Math.abs(amountValue))
+  const overrideQuotaValue = parseQuotaFromDollars(amountValue)
 
   const getPreviewText = () => {
     const current = props.currentQuota
-    const val = quotaValue
     switch (mode) {
       case 'add':
-        return `${t('Current quota')}: ${formatQuota(current)}  +${formatQuota(val)} = ${formatQuota(current + val)}`
+        return `${t('Current quota')}: ${formatQuota(current)}  +${formatQuota(actualQuotaUnits)} = ${formatQuota(current + actualQuotaUnits)}`
       case 'subtract':
-        return `${t('Current quota')}: ${formatQuota(current)}  -${formatQuota(val)} = ${formatQuota(current - val)}`
-      case 'override': {
-        const overrideQuota = parseQuotaFromDollars(amountValue)
-        return `${t('Current quota')}: ${formatQuota(current)} → ${formatQuota(overrideQuota)}`
-      }
+        return `${t('Current quota')}: ${formatQuota(current)}  -${formatQuota(subtractQuotaValue)} = ${formatQuota(current - subtractQuotaValue)}`
+      case 'override':
+        return `${t('Current quota')}: ${formatQuota(current)} → ${formatQuota(overrideQuotaValue)}`
       default:
         return ''
     }
   }
 
-  const handleConfirm = async () => {
-    if (!amount && mode !== 'override') return
-    if (quotaValue <= 0 && mode !== 'override') return
+  const resetForm = () => {
+    setAmount('')
+    setRechargeAmount('')
+    setQuotaType('充值')
+    setRatio(String(props.topupGroupRatio ?? 1))
+    setMode('add')
+  }
 
+  const handleConfirm = async () => {
     setLoading(true)
     try {
-      const value =
-        mode === 'override' ? parseQuotaFromDollars(amountValue) : quotaValue
-      const result = await adjustUserQuota({
-        id: props.userId,
-        action: 'add_quota',
-        mode,
-        value: mode === 'override' ? value : Math.abs(value),
-      })
+      let payload: ManageUserQuotaPayload
+      if (mode === 'add') {
+        if (rechargeNum <= 0) {
+          toast.error(t('Please enter recharge amount'))
+          return
+        }
+        if (ratioNum < RATIO_MIN || ratioNum > RATIO_MAX) {
+          toast.error(
+            t('Ratio must be between {{min}} and {{max}}', {
+              min: RATIO_MIN,
+              max: RATIO_MAX,
+            })
+          )
+          return
+        }
+        payload = {
+          id: props.userId,
+          action: 'add_quota',
+          mode: 'add',
+          quota_type: quotaType,
+          recharge_amount: rechargeNum,
+          ratio: ratioNum,
+        }
+      } else {
+        if (!amount) return
+        const value =
+          mode === 'override' ? overrideQuotaValue : subtractQuotaValue
+        if (mode !== 'override' && value <= 0) return
+        payload = {
+          id: props.userId,
+          action: 'add_quota',
+          mode,
+          value,
+        }
+      }
+
+      const result = await adjustUserQuota(payload)
       if (result.success) {
         toast.success(t('Quota adjusted successfully'))
-        setAmount('')
-        setMode('add')
+        resetForm()
         props.onOpenChange(false)
         props.onSuccess()
       } else {
@@ -105,12 +162,11 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleCancel = () => {
-    setAmount('')
-    setMode('add')
+    resetForm()
     props.onOpenChange(false)
   }
 
-  const placeholder = tokensOnly
+  const amountPlaceholder = tokensOnly
     ? t('Enter amount in tokens')
     : t('Enter amount in {{currency}}', { currency: currencyLabel })
 
@@ -144,6 +200,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                   onClick={() => {
                     setMode(m)
                     setAmount('')
+                    setRechargeAmount('')
                   }}
                 >
                   {m === 'add'
@@ -156,22 +213,86 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
             </div>
           </div>
 
-          <div className='space-y-2'>
-            <Label>
-              {t('Amount')} ({currencyLabel})
-            </Label>
-            <Input
-              type='number'
-              step={tokensOnly ? 1 : 0.000001}
-              min={mode === 'override' ? undefined : 0}
-              placeholder={placeholder}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleConfirm()
-              }}
-            />
-          </div>
+          {mode === 'add' ? (
+            <>
+              <div className='space-y-2'>
+                <Label>{t('Type')}</Label>
+                <div className='flex gap-1'>
+                  {(['充值', '赠送'] as const).map((q) => (
+                    <Button
+                      key={q}
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className={cn(
+                        quotaType === q &&
+                          'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
+                      )}
+                      onClick={() => setQuotaType(q)}
+                    >
+                      {q === '充值' ? t('Recharge') : t('Gift')}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className='space-y-2'>
+                <Label>{t('Recharge Amount (USD)')}</Label>
+                <Input
+                  type='number'
+                  step={0.01}
+                  min={0}
+                  placeholder={t('Enter recharge amount in USD')}
+                  value={rechargeAmount}
+                  onChange={(e) => setRechargeAmount(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleConfirm()
+                  }}
+                />
+              </div>
+
+              <div className='space-y-2'>
+                <Label>{t('Recharge ratio')}</Label>
+                <Input
+                  type='number'
+                  step={0.01}
+                  min={RATIO_MIN}
+                  max={RATIO_MAX}
+                  placeholder={t('Default from user group ratio')}
+                  value={ratio}
+                  onChange={(e) => setRatio(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleConfirm()
+                  }}
+                />
+              </div>
+
+              <div className='text-muted-foreground text-sm'>
+                {t('Actual credit')} = {t('Recharge Amount')} ÷{' '}
+                {t('Recharge ratio')} ={' '}
+                <span className='text-foreground font-medium'>
+                  {actualUsd.toFixed(4)} USD
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className='space-y-2'>
+              <Label>
+                {t('Amount')} ({currencyLabel})
+              </Label>
+              <Input
+                type='number'
+                step={tokensOnly ? 1 : 0.000001}
+                min={mode === 'override' ? undefined : 0}
+                placeholder={amountPlaceholder}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleConfirm()
+                }}
+              />
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant='outline' onClick={handleCancel}>

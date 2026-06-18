@@ -60,6 +60,8 @@ export const userSchema = z.object({
   remark: z.string().optional(),
   is_vip_customer: z.boolean().optional(),
   business_channel: z.string().optional(),
+  /** 仅 GET /api/user/:id 返回：用户所在分组对应的充值比例，调整额度弹窗回显使用 */
+  topup_group_ratio: z.number().optional(),
 })
 export type User = z.infer<typeof userSchema>
 
@@ -129,11 +131,21 @@ export type ManageUserAction =
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 
+/** add 模式下的额度来源类型 */
+export type QuotaType = '充值' | '赠送'
+
 export interface ManageUserQuotaPayload {
   id: number
   action: 'add_quota'
   mode: QuotaAdjustMode
-  value: number
+  /** 仅 subtract / override 模式使用：直接 quota 单位的数值 */
+  value?: number
+  /** 仅 add 模式使用 */
+  quota_type?: QuotaType
+  /** 仅 add 模式使用：充值金额（USD） */
+  recharge_amount?: number
+  /** 仅 add 模式使用：充值比例 */
+  ratio?: number
 }
 
 // ============================================================================
