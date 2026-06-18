@@ -4764,6 +4764,24 @@
         "Compare Requests": "对比请求",
         "Error Count": "错误次数",
         "Compare Errors": "对比错误次数",
-        "slow": "慢"
+        "slow": "慢",
+        "vs Previous Period": "较上周期",
+        "Short Name": "简称",
+        "Action": "操作",
+        "Trend Change": "趋势变化",
+        "Please select both current and compare periods": "请同时选择当前周期与对比周期",
+        "Failed to load trend": "加载趋势数据失败",
+        "Compare Mode": "对比模式",
+        "Daily Compare": "日环比",
+        "Monthly Compare": "月环比",
+        "Time Range": "时间段",
+        "Reset to full day": "重置为全天",
+        "Empty = full day 00:00:00 ~ 23:59:59": "留空 = 全天 00:00:00 ~ 23:59:59",
+        "Generate Comparison": "生成对比",
+        "User Consumption": "用户消耗",
+        "(Amount $)": "(金额 $)",
+        "By Hour": "按小时",
+        "This Period": "本期",
+        "Pick both periods then click Generate Comparison": "请选择两个周期后点击\"生成对比\""
   }
 }

@@ -142,12 +142,12 @@ function computeDefaults(mode: TrendMode) {
         timeEnd: '',
       }
     default:
-      // custom
+      // custom：本期 [today-7, today]，对比 [today-15, today-8]（与本期不重叠，向前推 8 天）
       return {
         currentStartDate: now.subtract(7, 'day').toDate(),
         currentEndDate: now.toDate(),
-        compareStartDate: now.subtract(14, 'day').toDate(),
-        compareEndDate: now.subtract(7, 'day').toDate(),
+        compareStartDate: now.subtract(15, 'day').toDate(),
+        compareEndDate: now.subtract(8, 'day').toDate(),
         timeStart: '',
         timeEnd: '',
       }
@@ -156,7 +156,7 @@ function computeDefaults(mode: TrendMode) {
 
 export function TrendDialog(props: TrendDialogProps) {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<TrendMode>('custom')
+  const [mode, setMode] = useState<TrendMode>('daily')
   const [granularity, setGranularity] = useState<TrendGranularity>('day')
 
   const [currentStartDate, setCurrentStartDate] = useState<Date | undefined>()
@@ -191,7 +191,7 @@ export function TrendDialog(props: TrendDialogProps) {
       applyDefaults(mode)
       setChartData(null)
     } else {
-      setMode('custom')
+      setMode('daily')
       setGranularity('day')
       setCurrentStartDate(undefined)
       setCurrentEndDate(undefined)

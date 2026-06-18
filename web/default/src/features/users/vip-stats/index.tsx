@@ -362,6 +362,16 @@ function SummaryCards(props: {
   )
 }
 
+// 表头已带 ($)，单元格只显示纯数字（带千分位、2 位小数），避免每格再拼 $
+const fmtUsdPlain = (v: number) => {
+  const abs = Math.abs(v)
+  const digits = abs >= 1 ? 2 : 4
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  }).format(v)
+}
+
 function DetailTable(props: {
   data: VipStatsDetail | undefined
   isLoading: boolean
@@ -421,7 +431,7 @@ function DetailTable(props: {
                     key={i}
                     className='text-center font-medium tabular-nums'
                   >
-                    {formatCurrencyFromUSD(quotaToUsd(v))}
+                    {fmtUsdPlain(quotaToUsd(v))}
                   </TableCell>
                 ))}
                 <TableCell className='text-muted-foreground text-center'>
@@ -451,11 +461,11 @@ function DetailTable(props: {
                       v === 0 && 'text-muted-foreground'
                     )}
                   >
-                    {formatCurrencyFromUSD(quotaToUsd(v))}
+                    {fmtUsdPlain(quotaToUsd(v))}
                   </TableCell>
                 ))}
                 <TableCell className='text-center tabular-nums'>
-                  {formatCurrencyFromUSD(quotaToUsd(r.remaining))}
+                  {fmtUsdPlain(quotaToUsd(r.remaining))}
                 </TableCell>
                 <TableCell className='text-center'>
                   {r.inviter_business_channel || ''}
