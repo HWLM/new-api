@@ -2,7 +2,7 @@
 Copyright (C) 2023-2026 QuantumNous
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Settings as SettingsIcon } from 'lucide-react'
@@ -649,6 +649,7 @@ function MetricTrendChart({
 }
 
 // 通用 SVG 折线渲染：series 主线（实线 #2563eb），compareSeries 对比虚线（#dc2626）。
+// 鼠标悬浮：垂直辅助线 + 主/对比线高亮点 + 右上角 tooltip（时间 + 当前 + 对比 + 差值）
 function TrendChartSVG({
   metric,
   series,
@@ -661,6 +662,9 @@ function TrendChartSVG({
   height?: number
 }) {
   const { t } = useTranslation()
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [hover, setHover] = useState<{ idx: number; svgX: number } | null>(null)
+
   const w = 720
   const h = height
   const padLeft = 40
@@ -671,22 +675,41 @@ function TrendChartSVG({
   const innerW = w - padLeft - padRight
   const innerH = h - padTop - padBottom
 
+  // 防御：从 TrendPoint 取 metric 字段并强制数值化，非有限值（undefined/null/NaN/Infinity）一律返回 0。
+  // 这一层兜底覆盖：后端返回字段缺失、JSON 解析得到 null、metric 名拼错等所有"取数路径"。
+  const getMetricNum = (p: TrendPoint | undefined | null): number => {
+    if (!p) return 0
+    const v = (p as Record<string, unknown>)[metric]
+    const n = typeof v === 'number' ? v : Number(v)
+    return Number.isFinite(n) ? n : 0
+  }
+
   // 主线和对比线共享 Y 轴最大值
-  const valuesMain = series.map((p) => p[metric] as number)
-  const valuesCmp = compareSeries?.map((p) => p[metric] as number) ?? []
+  const valuesMain = series.map(getMetricNum)
+  const valuesCmp = compareSeries?.map(getMetricNum) ?? []
   const max = Math.max(...valuesMain, ...valuesCmp, 1)
 
   const formatHM = (ts: number) => {
     const d = new Date(ts * 1000)
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }
+  const formatFull = (ts: number) => {
+    const d = new Date(ts * 1000)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
   const formatY = (v: number) => {
+    if (!Number.isFinite(v)) return '0'
     if (metric === 'avg_duration_ms') {
       if (v >= 1000) return (v / 1000).toFixed(1) + 's'
       return Math.round(v) + 'ms'
     }
     if (v >= 1000) return (v / 1000).toFixed(1) + 'k'
     return String(Math.round(v))
+  }
+  const formatVal = (v: number) => {
+    if (!Number.isFinite(v)) return '—'
+    return metric === 'avg_duration_ms' ? fmtMs(v) : fmtNum(v)
   }
   const yTicks = [0, max / 2, max]
 
@@ -695,7 +718,7 @@ function TrendChartSVG({
   const yOf = (v: number) => padTop + innerH - (v / max) * innerH
   const buildPath = (pts: TrendPoint[]) =>
     pts.length >= 2
-      ? pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${padLeft + i * xStep} ${yOf(p[metric] as number)}`).join(' ')
+      ? pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${padLeft + i * xStep} ${yOf(getMetricNum(p))}`).join(' ')
       : ''
 
   const mainPath = buildPath(series)
@@ -711,9 +734,75 @@ function TrendChartSVG({
     ]
   }
 
+  // 鼠标移动 → 把浏览器像素坐标换算到 viewBox 坐标 → 找到最近的 bucket index。
+  // 所有除零 / NaN / 越界 / SVG 尚未挂载等异常路径都引向 setHover(null)，确保不会渲染坏掉的 hover。
+  const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    try {
+      if (!svgRef.current || pointsLen < 2 || xStep <= 0) {
+        if (hover) setHover(null)
+        return
+      }
+      const rect = svgRef.current.getBoundingClientRect()
+      if (!(rect.width > 0)) {
+        if (hover) setHover(null)
+        return
+      }
+      const svgX = ((e.clientX - rect.left) / rect.width) * w
+      if (!Number.isFinite(svgX)) {
+        if (hover) setHover(null)
+        return
+      }
+      const relX = svgX - padLeft
+      if (relX < 0 || relX > innerW) {
+        if (hover) setHover(null)
+        return
+      }
+      const raw = Math.round(relX / xStep)
+      if (!Number.isFinite(raw)) {
+        if (hover) setHover(null)
+        return
+      }
+      const idx = Math.max(0, Math.min(pointsLen - 1, raw))
+      const nextX = padLeft + idx * xStep
+      // 只在 idx 变化时 setState，避免每像素都触发 re-render
+      if (!hover || hover.idx !== idx) {
+        setHover({ idx, svgX: nextX })
+      }
+    } catch {
+      // 任意异常（事件对象异常 / 浏览器 quirk）都直接清空 hover，绝不让图表卡死
+      if (hover) setHover(null)
+    }
+  }
+  const onMouseLeave = () => {
+    if (hover) setHover(null)
+  }
+
+  // Tooltip 内容
+  // 数组下标兜底：series[idx] 在 idx 越界时是 undefined，所有下游用 ?? null 处理
+  const hoverPoint = hover && hover.idx >= 0 && hover.idx < series.length ? series[hover.idx] : null
+  const hoverCmpPoint =
+    hover && compareSeries && hover.idx >= 0 && hover.idx < compareSeries.length
+      ? compareSeries[hover.idx]
+      : null
+  // 只要主线或对比线任一在该 idx 有数据，就显示 tooltip（避免主时段无数据时挡住对比线提示）
+  const hasAny = !!(hoverPoint || hoverCmpPoint)
+  const curVal = getMetricNum(hoverPoint)
+  const cmpVal = getMetricNum(hoverCmpPoint)
+  // 时间戳取主线优先，否则用对比线；都没有时为 0（不会显示 tooltip 因为 hasAny=false）
+  const tipTs = (hoverPoint ?? hoverCmpPoint)?.ts ?? 0
+  // tooltip 水平位置：靠左半图 → 显示右侧；靠右半图 → 显示左侧
+  const tooltipPct = hover ? (hover.svgX / w) * 100 : 0
+  const tooltipOnLeft = tooltipPct > 60
+
   return (
-    <div>
-      <svg viewBox={`0 0 ${w} ${h}`} className='w-full'>
+    <div className='relative'>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${w} ${h}`}
+        className='w-full'
+        onMouseMove={onMouseMove}
+        onMouseLeave={onMouseLeave}
+      >
         {yTicks.map((v, i) => {
           const y = padTop + innerH - (v / max) * innerH
           return (
@@ -762,7 +851,86 @@ function TrendChartSVG({
             {formatHM(l.ts)}
           </text>
         ))}
+        {/* 悬浮辅助线 + 高亮点（只要任一线在该 idx 有数据就显示） */}
+        {hover && hasAny && (
+          <>
+            <line
+              x1={hover.svgX}
+              y1={padTop}
+              x2={hover.svgX}
+              y2={yBaseline}
+              stroke='currentColor'
+              strokeOpacity={0.4}
+              strokeWidth='1'
+            />
+            {hoverPoint && Number.isFinite(yOf(curVal)) && (
+              <circle
+                cx={hover.svgX}
+                cy={yOf(curVal)}
+                r={4}
+                fill='#2563eb'
+                stroke='white'
+                strokeWidth='2'
+              />
+            )}
+            {hoverCmpPoint && Number.isFinite(yOf(cmpVal)) && (
+              <circle
+                cx={hover.svgX}
+                cy={yOf(cmpVal)}
+                r={4}
+                fill='#dc2626'
+                stroke='white'
+                strokeWidth='2'
+              />
+            )}
+          </>
+        )}
       </svg>
+      {/* Tooltip：HTML 层叠在 SVG 之上，位置按 viewBox 百分比换算 */}
+      {hover && hasAny && (
+        <div
+          className='pointer-events-none absolute z-10 min-w-[160px] rounded border bg-popover/95 px-2 py-1.5 text-xs shadow-md backdrop-blur'
+          style={{
+            top: 8,
+            left: tooltipOnLeft ? undefined : `${tooltipPct}%`,
+            right: tooltipOnLeft ? `${100 - tooltipPct}%` : undefined,
+            transform: tooltipOnLeft ? 'translateX(-8px)' : 'translateX(8px)',
+          }}
+        >
+          <div className='mb-1 text-[11px] text-muted-foreground'>{formatFull(tipTs)}</div>
+          {hoverPoint && (
+            <div className='flex items-center justify-between gap-3'>
+              <span className='flex items-center gap-1'>
+                <span className='inline-block h-[2px] w-3 bg-[#2563eb]' />
+                {t('Current')}
+              </span>
+              <span className='font-medium'>{formatVal(curVal)}</span>
+            </div>
+          )}
+          {hoverCmpPoint && (
+            <div className={cn('flex items-center justify-between gap-3', hoverPoint && 'mt-1')}>
+              <span className='flex items-center gap-1'>
+                <span className='inline-block h-[2px] w-3 border-t border-dashed border-[#dc2626]' />
+                {t('Compare')}
+              </span>
+              <span className='font-medium'>{formatVal(cmpVal)}</span>
+            </div>
+          )}
+          {hoverPoint && hoverCmpPoint && (() => {
+            const pct = pctDelta(curVal, cmpVal)
+            const diff = curVal - cmpVal
+            return (
+              <div className='mt-1 flex items-center justify-between gap-3 border-t pt-1'>
+                <span className='text-muted-foreground'>{t('Difference')}</span>
+                <span className={cn('font-medium', deltaColorClass(pct))}>
+                  {diff >= 0 ? '+' : ''}
+                  {formatVal(diff)} ({fmtDelta(pct)})
+                </span>
+              </div>
+            )
+          })()}
+        </div>
+      )}
       {/* 图例 */}
       <div className='mt-1 flex items-center justify-center gap-4 text-xs text-muted-foreground'>
         <span className='flex items-center gap-1'>
