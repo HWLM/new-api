@@ -376,9 +376,9 @@ function SummarySection({ timeRange }: { timeRange: TimeRange }) {
     p95_ms: p.p95_ms,
     error_rate: p.error_rate,
     slow_resp_rate: p.slow_resp_rate,
-    avg_ttft_ms: 0,
-    ttft_p50_ms: 0,
-    ttft_p95_ms: 0,
+    avg_ttft_ms: p.avg_ttft_ms ?? 0,
+    ttft_p50_ms: p.ttft_p50_ms ?? 0,
+    ttft_p95_ms: p.ttft_p95_ms ?? 0,
     slow_ttft_rate: p.slow_ttft_rate ?? 0,
   })
 
