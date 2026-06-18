@@ -229,6 +229,56 @@ function fmtDelta(deltaPct: number | null): string {
   return `${sign}${Math.abs(deltaPct).toFixed(2)}%`
 }
 
+// 把稀疏的时间桶序列补齐到完整 [fromTs, toTs) 范围，缺失桶填 0。
+// 时间桶按 epoch 起点对齐（与后端 floor(ts/bucket)*bucket 保持一致），
+// 确保折线在无数据的时段也连续为 0，hover 也能取到 0 值。
+function padTrendSeriesZeros(
+  series: TrendPoint[],
+  bucketSeconds: number,
+  fromTs: number,
+  toTs: number,
+): TrendPoint[] {
+  if (!Number.isFinite(bucketSeconds) || bucketSeconds <= 0) return series
+  if (!Number.isFinite(fromTs) || !Number.isFinite(toTs) || fromTs >= toTs) return series
+  const firstBucket = Math.floor(fromTs / bucketSeconds) * bucketSeconds
+  const lastBucket = Math.floor((toTs - 1) / bucketSeconds) * bucketSeconds
+  const existing = new Map<number, TrendPoint>()
+  for (const p of series ?? []) existing.set(p.ts, p)
+  const result: TrendPoint[] = []
+  for (let ts = firstBucket; ts <= lastBucket; ts += bucketSeconds) {
+    result.push(
+      existing.get(ts) ?? {
+        ts,
+        req_total: 0,
+        err_count: 0,
+        slow_resp_count: 0,
+        slow_ttft_count: 0,
+        error_rate: 0,
+        avg_duration_ms: 0,
+      },
+    )
+  }
+  return result
+}
+
+// 对 TrendResult 整体应用上面的补零：主序列用主时段窗口，
+// 对比序列用同一个窗口（后端已把对比桶时间平移到主段对应桶起点）。
+function padTrendResult(
+  raw: TrendResult | null,
+  fromTs: number,
+  toTs: number,
+): TrendResult | null {
+  if (!raw) return raw
+  const bucket = raw.bucket_seconds
+  return {
+    ...raw,
+    series: padTrendSeriesZeros(raw.series ?? [], bucket, fromTs, toTs),
+    compare_series: raw.compare_series
+      ? padTrendSeriesZeros(raw.compare_series, bucket, fromTs, toTs)
+      : raw.compare_series,
+  }
+}
+
 // ============================
 // 主组件:页面布局对齐原型
 //   - 顶部:标题 + 时间筛选 + 设置按钮
@@ -614,7 +664,7 @@ function MetricTrendChart({
     if (userId && userId > 0) params.user_id = userId
     api
       .get('/api/metrics/trend', { params })
-      .then((res) => setData(res.data?.data ?? null))
+      .then((res) => setData(padTrendResult(res.data?.data ?? null, winParams.from, winParams.to)))
       .catch(() => {})
   }, [winParams, timeRange, channelType, userId])
 
@@ -679,7 +729,7 @@ function TrendChartSVG({
   // 这一层兜底覆盖：后端返回字段缺失、JSON 解析得到 null、metric 名拼错等所有"取数路径"。
   const getMetricNum = (p: TrendPoint | undefined | null): number => {
     if (!p) return 0
-    const v = (p as Record<string, unknown>)[metric]
+    const v = (p as unknown as Record<string, unknown>)[metric]
     const n = typeof v === 'number' ? v : Number(v)
     return Number.isFinite(n) ? n : 0
   }
@@ -692,11 +742,6 @@ function TrendChartSVG({
   const formatHM = (ts: number) => {
     const d = new Date(ts * 1000)
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  }
-  const formatFull = (ts: number) => {
-    const d = new Date(ts * 1000)
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
   const formatY = (v: number) => {
     if (!Number.isFinite(v)) return '0'
@@ -897,12 +942,12 @@ function TrendChartSVG({
             transform: tooltipOnLeft ? 'translateX(-8px)' : 'translateX(8px)',
           }}
         >
-          <div className='mb-1 text-[11px] text-muted-foreground'>{formatFull(tipTs)}</div>
+          <div className='mb-1 text-[11px] text-muted-foreground'>{t('Time') + ': ' + formatHM(tipTs)}</div>
           {hoverPoint && (
             <div className='flex items-center justify-between gap-3'>
               <span className='flex items-center gap-1'>
                 <span className='inline-block h-[2px] w-3 bg-[#2563eb]' />
-                {t('Current')}
+                {t('Current Period')}
               </span>
               <span className='font-medium'>{formatVal(curVal)}</span>
             </div>
@@ -911,7 +956,7 @@ function TrendChartSVG({
             <div className={cn('flex items-center justify-between gap-3', hoverPoint && 'mt-1')}>
               <span className='flex items-center gap-1'>
                 <span className='inline-block h-[2px] w-3 border-t border-dashed border-[#dc2626]' />
-                {t('Compare')}
+                {t('Compare Period')}
               </span>
               <span className='font-medium'>{formatVal(cmpVal)}</span>
             </div>
@@ -920,13 +965,19 @@ function TrendChartSVG({
             const pct = pctDelta(curVal, cmpVal)
             const diff = curVal - cmpVal
             return (
-              <div className='mt-1 flex items-center justify-between gap-3 border-t pt-1'>
-                <span className='text-muted-foreground'>{t('Difference')}</span>
-                <span className={cn('font-medium', deltaColorClass(pct))}>
-                  {diff >= 0 ? '+' : ''}
-                  {formatVal(diff)} ({fmtDelta(pct)})
-                </span>
-              </div>
+              <>
+                <div className='mt-1 flex items-center justify-between gap-3 border-t pt-1'>
+                  <span className='text-muted-foreground'>{t('Difference')}</span>
+                  <span className={cn('font-medium', deltaColorClass(pct))}>
+                    {diff >= 0 ? '+' : ''}
+                    {formatVal(diff)}
+                  </span>
+                </div>
+                <div className='mt-1 flex items-center justify-between gap-3'>
+                  <span className='text-muted-foreground'>{t('Change Rate')}</span>
+                  <span className={cn('font-medium', deltaColorClass(pct))}>{fmtDelta(pct)}</span>
+                </div>
+              </>
             )
           })()}
         </div>
@@ -1143,7 +1194,7 @@ function ErrorTrendChart({
     if (userId && userId > 0) params.user_id = userId
     api
       .get('/api/metrics/errors/trend', { params })
-      .then((res) => setData(res.data?.data ?? null))
+      .then((res) => setData(padTrendResult(res.data?.data ?? null, winParams.from, winParams.to)))
       .catch(() => {})
   }, [winParams, timeRange, channelType, userId, codes.length, codesKey])
   return (
@@ -1924,7 +1975,7 @@ function UserTrendSection({
     if (userId > 0) params.user_id = userId
     api
       .get('/api/metrics/trend', { params })
-      .then((res) => setData(res.data?.data ?? null))
+      .then((res) => setData(padTrendResult(res.data?.data ?? null, winParams.from, winParams.to)))
       .catch(() => {})
   }, [metric, winParams, timeRange, channelType, userId])
 

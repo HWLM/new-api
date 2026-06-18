@@ -95,10 +95,10 @@ type OverviewTotal struct {
 	P95Ms         int     `json:"p95_ms"`
 	ErrorRate     float64 `json:"error_rate"`
 	SlowRespRate  float64 `json:"slow_resp_rate"`
-	AvgTTFTMs     int     `json:"avg_ttft_ms"`
-	TTFTP50Ms     int     `json:"ttft_p50_ms"`
-	TTFTP95Ms     int     `json:"ttft_p95_ms"`
-	SlowTTFTRate  float64 `json:"slow_ttft_rate"`
+	AvgTTFTMs     int     `json:"avg_ttft_ms" gorm:"column:avg_ttft_ms"`
+	TTFTP50Ms     int     `json:"ttft_p50_ms" gorm:"column:ttft_p50_ms"`
+	TTFTP95Ms     int     `json:"ttft_p95_ms" gorm:"column:ttft_p95_ms"`
+	SlowTTFTRate  float64 `json:"slow_ttft_rate" gorm:"column:slow_ttft_rate"`
 }
 
 type OverviewPlatform struct {
@@ -111,10 +111,10 @@ type OverviewPlatform struct {
 	P95Ms         int     `json:"p95_ms"`
 	ErrorRate     float64 `json:"error_rate"`
 	SlowRespRate  float64 `json:"slow_resp_rate"`
-	AvgTTFTMs     int     `json:"avg_ttft_ms"`
-	TTFTP50Ms     int     `json:"ttft_p50_ms"`
-	TTFTP95Ms     int     `json:"ttft_p95_ms"`
-	SlowTTFTRate  float64 `json:"slow_ttft_rate"`
+	AvgTTFTMs     int     `json:"avg_ttft_ms" gorm:"column:avg_ttft_ms"`
+	TTFTP50Ms     int     `json:"ttft_p50_ms" gorm:"column:ttft_p50_ms"`
+	TTFTP95Ms     int     `json:"ttft_p95_ms" gorm:"column:ttft_p95_ms"`
+	SlowTTFTRate  float64 `json:"slow_ttft_rate" gorm:"column:slow_ttft_rate"`
 }
 
 type OverviewResult struct {
@@ -176,10 +176,12 @@ SELECT
     COALESCE(SUM(CASE WHEN duration_ms > ? THEN 1 ELSE 0 END)::FLOAT
         / NULLIF(COUNT(*), 0), 0) AS slow_resp_rate,
     COALESCE(AVG(first_token_ms) FILTER (WHERE is_stream AND first_token_ms > 0), 0)::INT AS avg_ttft_ms,
-    COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY first_token_ms)
-        FILTER (WHERE is_stream AND first_token_ms > 0), 0)::INT AS ttft_p50_ms,
-    COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY first_token_ms)
-        FILTER (WHERE is_stream AND first_token_ms > 0), 0)::INT AS ttft_p95_ms,
+    COALESCE(percentile_cont(0.50) WITHIN GROUP (
+        ORDER BY CASE WHEN is_stream AND first_token_ms > 0 THEN first_token_ms END
+    ), 0)::INT AS ttft_p50_ms,
+    COALESCE(percentile_cont(0.95) WITHIN GROUP (
+        ORDER BY CASE WHEN is_stream AND first_token_ms > 0 THEN first_token_ms END
+    ), 0)::INT AS ttft_p95_ms,
     COALESCE(SUM(CASE WHEN is_stream AND first_token_ms > 0 AND first_token_ms > ?
                  THEN 1 ELSE 0 END)::FLOAT
         / NULLIF(SUM(CASE WHEN is_stream AND first_token_ms > 0 THEN 1 ELSE 0 END), 0), 0) AS slow_ttft_rate
@@ -200,10 +202,12 @@ SELECT
     COALESCE(SUM(CASE WHEN duration_ms > ? THEN 1 ELSE 0 END)::FLOAT
         / NULLIF(COUNT(*), 0), 0) AS slow_resp_rate,
     COALESCE(AVG(first_token_ms) FILTER (WHERE is_stream AND first_token_ms > 0), 0)::INT AS avg_ttft_ms,
-    COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY first_token_ms)
-        FILTER (WHERE is_stream AND first_token_ms > 0), 0)::INT AS ttft_p50_ms,
-    COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY first_token_ms)
-        FILTER (WHERE is_stream AND first_token_ms > 0), 0)::INT AS ttft_p95_ms,
+    COALESCE(percentile_cont(0.50) WITHIN GROUP (
+        ORDER BY CASE WHEN is_stream AND first_token_ms > 0 THEN first_token_ms END
+    ), 0)::INT AS ttft_p50_ms,
+    COALESCE(percentile_cont(0.95) WITHIN GROUP (
+        ORDER BY CASE WHEN is_stream AND first_token_ms > 0 THEN first_token_ms END
+    ), 0)::INT AS ttft_p95_ms,
     COALESCE(SUM(CASE WHEN is_stream AND first_token_ms > 0 AND first_token_ms > ?
                  THEN 1 ELSE 0 END)::FLOAT
         / NULLIF(SUM(CASE WHEN is_stream AND first_token_ms > 0 THEN 1 ELSE 0 END), 0), 0) AS slow_ttft_rate
