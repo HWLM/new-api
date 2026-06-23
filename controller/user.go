@@ -944,7 +944,7 @@ type ManageRequest struct {
 
 	// 仅 action=add_quota + mode=add 使用：管理员录入的原始充值金额与比例，由后端权威换算 value。
 	QuotaType      string  `json:"quota_type,omitempty"`      // "充值" | "赠送"
-	RechargeAmount float64 `json:"recharge_amount,omitempty"` // 充值金额（USD）
+	RechargeAmount float64 `json:"recharge_amount,omitempty"` // 充值金额（人民币 ¥）
 	Ratio          float64 `json:"ratio,omitempty"`           // 充值比例（0.1 ~ 100）
 }
 
@@ -1059,13 +1059,16 @@ func ManageUser(c *gin.Context) {
 			if req.QuotaType == model.QuotaTypeGift {
 				actionVerb = "赠送"
 			}
+			rechargeInputAmount := req.RechargeAmount
+			rechargeAfterRatioAmount := req.RechargeAmount / req.Ratio
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f USD，比例 %.2f，余额 %s → %s）",
+				fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，余额 %s → %s）",
 					actionVerb,
 					logger.LogQuota(quotaValue),
 					req.RechargeAmount, req.Ratio,
 					logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue)),
-				model.OperationTypeQuota, req.QuotaType, adminInfo)
+				model.OperationTypeQuota, req.QuotaType, adminInfo,
+				&rechargeInputAmount, &rechargeAfterRatioAmount)
 		case "subtract":
 			if req.Value <= 0 {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
@@ -1076,7 +1079,7 @@ func ManageUser(c *gin.Context) {
 				return
 			}
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo)
+				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo, nil, nil)
 		case "override":
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
@@ -1084,7 +1087,7 @@ func ManageUser(c *gin.Context) {
 				return
 			}
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo)
+				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo, nil, nil)
 		default:
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return

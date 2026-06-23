@@ -373,6 +373,21 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/token_stats/exhausting/self", middleware.UserAuth(), controller.GetTokenStatsExhausting)
 		dataRoute.GET("/token_stats/daily/self", middleware.UserAuth(), controller.GetTokenStatsDaily)
 
+		// 数据看板 -> 新用户统计 tab（admin only）
+		userStatsRoute := apiRouter.Group("/user_stats")
+		userStatsRoute.Use(middleware.AdminAuth())
+		{
+			userStatsRoute.GET("/cards", controller.GetUserStatsCards)
+			userStatsRoute.GET("/top_users", controller.GetUserStatsTopUsers)
+			userStatsRoute.GET("/recharge_trend", controller.GetUserStatsRechargeTrend)
+			userStatsRoute.GET("/channel_pie", controller.GetUserStatsChannelPie)
+			userStatsRoute.GET("/filter_options", controller.GetUserStatsFilterOptions)
+			userStatsRoute.GET("/consumption_trend", controller.GetUserStatsConsumptionTrend)
+			userStatsRoute.GET("/details", controller.GetUserStatsDetails)
+			userStatsRoute.GET("/details_daily", controller.GetUserStatsDetailsDaily)
+			userStatsRoute.GET("/user_trend", controller.GetUserStatsUserTrend)
+		}
+
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
 			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)

@@ -24,17 +24,19 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// VipDailyConsumption 重点客户每日消耗统计。
-// 由凌晨 2 点的定时任务写入，每条记录代表"某个客户某一天"的总消耗 quota / 请求次数 / token 数。
+// VipDailyConsumption 用户每日消耗+充值统计（历史名 vip_*，现已扩展为全量用户）。
+// 由凌晨 2 点的定时任务写入，每条记录代表「某用户某一天」的总消耗 quota / 请求次数 / token 数 / 管理员充值金额。
+// 表名沿用历史命名，但底层数据已包含所有用户；重点客户统计页通过 user_id IN (VIP ids) 过滤后再查询。
 type VipDailyConsumption struct {
-	Id           int    `json:"id" gorm:"primaryKey"`
-	UserId       int    `json:"user_id" gorm:"index;uniqueIndex:uk_vip_daily_user_date,priority:1"`
-	Username     string `json:"username" gorm:"type:varchar(64);default:''"`
-	StatDate     string `json:"stat_date" gorm:"type:varchar(10);index;uniqueIndex:uk_vip_daily_user_date,priority:2"` // YYYY-MM-DD
-	Quota        int64  `json:"quota" gorm:"default:0"`                                                               // 当天消耗 quota（单位 = QuotaPerUnit / 美元）
-	RequestCount int64  `json:"request_count" gorm:"default:0;column:request_count"`                                  // 当天请求次数
-	Tokens       int64  `json:"tokens" gorm:"default:0;column:tokens"`                                                // 当天 prompt_tokens + completion_tokens 总和
-	CreatedAt    int64  `json:"created_at" gorm:"autoCreateTime"`
+	Id             int     `json:"id" gorm:"primaryKey"`
+	UserId         int     `json:"user_id" gorm:"index;uniqueIndex:uk_vip_daily_user_date,priority:1"`
+	Username       string  `json:"username" gorm:"type:varchar(64);default:''"`
+	StatDate       string  `json:"stat_date" gorm:"type:varchar(10);index;uniqueIndex:uk_vip_daily_user_date,priority:2"` // YYYY-MM-DD
+	Quota          int64   `json:"quota" gorm:"default:0"`                                                                // 当天消耗 quota（单位 = QuotaPerUnit / 美元）
+	RequestCount   int64   `json:"request_count" gorm:"default:0;column:request_count"`                                   // 当天请求次数
+	Tokens         int64   `json:"tokens" gorm:"default:0;column:tokens"`                                                 // 当天 prompt_tokens + completion_tokens 总和
+	RechargeAmount float64 `json:"recharge_amount" gorm:"default:0;column:recharge_amount"`                               // 当天管理员「调整额度-充值」录入的总金额（人民币 ¥），仅统计 operation_type=额度 + quota_type=充值
+	CreatedAt      int64   `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // UpsertVipDailyConsumption 批量插入/更新某一天的统计数据。
@@ -51,7 +53,7 @@ func UpsertVipDailyConsumption(records []VipDailyConsumption) error {
 	}
 	return DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "stat_date"}},
-		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username"}),
+		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username", "recharge_amount"}),
 	}).Create(&records).Error
 }
 

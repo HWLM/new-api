@@ -55,6 +55,12 @@ type Log struct {
 	RequestId         string  `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string  `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
 	Other             string  `json:"other"`
+	// RechargeInputAmount 记录管理员在前端「调整额度」页面实际填写的金额（人民币 ¥）。
+	// 仅在 action=add_quota + mode=add 时写入；其他场景为 NULL。
+	RechargeInputAmount *float64 `json:"recharge_input_amount,omitempty" gorm:"default:NULL"`
+	// RechargeAfterRatioAmount 记录按充值比例换算之后的金额（人民币 ¥），即 RechargeInputAmount / ratio。
+	// 仅在 action=add_quota + mode=add 时写入；其他场景为 NULL。
+	RechargeAfterRatioAmount *float64 `json:"recharge_after_ratio_amount,omitempty" gorm:"default:NULL"`
 }
 
 // don't use iota, avoid change log type value
@@ -148,14 +154,18 @@ func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo m
 // RecordManageLog 记录管理员操作类日志：type 固定为 LogTypeManage。
 // opType 写入 operation_type 列作为子类型标记（如 OperationTypeQuota），便于按子类型筛选。
 // quotaType 进一步区分 add 模式下的来源（充值/赠送），仅在 add 模式传入，否则传空。
-func RecordManageLog(userId int, content string, opType string, quotaType string, adminInfo map[string]interface{}) {
+// rechargeInputAmount / rechargeAfterRatioAmount 仅在「调整额度 add 模式」下传入有效值，
+// 分别对应前端页面填写的原始金额与按充值比例换算之后的金额；其他场景传 nil 留空。
+func RecordManageLog(userId int, content string, opType string, quotaType string, adminInfo map[string]interface{}, rechargeInputAmount *float64, rechargeAfterRatioAmount *float64) {
 	username, _ := GetUsernameById(userId, false)
 	log := &Log{
-		UserId:    userId,
-		Username:  username,
-		CreatedAt: common.GetTimestamp(),
-		Type:      LogTypeManage,
-		Content:   content,
+		UserId:                   userId,
+		Username:                 username,
+		CreatedAt:                common.GetTimestamp(),
+		Type:                     LogTypeManage,
+		Content:                  content,
+		RechargeInputAmount:      rechargeInputAmount,
+		RechargeAfterRatioAmount: rechargeAfterRatioAmount,
 	}
 	if opType != "" {
 		t := opType

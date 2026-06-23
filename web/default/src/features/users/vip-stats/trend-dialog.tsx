@@ -55,6 +55,7 @@ import type {
   TrendGranularity,
   TrendMode,
   VipStatsTrend,
+  VipStatsTrendParams,
 } from '@/features/users/types'
 
 const quotaToUsd = (q: number) => quotaUnitsToDollars(q)
@@ -66,11 +67,19 @@ const DEFAULT_TIME_END = '23:59:59'
 interface TrendDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** 公开 vip-stats 页面用的密码（admin 复用时传空串即可 —— 改用 fetchTrend 注入） */
   password: string
   /** 重点客户 user_id（点哪一行就传哪个） */
   userId: number | null
   /** 客户名（弹框标题展示） */
   username?: string
+  /**
+   * 可选：自定义趋势请求函数（admin 复用场景下绕过密码门用）。
+   * 不传时走默认 `getVipStatsTrend(password, params)`。
+   */
+  fetchTrend?: (
+    params: VipStatsTrendParams
+  ) => Promise<{ success: boolean; message?: string; data?: VipStatsTrend }>
 }
 
 /**
@@ -226,7 +235,7 @@ export function TrendDialog(props: TrendDialogProps) {
       // daily 模式：空串 → 默认全天 0~23
       const sh = mode === 'daily' ? parseHour(timeStart, 0) : 0
       const eh = mode === 'daily' ? parseHour(timeEnd, 23) : 23
-      const res = await getVipStatsTrend(props.password, {
+      const trendParams: VipStatsTrendParams = {
         user_id: props.userId,
         granularity: effectiveGranularity,
         current_start: c.start,
@@ -239,7 +248,11 @@ export function TrendDialog(props: TrendDialogProps) {
           compare_start_hour: sh,
           compare_end_hour: eh,
         }),
-      })
+      }
+      const fetcher =
+        props.fetchTrend ??
+        ((q: VipStatsTrendParams) => getVipStatsTrend(props.password, q))
+      const res = await fetcher(trendParams)
       if (!res.success || !res.data) {
         throw new Error(res.message || t('Failed to load trend'))
       }

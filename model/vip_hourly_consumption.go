@@ -25,19 +25,21 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// VipHourlyConsumption 重点客户「按小时」消耗统计。
-// 由每小时 :05 cron 写入；每条记录 = 某客户某小时(0~23) 的总消耗 quota / 请求次数 / token 数。
+// VipHourlyConsumption 用户「按小时」消耗+充值统计（历史名 vip_*，现已扩展为全量用户）。
+// 由每小时 :05 cron 写入；每条记录 = 某用户某小时(0~23) 的总消耗 quota / 请求次数 / token 数 / 管理员充值金额。
 // 小时维度专门为「趋势变化对比图」按小时切换准备，避免每次实时 GROUP BY logs 表。
+// 表名沿用历史命名，但底层数据已包含所有用户；重点客户统计页通过 user_id IN (VIP ids) 过滤后再查询。
 type VipHourlyConsumption struct {
-	Id           int    `json:"id" gorm:"primaryKey"`
-	UserId       int    `json:"user_id" gorm:"index;uniqueIndex:uk_vip_hourly_user_date_hour,priority:1"`
-	Username     string `json:"username" gorm:"type:varchar(64);default:''"`
-	StatDate     string `json:"stat_date" gorm:"type:varchar(10);index;uniqueIndex:uk_vip_hourly_user_date_hour,priority:2"` // YYYY-MM-DD
-	StatHour     int    `json:"stat_hour" gorm:"uniqueIndex:uk_vip_hourly_user_date_hour,priority:3"`                       // 0..23
-	Quota        int64  `json:"quota" gorm:"default:0"`
-	RequestCount int64  `json:"request_count" gorm:"default:0;column:request_count"`
-	Tokens       int64  `json:"tokens" gorm:"default:0;column:tokens"`
-	CreatedAt    int64  `json:"created_at" gorm:"autoCreateTime"`
+	Id             int     `json:"id" gorm:"primaryKey"`
+	UserId         int     `json:"user_id" gorm:"index;uniqueIndex:uk_vip_hourly_user_date_hour,priority:1"`
+	Username       string  `json:"username" gorm:"type:varchar(64);default:''"`
+	StatDate       string  `json:"stat_date" gorm:"type:varchar(10);index;uniqueIndex:uk_vip_hourly_user_date_hour,priority:2"` // YYYY-MM-DD
+	StatHour       int     `json:"stat_hour" gorm:"uniqueIndex:uk_vip_hourly_user_date_hour,priority:3"`                        // 0..23
+	Quota          int64   `json:"quota" gorm:"default:0"`
+	RequestCount   int64   `json:"request_count" gorm:"default:0;column:request_count"`
+	Tokens         int64   `json:"tokens" gorm:"default:0;column:tokens"`
+	RechargeAmount float64 `json:"recharge_amount" gorm:"default:0;column:recharge_amount"` // 当小时管理员「调整额度-充值」录入的总金额（人民币 ¥）
+	CreatedAt      int64   `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // UpsertVipHourlyConsumption 批量插入/更新某些小时的统计数据。
@@ -54,7 +56,7 @@ func UpsertVipHourlyConsumption(records []VipHourlyConsumption) error {
 	}
 	return DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "stat_date"}, {Name: "stat_hour"}},
-		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username"}),
+		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username", "recharge_amount"}),
 	}).Create(&records).Error
 }
 

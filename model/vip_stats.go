@@ -127,6 +127,74 @@ type todayLogAggregate struct {
 	Tokens   int64
 }
 
+// cronLogAggregate cron 任务用：包含消费聚合 + 管理员充值金额的 per-user 数据。
+type cronLogAggregate struct {
+	Quota    int64
+	Requests int64
+	Tokens   int64
+	Recharge float64
+}
+
+// sumLogsByTimeRange 聚合给定时间窗口 [startTs, endTs] 内 logs 表的所有用户数据。
+// 区别于 sumLogsTodayPerUser：不传 user_ids（cron 任务面向全量用户做 GROUP BY，避免 IN 列表过长）。
+//
+// 两次查询合并：
+//  1. type=consume 的 quota / 请求次数 / tokens
+//  2. type=manage + operation_type=额度 + quota_type=充值 的 SUM(recharge_input_amount)
+//
+// 过滤 user_id > 0，避免脏数据（如系统操作）落到统计表导致 user_id=0 的记录。
+func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) {
+	result := make(map[int]cronLogAggregate)
+
+	type consumeRow struct {
+		UserId       int
+		TotalQuota   int64
+		RequestCount int64
+		TotalTokens  int64
+	}
+	var consumeRows []consumeRow
+	if err := LOG_DB.Model(&Log{}).
+		Where("type = ?", LogTypeConsume).
+		Where("user_id > 0").
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
+		Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COUNT(*) AS request_count, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens").
+		Group("user_id").
+		Scan(&consumeRows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range consumeRows {
+		agg := result[r.UserId]
+		agg.Quota = r.TotalQuota
+		agg.Requests = r.RequestCount
+		agg.Tokens = r.TotalTokens
+		result[r.UserId] = agg
+	}
+
+	type rechargeRow struct {
+		UserId        int
+		TotalRecharge float64
+	}
+	var rechargeRows []rechargeRow
+	if err := LOG_DB.Model(&Log{}).
+		Where("type = ?", LogTypeManage).
+		Where("operation_type = ?", OperationTypeQuota).
+		Where("quota_type = ?", QuotaTypeRecharge).
+		Where("user_id > 0").
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
+		Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+		Group("user_id").
+		Scan(&rechargeRows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rechargeRows {
+		agg := result[r.UserId]
+		agg.Recharge = r.TotalRecharge
+		result[r.UserId] = agg
+	}
+
+	return result, nil
+}
+
 // sumLogsTodayPerUser 实时聚合 logs 表，返回每个用户今天的 quota / request_count / tokens。
 // 仅统计 type=consume 的记录。
 func sumLogsTodayPerUser(userIds []int, startTs, endTs int64) (map[int]todayLogAggregate, error) {
@@ -387,24 +455,15 @@ func SumWeeklyConsumedRealtime() (int64, error) {
 	return w.Quota, err
 }
 
-// RunVipDailyStat 聚合给定日期（YYYY-MM-DD）的"当前 VIP 客户"消耗、请求次数、token 数
-// 写入 vip_daily_consumption 表。凌晨 2 点定时任务和手动 backfill 都复用这个函数。
+// RunVipDailyStat 聚合给定日期（YYYY-MM-DD）「全量用户」的消耗、请求次数、token 数、管理员充值金额，
+// 写入两张表：
+//  1. vip_daily_consumption — per-user 明细，四项全 0 的用户跳过；
+//  2. daily_summary       — 全局汇总，一天一条；当天全 0 也写入，保证累计列连续。
+//
+// 凌晨 2 点定时任务和手动 backfill 都复用本函数。不再按 is_vip_customer 过滤 —— 底层数据全量，
+// 重点客户统计页通过查询时 user_id IN (VIP ids) 过滤拿子集。
+// 返回值是 vip_daily_consumption 入库的行数（daily_summary 是副作用，不计入）。
 func RunVipDailyStat(statDate string) (int, error) {
-	type idUsername struct {
-		Id       int
-		Username string
-	}
-	var users []idUsername
-	if err := DB.Model(&User{}).
-		Select("id, username").
-		Where("is_vip_customer = ?", commonTrueVal).
-		Find(&users).Error; err != nil {
-		return 0, err
-	}
-	if len(users) == 0 {
-		return 0, nil
-	}
-
 	t, err := time.ParseInLocation("2006-01-02", statDate, time.Now().Location())
 	if err != nil {
 		return 0, err
@@ -412,35 +471,122 @@ func RunVipDailyStat(statDate string) (int, error) {
 	startTs := t.Unix()
 	endTs := t.Add(24 * time.Hour).Add(-time.Nanosecond).Unix()
 
-	ids := make([]int, 0, len(users))
-	for _, u := range users {
-		ids = append(ids, u.Id)
-	}
-	perUser, err := sumLogsTodayPerUser(ids, startTs, endTs)
+	perUser, err := sumLogsByTimeRange(startTs, endTs)
 	if err != nil {
 		return 0, err
 	}
 
-	records := make([]VipDailyConsumption, 0, len(users))
-	for _, u := range users {
-		agg := perUser[u.Id] // 当天没消耗的客户拿到零值
-		// 三个指标全为 0 = 该客户当天完全没动静，不入库（查询端 SUM/COALESCE 天然按 0 处理）
-		if agg.Quota == 0 && agg.Requests == 0 && agg.Tokens == 0 {
-			continue
+	inserted := 0
+	if len(perUser) > 0 {
+		userIds := make([]int, 0, len(perUser))
+		for id := range perUser {
+			userIds = append(userIds, id)
 		}
-		records = append(records, VipDailyConsumption{
-			UserId:       u.Id,
-			Username:     u.Username,
-			StatDate:     statDate,
-			Quota:        agg.Quota,
-			RequestCount: agg.Requests,
-			Tokens:       agg.Tokens,
-		})
+		usernameMap, err := getUsernamesByIds(userIds)
+		if err != nil {
+			return 0, err
+		}
+
+		records := make([]VipDailyConsumption, 0, len(perUser))
+		for userId, agg := range perUser {
+			if agg.Quota == 0 && agg.Requests == 0 && agg.Tokens == 0 && agg.Recharge == 0 {
+				continue
+			}
+			records = append(records, VipDailyConsumption{
+				UserId:         userId,
+				Username:       usernameMap[userId],
+				StatDate:       statDate,
+				Quota:          agg.Quota,
+				RequestCount:   agg.Requests,
+				Tokens:         agg.Tokens,
+				RechargeAmount: agg.Recharge,
+			})
+		}
+		if err := UpsertVipDailyConsumption(records); err != nil {
+			return 0, err
+		}
+		inserted = len(records)
 	}
-	if err := UpsertVipDailyConsumption(records); err != nil {
-		return 0, err
+
+	// 全局每日汇总（永远写一条，即使 perUser 为空 / 全 0）
+	if err := writeDailySummary(statDate, perUser); err != nil {
+		return inserted, err
 	}
-	return len(records), nil
+
+	return inserted, nil
+}
+
+// writeDailySummary 写入 daily_summary 表的当日一条记录。
+//
+// 当天列（quota / requests / tokens / recharge / official_quota / official_recharge）从 perUser map
+// 累加得到 —— 不再访问 logs 表，全部基于已聚合数据；正式用户子集靠 OfficialUserGroups options key
+// 过滤出的 user_ids。累计列 = 上一条记录的累计列 + 当天对应值（首次运行 / 找不到上一条按 0 起算）。
+//
+// backfill 中间日期不会级联重算后续日期的累计列 —— 这是已确认的取舍。
+func writeDailySummary(statDate string, perUser map[int]cronLogAggregate) error {
+	var totalQuota, totalRequests, totalTokens int64
+	var totalRecharge float64
+	for _, agg := range perUser {
+		totalQuota += agg.Quota
+		totalRequests += agg.Requests
+		totalTokens += agg.Tokens
+		totalRecharge += agg.Recharge
+	}
+
+	officialIds, err := GetOfficialUserIds()
+	if err != nil {
+		return err
+	}
+	var officialQuota int64
+	var officialRecharge float64
+	for _, id := range officialIds {
+		if agg, ok := perUser[id]; ok {
+			officialQuota += agg.Quota
+			officialRecharge += agg.Recharge
+		}
+	}
+
+	prev, err := GetPrevDailySummary(statDate)
+	if err != nil {
+		return err
+	}
+
+	return UpsertDailySummary(&DailySummary{
+		StatDate:                  statDate,
+		Quota:                     totalQuota,
+		RequestCount:              totalRequests,
+		Tokens:                    totalTokens,
+		RechargeAmount:            totalRecharge,
+		OfficialQuota:             officialQuota,
+		OfficialRechargeAmount:    officialRecharge,
+		CumQuota:                  prev.CumQuota + totalQuota,
+		CumRechargeAmount:         prev.CumRechargeAmount + totalRecharge,
+		CumOfficialQuota:          prev.CumOfficialQuota + officialQuota,
+		CumOfficialRechargeAmount: prev.CumOfficialRechargeAmount + officialRecharge,
+	})
+}
+
+// getUsernamesByIds 批量拿 username。被删除的用户拿不到（返回 ""，落库时 column default ” 不会报错）。
+func getUsernamesByIds(userIds []int) (map[int]string, error) {
+	result := make(map[int]string, len(userIds))
+	if len(userIds) == 0 {
+		return result, nil
+	}
+	type row struct {
+		Id       int
+		Username string
+	}
+	var rows []row
+	if err := DB.Model(&User{}).
+		Select("id, username").
+		Where("id IN ?", userIds).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		result[r.Id] = r.Username
+	}
+	return result, nil
 }
 
 // TrendQuery 趋势对比查询参数
@@ -595,25 +741,13 @@ func sumInt64(xs []int64) int64 {
 	return s
 }
 
-// RunVipHourlyStat 聚合给定日期 + 小时（YYYY-MM-DD, 0..23）的"当前 VIP 客户"消耗、请求次数、token 数
+// RunVipHourlyStat 聚合给定日期 + 小时（YYYY-MM-DD, 0..23）「全量用户」的消耗、请求次数、token 数、管理员充值金额，
 // 写入 vip_hourly_consumption 表。每小时 :05 cron 跑「上一小时」+ 手动 backfill 都复用这个函数。
+//
+// 不再按 is_vip_customer 过滤；四项指标全为 0 的用户跳过不入库。
 func RunVipHourlyStat(statDate string, statHour int) (int, error) {
 	if statHour < 0 || statHour > 23 {
 		return 0, fmt.Errorf("statHour 必须在 0..23 之间，传入：%d", statHour)
-	}
-	type idUsername struct {
-		Id       int
-		Username string
-	}
-	var users []idUsername
-	if err := DB.Model(&User{}).
-		Select("id, username").
-		Where("is_vip_customer = ?", commonTrueVal).
-		Find(&users).Error; err != nil {
-		return 0, err
-	}
-	if len(users) == 0 {
-		return 0, nil
 	}
 
 	t, err := time.ParseInLocation("2006-01-02", statDate, time.Now().Location())
@@ -623,30 +757,37 @@ func RunVipHourlyStat(statDate string, statHour int) (int, error) {
 	startTs := t.Add(time.Duration(statHour) * time.Hour).Unix()
 	endTs := t.Add(time.Duration(statHour+1)*time.Hour).Unix() - 1
 
-	ids := make([]int, 0, len(users))
-	for _, u := range users {
-		ids = append(ids, u.Id)
+	perUser, err := sumLogsByTimeRange(startTs, endTs)
+	if err != nil {
+		return 0, err
 	}
-	perUser, err := sumLogsTodayPerUser(ids, startTs, endTs)
+	if len(perUser) == 0 {
+		return 0, nil
+	}
+
+	userIds := make([]int, 0, len(perUser))
+	for id := range perUser {
+		userIds = append(userIds, id)
+	}
+	usernameMap, err := getUsernamesByIds(userIds)
 	if err != nil {
 		return 0, err
 	}
 
-	records := make([]VipHourlyConsumption, 0, len(users))
-	for _, u := range users {
-		agg := perUser[u.Id]
-		// 三个指标全为 0 = 该客户那一小时完全没动静，不入库（查询端 SUM/COALESCE 天然按 0 处理）
-		if agg.Quota == 0 && agg.Requests == 0 && agg.Tokens == 0 {
+	records := make([]VipHourlyConsumption, 0, len(perUser))
+	for userId, agg := range perUser {
+		if agg.Quota == 0 && agg.Requests == 0 && agg.Tokens == 0 && agg.Recharge == 0 {
 			continue
 		}
 		records = append(records, VipHourlyConsumption{
-			UserId:       u.Id,
-			Username:     u.Username,
-			StatDate:     statDate,
-			StatHour:     statHour,
-			Quota:        agg.Quota,
-			RequestCount: agg.Requests,
-			Tokens:       agg.Tokens,
+			UserId:         userId,
+			Username:       usernameMap[userId],
+			StatDate:       statDate,
+			StatHour:       statHour,
+			Quota:          agg.Quota,
+			RequestCount:   agg.Requests,
+			Tokens:         agg.Tokens,
+			RechargeAmount: agg.Recharge,
 		})
 	}
 	if err := UpsertVipHourlyConsumption(records); err != nil {

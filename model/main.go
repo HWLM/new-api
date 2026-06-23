@@ -25,6 +25,12 @@ var commonFalseVal string
 var logKeyCol string
 var logGroupCol string
 
+// UsersGroupCol 返回 users.group 列的跨 DB 安全引用（PG: "group" / MySQL+SQLite: `group`）。
+// 在 model 包外做 raw SQL 涉及到这一列时使用，避免每个调用方各自重复处理保留字引号。
+func UsersGroupCol() string {
+	return commonGroupCol
+}
+
 func initCol() {
 	// init common column names
 	if common.UsingPostgreSQL {
@@ -288,6 +294,7 @@ func migrateDB() error {
 		&TokenExhaustingSnapshot{},
 		&VipDailyConsumption{},
 		&VipHourlyConsumption{},
+		&DailySummary{},
 		&RequestAlertRule{},
 		&RequestAlertEvent{},
 		&RequestMetricsLog{},

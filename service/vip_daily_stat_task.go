@@ -34,7 +34,11 @@ const (
 	OptionKeyVipStatLastDate = "vip_stat_last_date" // 形如 "2026-06-10"，表示最近一次成功统计的"统计日"
 
 	vipStatTickInterval = 1 * time.Minute
-	vipStatReportHour   = 2 // 每天本地时间 2 点跑昨天统计
+	// 每天本地时间 00:10 跑「昨天」统计。
+	// 选这个点的原因：跨日后尽快完成 daily_summary 写入，
+	// 让数据看板「较昨日」的卡片对比在跨日后 10 分钟内即可正常显示，避免空窗。
+	vipStatReportHour   = 0
+	vipStatReportMinute = 10
 )
 
 var (
@@ -51,7 +55,7 @@ func StartVipDailyStatTask() {
 			return
 		}
 		gopool.Go(func() {
-			common.SysLog(fmt.Sprintf("vip daily stat task started: tick=%s, report_hour=%d", vipStatTickInterval, vipStatReportHour))
+			common.SysLog(fmt.Sprintf("vip daily stat task started: tick=%s, trigger=%02d:%02d", vipStatTickInterval, vipStatReportHour, vipStatReportMinute))
 			ticker := time.NewTicker(vipStatTickInterval)
 			defer ticker.Stop()
 
@@ -75,8 +79,10 @@ func runVipStatIfDue() {
 	if model.GetOptionString(OptionKeyVipStatLastDate) == today {
 		return
 	}
-	if now.Hour() < vipStatReportHour {
-		return // 还没到 2 点
+	// 还没到当天的触发点（默认 00:10）
+	if now.Hour() < vipStatReportHour ||
+		(now.Hour() == vipStatReportHour && now.Minute() < vipStatReportMinute) {
+		return
 	}
 
 	// 跑昨天
@@ -91,6 +97,11 @@ func runVipStatIfDue() {
 }
 
 // BackfillVipDailyStats 手动回填指定天数。days=7 表示回填昨天往前 7 天（不含今天）。
+//
+// 重要：**正序**回填（从最早一天往最近一天），保证 daily_summary 的累计列
+// (cum_quota / cum_recharge_amount / cum_official_*) 能正确衔接 —— 因为 writeDailySummary
+// 通过 GetPrevDailySummary 取 stat_date < 当前日期的最近一条作为累计基线。
+//
 // 注意：被聚合的"VIP 客户"是当前时刻的 VIP，不是历史 VIP（业务无历史快照）。
 func BackfillVipDailyStats(days int) (map[string]int, error) {
 	if days <= 0 || days > 90 {
@@ -98,7 +109,8 @@ func BackfillVipDailyStats(days int) (map[string]int, error) {
 	}
 	now := time.Now()
 	result := make(map[string]int)
-	for i := 1; i <= days; i++ {
+	// 从 days 天前开始正序往前推到昨天
+	for i := days; i >= 1; i-- {
 		date := now.AddDate(0, 0, -i).Format("2006-01-02")
 		n, err := model.RunVipDailyStat(date)
 		if err != nil {

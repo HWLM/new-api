@@ -95,6 +95,12 @@ const LazyInviterStats = lazy(() =>
   }))
 )
 
+const LazyNewUserStats = lazy(() =>
+  import('./components/new-user-stats/new-user-stats').then((m) => ({
+    default: m.NewUserStats,
+  }))
+)
+
 function LogStatCardsFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -167,6 +173,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   'request-analytics': {
     titleKey: 'Request Response Analytics',
   },
+  'new-user-stats': {
+    titleKey: 'New User Statistics',
+  },
 }
 
 export function Dashboard() {
@@ -218,6 +227,8 @@ export function Dashboard() {
         if (section === 'overview') return false
         // users: 仅管理员可见
         if (section === 'users' && !isAdmin) return false
+        // new-user-stats: 仅管理员可见
+        if (section === 'new-user-stats' && !isAdmin) return false
         // inviter: 仅非管理员可见
         if (section === 'inviter' && isAdmin) return false
         return true
@@ -354,6 +365,13 @@ export function Dashboard() {
             <FadeIn>
               <Suspense fallback={<ModelChartsFallback />}>
                 <LazyInviterStats />
+              </Suspense>
+            </FadeIn>
+          )}
+          {activeSection === 'new-user-stats' && isAdmin && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyNewUserStats />
               </Suspense>
             </FadeIn>
           )}
