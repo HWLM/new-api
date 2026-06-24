@@ -2978,6 +2978,7 @@
     "Payment aggregator mode — onboard with your own registered company (offshore entity). Built for Enterprise.": "支付聚合模式：使用你自己的注册公司（离岸实体）入驻。面向企业场景构建。",
     "Payment Channel": "支付渠道",
     "Payment Gateway": "支付网关",
+    "Payment gateway price (local currency / USD) is not configured. Please set it in System Settings → Billing & Payment → Payment Gateway.": "支付网关价格（本地货币/美元）未配置，请前往「系统设置 → 计费与支付 → 支付网关」设置价格",
     "Payment initiated": "已发起支付",
     "Payment Method": "付款方式",
     "Payment method name": "支付方式名称",

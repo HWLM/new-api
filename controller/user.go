@@ -1044,8 +1044,19 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 				return
 			}
-			// 后端权威换算：actual_quota = round(金额 / 比例 × QuotaPerUnit)
-			quotaValue := int(math.Round((req.RechargeAmount / req.Ratio) * common.QuotaPerUnit))
+			// 充值类型还需要再除以「系统设置 → 计费与支付 → 支付网关 → 通用设置 → 价格（本地货币/美元）」。
+			// 赠送类型不受 Price 影响，仍按 1:1 入账（前端会把 ratio 强制设为 1）。
+			divisor := req.Ratio
+			localPrice := operation_setting.Price
+			if req.QuotaType == model.QuotaTypeRecharge {
+				if localPrice <= 0 {
+					common.ApiErrorI18n(c, i18n.MsgPaymentLocalPriceInvalid)
+					return
+				}
+				divisor *= localPrice
+			}
+			// 后端权威换算：actual_quota = round(金额 / 比例 / 价格 × QuotaPerUnit)
+			quotaValue := int(math.Round((req.RechargeAmount / divisor) * common.QuotaPerUnit))
 			if quotaValue <= 0 {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
@@ -1060,13 +1071,20 @@ func ManageUser(c *gin.Context) {
 				actionVerb = "赠送"
 			}
 			rechargeInputAmount := req.RechargeAmount
-			rechargeAfterRatioAmount := req.RechargeAmount / req.Ratio
-			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，余额 %s → %s）",
+			rechargeAfterRatioAmount := req.RechargeAmount / divisor
+			logMsg := fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，余额 %s → %s）",
+				actionVerb,
+				logger.LogQuota(quotaValue),
+				req.RechargeAmount, req.Ratio,
+				logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue))
+			if req.QuotaType == model.QuotaTypeRecharge {
+				logMsg = fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，价格 %.2f，余额 %s → %s）",
 					actionVerb,
 					logger.LogQuota(quotaValue),
-					req.RechargeAmount, req.Ratio,
-					logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue)),
+					req.RechargeAmount, req.Ratio, localPrice,
+					logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue))
+			}
+			model.RecordManageLog(user.Id, logMsg,
 				model.OperationTypeQuota, req.QuotaType, adminInfo,
 				&rechargeInputAmount, &rechargeAfterRatioAmount)
 		case "subtract":

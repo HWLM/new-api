@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { useStatus } from '@/hooks/use-status'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -56,6 +57,7 @@ interface UserQuotaDialogProps {
 
 export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
   const [amount, setAmount] = useState('') // subtract / override 用
   const [quotaType, setQuotaType] = useState<QuotaType>('充值')
@@ -66,6 +68,9 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
   const tokensOnly = currencyMeta.kind === 'tokens'
+  // 支付网关「价格（本地货币/美元）」，与后端 operation_setting.Price 对齐。
+  // 充值类型需要再除以这个价格；赠送类型不受影响。
+  const localPrice = Number(status?.price) || 0
 
   // 弹窗打开 / 切换用户 时，将比例回显为分组充值比例
   useEffect(() => {
@@ -77,11 +82,12 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const isGift = quotaType === '赠送'
   const rechargeNum = parseFloat(rechargeAmount) || 0
   const ratioNum = parseFloat(ratio) || 0
-  // 赠送：1:1 直接按 USD 计入，不应用比例；充值：金额 ÷ 比例
+  // 赠送：1:1 直接按 USD 计入，不应用比例与价格；
+  // 充值：金额 ÷ 比例 ÷ 价格
   const actualUsd = isGift
     ? rechargeNum
-    : ratioNum > 0
-      ? rechargeNum / ratioNum
+    : ratioNum > 0 && localPrice > 0
+      ? rechargeNum / ratioNum / localPrice
       : 0
   // 预览用：把 USD → quota 单位 → 配置的展示单位
   const actualQuotaUnits = Math.round(actualUsd * QUOTA_PER_USD)
@@ -127,6 +133,14 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
               min: RATIO_MIN,
               max: RATIO_MAX,
             })
+          )
+          return
+        }
+        if (!isGift && localPrice <= 0) {
+          toast.error(
+            t(
+              'Payment gateway price (local currency / USD) is not configured. Please set it in System Settings → Billing & Payment → Payment Gateway.'
+            )
           )
           return
         }
@@ -286,7 +300,8 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                 ) : (
                   <>
                     {t('Actual credit')} = {t('Recharge Amount')} ÷{' '}
-                    {t('Recharge ratio')} ={' '}
+                    {t('Recharge ratio')} ÷ {t('Price (local currency / USD)')}{' '}
+                    ({localPrice || '-'}) ={' '}
                     <span className='text-foreground font-medium'>
                       {actualUsd.toFixed(4)} USD
                     </span>

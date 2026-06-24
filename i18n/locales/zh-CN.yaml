@@ -138,6 +138,7 @@ payment.webhook_not_configured: "Webhook 未配置"
 payment.price_id_not_configured: "该套餐未配置 StripePriceId"
 payment.creem_not_configured: "该套餐未配置 CreemProductId"
 payment.compliance_required: "支付、兑换码、订阅计划和邀请返利功能已禁用。管理员需先确认合规声明后方可启用。"
+payment.local_price_invalid: "支付网关价格（本地货币/美元）未配置，请前往「系统设置 → 计费与支付 → 支付网关」设置价格"
 
 # Topup messages
 topup.not_provided: "未提供支付单号"
