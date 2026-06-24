@@ -17,14 +17,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { MultiSelect } from '@/components/multi-select'
+import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/compact-date-time-range-picker'
+import { SingleDayPicker } from './single-day-picker'
 import type { DetailsFilter, FilterOptions } from './types'
 
-// 该组件同时服务汇总 / 按天两种模式：
-//   mode='summary' → 显示「最后一次消耗日期」单 DatePicker
-//   mode='daily'   → 显示「开始日期 ~ 结束日期」双 DatePicker
+// 该组件同时服务 汇总 / 按天 / 当日 三种模式：
+//   mode='summary'   → 显示「最后一次消耗日期」单 DatePicker
+//   mode='daily'     → 显示「开始日期 ~ 结束日期」CompactDateTimeRangePicker
+//   mode='singleday' → 显示「单日」SingleDayPicker（今天/昨天/前天 + 自选某天）
 // 时间选择立即触发 onDateChange（特殊回调，不走 onChange + 查询按钮流程）。
 // 其他筛选（用户名、渠道、销售、分组、VIP）仍需点查询按钮。
-type FilterMode = 'summary' | 'daily'
+type FilterMode = 'summary' | 'daily' | 'singleday'
 
 type DetailsFilterBarProps = {
   mode: FilterMode
@@ -32,10 +35,13 @@ type DetailsFilterBarProps = {
   onChange: (next: DetailsFilter) => void
   options: FilterOptions | undefined
   userGroupOptions: string[]
-  // daily 模式专用的日期范围；mode='daily' 时由父组件维护
+  // daily 模式专用的日期范围
   dailyStartDate?: string
   dailyEndDate?: string
   onDailyDateChange?: (start: string, end: string) => void
+  // singleday 模式专用的单日日期
+  singleDayDate?: string
+  onSingleDayDateChange?: (date: string) => void
 }
 
 export function DetailsFilterBar({
@@ -47,6 +53,8 @@ export function DetailsFilterBar({
   dailyStartDate,
   dailyEndDate,
   onDailyDateChange,
+  singleDayDate,
+  onSingleDayDateChange,
 }: DetailsFilterBarProps) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState<DetailsFilter>(value)
@@ -81,6 +89,10 @@ export function DetailsFilterBar({
       const end = today.format('YYYY-MM-DD')
       onDailyDateChange(start, end)
     }
+    if (mode === 'singleday' && onSingleDayDateChange) {
+      // 重置 singleday 日期为昨天
+      onSingleDayDateChange(dayjs().subtract(1, 'day').format('YYYY-MM-DD'))
+    }
   }
 
   // summary 模式：最后一次消耗日期，即时触发
@@ -94,20 +106,21 @@ export function DetailsFilterBar({
     ? dayjs(draft.last_consume_date_from).toDate()
     : undefined
 
-  // daily 模式：日期范围，即时触发
-  const dailyStart = dailyStartDate ? dayjs(dailyStartDate).toDate() : undefined
-  const dailyEnd = dailyEndDate ? dayjs(dailyEndDate).toDate() : undefined
-  const setDailyStart = (d: Date | undefined) => {
-    if (!d || !onDailyDateChange) return
-    const s = dayjs(d).format('YYYY-MM-DD')
-    const e = dailyEndDate ?? s
-    onDailyDateChange(s, e < s ? s : e)
-  }
-  const setDailyEnd = (d: Date | undefined) => {
-    if (!d || !onDailyDateChange) return
-    const e = dayjs(d).format('YYYY-MM-DD')
-    const s = dailyStartDate ?? e
-    onDailyDateChange(s > e ? e : s, e)
+  // daily 模式：日期范围，即时触发。复用 usage-logs 的 CompactDateTimeRangePicker，
+  // 它内部按 Date(含时分) 工作，对外仍按 YYYY-MM-DD 字符串和父组件交互。
+  const dailyStart = dailyStartDate
+    ? dayjs(dailyStartDate).startOf('day').toDate()
+    : undefined
+  const dailyEnd = dailyEndDate
+    ? dayjs(dailyEndDate).endOf('day').toDate()
+    : undefined
+  const setDailyRange = (range: { start?: Date; end?: Date }) => {
+    if (!onDailyDateChange) return
+    if (!range.start || !range.end) return
+    let s = dayjs(range.start).format('YYYY-MM-DD')
+    let e = dayjs(range.end).format('YYYY-MM-DD')
+    if (e < s) [s, e] = [e, s]
+    onDailyDateChange(s, e)
   }
 
   const vipItems = [
@@ -118,17 +131,18 @@ export function DetailsFilterBar({
   return (
     <div className='flex flex-wrap items-center gap-2'>
       {mode === 'daily' ? (
-        <div className='flex items-center gap-1'>
-          <DatePicker
-            selected={dailyStart}
-            onSelect={setDailyStart}
-            placeholder={t('Start Date')}
+        <div className='w-[22rem]'>
+          <CompactDateTimeRangePicker
+            start={dailyStart}
+            end={dailyEnd}
+            onChange={setDailyRange}
           />
-          <span className='text-muted-foreground text-xs'>-</span>
-          <DatePicker
-            selected={dailyEnd}
-            onSelect={setDailyEnd}
-            placeholder={t('End Date')}
+        </div>
+      ) : mode === 'singleday' ? (
+        <div className='w-44'>
+          <SingleDayPicker
+            value={singleDayDate ?? ''}
+            onChange={(d) => onSingleDayDateChange?.(d)}
           />
         </div>
       ) : (

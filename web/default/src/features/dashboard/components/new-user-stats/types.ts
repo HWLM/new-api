@@ -106,6 +106,7 @@ export type DetailsRow = {
   is_official: boolean
   business_channel: string
   inviter_display_name: string
+  user_group: string
   last_consume_at: number // unix 秒；0 = 无
   last_recharge_at: number
   total_requests: number
@@ -146,12 +147,36 @@ export type DetailsDailyRow = {
   is_official: boolean
   business_channel: string
   inviter_display_name: string
+  user_group: string
   daily_requests: number
   daily_consumed_usd: number
   daily_tokens: number
 }
 
 export type DetailsDailyResp = {
+  rows: DetailsDailyRow[]
+  total: number
+  page: number
+  page_size: number
+}
+
+// 「当日统计」filter / resp —— 行结构复用 DetailsDailyRow
+// 与 daily 的差异：
+//   - 只查单天（date 必填）
+//   - 服务端固定排序 quota DESC, id ASC（前端不传 sort_*）
+//   - 服务端展示所有候选用户（无消耗补 0）
+export type DetailsSingleDayFilter = {
+  date: string // 必填 YYYY-MM-DD
+  username?: string
+  channel?: string[]
+  sales?: string[]
+  user_group?: string[]
+  is_vip?: '' | '0' | '1'
+  page?: number
+  page_size?: number
+}
+
+export type DetailsSingleDayResp = {
   rows: DetailsDailyRow[]
   total: number
   page: number

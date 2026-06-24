@@ -63,6 +63,7 @@ type detailsRow struct {
 	IsOfficial         bool    `json:"is_official"` // group ∈ OfficialUserGroups
 	BusinessChannel    string  `json:"business_channel"`
 	InviterDisplayName string  `json:"inviter_display_name"`
+	UserGroup          string  `json:"user_group"`
 	LastConsumeAt      int64   `json:"last_consume_at"` // unix 秒；0 表示无
 	LastRechargeAt     int64   `json:"last_recharge_at"`
 	TotalRequests      int64   `json:"total_requests"`
@@ -226,13 +227,16 @@ func GetUserStatsDetails(c *gin.Context) {
 		BusinessChannel string
 		InviterId       int
 		Quota           int64
+		UserGroup       string
 	}
 	var users []userBrief
+	userSelect := "id, username, display_name, is_vip_customer, business_channel, inviter_id, quota, " +
+		commonUserGroupCol() + " AS user_group"
 	if sortCol != "" {
 		// 直接 SQL 分页
 		offset := (f.page - 1) * f.pageSize
 		if err := userTx.
-			Select("id, username, display_name, is_vip_customer, business_channel, inviter_id, quota").
+			Select(userSelect).
 			Order(sortCol + " " + f.sortDir).
 			Limit(f.pageSize).
 			Offset(offset).
@@ -243,7 +247,7 @@ func GetUserStatsDetails(c *gin.Context) {
 	} else {
 		// 聚合字段排序：先取出所有候选用户的 id（仅基本字段），再聚合排序，最后分页
 		if err := userTx.
-			Select("id, username, display_name, is_vip_customer, business_channel, inviter_id, quota").
+			Select(userSelect).
 			Scan(&users).Error; err != nil {
 			common.ApiError(c, err)
 			return
@@ -314,8 +318,9 @@ func GetUserStatsDetails(c *gin.Context) {
 		}
 	}
 
-	// 8. inviter display_name 反查
+	// 8. inviter display_name / business_channel 反查
 	inviterDisplayMap := map[int]string{}
+	inviterChannelMap := map[int]string{}
 	{
 		inviterIdSet := map[int]struct{}{}
 		for _, u := range users {
@@ -329,12 +334,13 @@ func GetUserStatsDetails(c *gin.Context) {
 				ids = append(ids, id)
 			}
 			type row struct {
-				Id          int
-				DisplayName string
+				Id              int
+				DisplayName     string
+				BusinessChannel string
 			}
 			var inv []row
 			if err := model.DB.Model(&model.User{}).
-				Select("id, display_name").
+				Select("id, display_name, business_channel").
 				Where("id IN ?", ids).
 				Scan(&inv).Error; err != nil {
 				common.ApiError(c, err)
@@ -342,6 +348,7 @@ func GetUserStatsDetails(c *gin.Context) {
 			}
 			for _, r := range inv {
 				inviterDisplayMap[r.Id] = r.DisplayName
+				inviterChannelMap[r.Id] = r.BusinessChannel
 			}
 		}
 	}
@@ -369,8 +376,9 @@ func GetUserStatsDetails(c *gin.Context) {
 			DisplayName:        u.DisplayName,
 			IsVipCustomer:      u.IsVipCustomer,
 			IsOfficial:         isOfficial,
-			BusinessChannel:    u.BusinessChannel,
+			BusinessChannel:    inviterChannelMap[u.InviterId],
 			InviterDisplayName: inviterDisplayMap[u.InviterId],
+			UserGroup:          u.UserGroup,
 			LastConsumeAt:      ca.LastConsumedAt,
 			LastRechargeAt:     ra.LastRechargeAt,
 			TotalRequests:      ca.RequestCount,
@@ -515,6 +523,7 @@ type detailsDailyRow struct {
 	IsOfficial         bool    `json:"is_official"`
 	BusinessChannel    string  `json:"business_channel"`
 	InviterDisplayName string  `json:"inviter_display_name"`
+	UserGroup          string  `json:"user_group"`
 	DailyRequests      int64   `json:"daily_requests"`
 	DailyConsumedUsd   float64 `json:"daily_consumed_usd"`
 	DailyTokens        int64   `json:"daily_tokens"`
@@ -714,10 +723,12 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 		IsVipCustomer   bool
 		BusinessChannel string
 		InviterId       int
+		UserGroup       string
 	}
 	var users []userBrief
 	if err := model.DB.Model(&model.User{}).
-		Select("id, username, display_name, is_vip_customer, business_channel, inviter_id").
+		Select("id, username, display_name, is_vip_customer, business_channel, inviter_id, "+
+			commonUserGroupCol()+" AS user_group").
 		Where("id IN ?", ids).
 		Scan(&users).Error; err != nil {
 		common.ApiError(c, err)
@@ -728,8 +739,9 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 		userMap[u.Id] = u
 	}
 
-	// 5. inviter display_name 反查
+	// 5. inviter display_name / business_channel 反查
 	inviterDisplayMap := map[int]string{}
+	inviterChannelMap := map[int]string{}
 	{
 		inviterIdSet := map[int]struct{}{}
 		for _, u := range users {
@@ -743,16 +755,18 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 				invIds = append(invIds, id)
 			}
 			type row struct {
-				Id          int
-				DisplayName string
+				Id              int
+				DisplayName     string
+				BusinessChannel string
 			}
 			var inv []row
 			if err := model.DB.Model(&model.User{}).
-				Select("id, display_name").
+				Select("id, display_name, business_channel").
 				Where("id IN ?", invIds).
 				Scan(&inv).Error; err == nil {
 				for _, r := range inv {
 					inviterDisplayMap[r.Id] = r.DisplayName
+					inviterChannelMap[r.Id] = r.BusinessChannel
 				}
 			}
 		}
@@ -781,8 +795,9 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			DisplayName:        u.DisplayName,
 			IsVipCustomer:      u.IsVipCustomer,
 			IsOfficial:         isOfficial,
-			BusinessChannel:    u.BusinessChannel,
+			BusinessChannel:    inviterChannelMap[u.InviterId],
 			InviterDisplayName: inviterDisplayMap[u.InviterId],
+			UserGroup:          u.UserGroup,
 			DailyRequests:      a.RequestCount,
 			DailyConsumedUsd:   quotaToUSD(a.Quota),
 			DailyTokens:        a.Tokens,
@@ -898,4 +913,304 @@ func sortDailyRows(rows []detailsDailyRow, sortBy, sortDir string) {
 		less = func(i, j int) bool { return orig(j, i) }
 	}
 	sort.SliceStable(rows, less)
+}
+
+// =========================================================
+// 明细数据「当日统计」tab
+// =========================================================
+//
+// 与 daily 的关键差异：
+//   - 只查单天，不接受日期范围
+//   - 展示所有候选用户（默认排除 deleted/disabled/admin/root），没消耗的补 0
+//   - 排序固定为 quota DESC, id ASC
+
+type detailsSingleDayFilter struct {
+	date       string // YYYY-MM-DD（必填）
+	username   string
+	channels   []string
+	sales      []string
+	userGroups []string
+	isVip      *bool
+	page       int
+	pageSize   int
+}
+
+type detailsSingleDayResp struct {
+	Rows     []detailsDailyRow `json:"rows"`
+	Total    int64             `json:"total"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"page_size"`
+}
+
+func parseDetailsSingleDayFilter(c *gin.Context) (*detailsSingleDayFilter, error) {
+	f := &detailsSingleDayFilter{
+		date:       strings.TrimSpace(c.Query("date")),
+		username:   strings.TrimSpace(c.Query("username")),
+		channels:   splitCSV(c.Query("channel")),
+		sales:      splitCSV(c.Query("sales")),
+		userGroups: splitCSV(c.Query("user_group")),
+	}
+	if f.date == "" {
+		return nil, fmt.Errorf("date 必填，格式 YYYY-MM-DD")
+	}
+	if _, err := time.Parse("2006-01-02", f.date); err != nil {
+		return nil, fmt.Errorf("date 格式错误，应为 YYYY-MM-DD")
+	}
+	if v := c.Query("is_vip"); v != "" {
+		if b, e := strconv.ParseBool(v); e == nil {
+			f.isVip = &b
+		}
+	}
+	if p, e := strconv.Atoi(c.Query("page")); e == nil && p > 0 {
+		f.page = p
+	} else {
+		f.page = 1
+	}
+	if ps, e := strconv.Atoi(c.Query("page_size")); e == nil && ps > 0 && ps <= 200 {
+		f.pageSize = ps
+	} else {
+		f.pageSize = 20
+	}
+	return f, nil
+}
+
+// GetUserStatsDetailsSingleDay 「当日统计」明细：单天，含所有候选用户（无消耗补 0）。
+//
+// 数据流：
+//  1. 候选用户 = users 表过滤后的全集（默认排除 deleted/disabled/admin/root）
+//  2. 当日聚合：历史日读 vip_daily_consumptions；今天实时聚合 logs
+//  3. 内存 LEFT JOIN：用户全集 ⊕ 当日 map（缺失补 0）
+//  4. 排序 quota DESC, id ASC；分页
+func GetUserStatsDetailsSingleDay(c *gin.Context) {
+	f, err := parseDetailsSingleDayFilter(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	// 1. inviter 过滤（channel / sales 维度按 inviter 语义）
+	var inviterIds []int
+	needInviterFilter := len(f.channels) > 0 || len(f.sales) > 0
+	if needInviterFilter {
+		tx := model.DB.Model(&model.User{}).Where("business_channel <> ''")
+		if len(f.channels) > 0 {
+			tx = tx.Where("business_channel IN ?", f.channels)
+		}
+		if len(f.sales) > 0 {
+			tx = tx.Where("display_name IN ?", f.sales)
+		}
+		if err := tx.Pluck("id", &inviterIds).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if len(inviterIds) == 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data":    detailsSingleDayResp{Rows: []detailsDailyRow{}, Total: 0, Page: f.page, PageSize: f.pageSize},
+			})
+			return
+		}
+	}
+
+	// 2. users 候选（固定排除 disabled/admin/root；soft delete 由 gorm.DeletedAt 自动过滤）
+	userTx := model.DB.Model(&model.User{}).
+		Where("status = ?", common.UserStatusEnabled).
+		Where("role <= ?", common.RoleCommonUser)
+	if f.username != "" {
+		userTx = userTx.Where("username LIKE ? OR display_name LIKE ?",
+			"%"+f.username+"%", "%"+f.username+"%")
+	}
+	if needInviterFilter {
+		userTx = userTx.Where("inviter_id IN ?", inviterIds)
+	}
+	if len(f.userGroups) > 0 {
+		userTx = userTx.Where(commonUserGroupCol()+" IN ?", f.userGroups)
+	}
+	if f.isVip != nil {
+		userTx = userTx.Where("is_vip_customer = ?", *f.isVip)
+	}
+
+	type userBrief struct {
+		Id              int
+		Username        string
+		DisplayName     string
+		IsVipCustomer   bool
+		BusinessChannel string
+		InviterId       int
+		UserGroup       string
+	}
+	var users []userBrief
+	if err := userTx.
+		Select("id, username, display_name, is_vip_customer, business_channel, inviter_id, " +
+			commonUserGroupCol() + " AS user_group").
+		Scan(&users).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if len(users) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    detailsSingleDayResp{Rows: []detailsDailyRow{}, Total: 0, Page: f.page, PageSize: f.pageSize},
+		})
+		return
+	}
+
+	// 3. 当日聚合
+	type aggRow struct {
+		Quota        int64
+		RequestCount int64
+		Tokens       int64
+	}
+	aggMap := map[int]aggRow{}
+	now := time.Now()
+	todayStr := now.Format("2006-01-02")
+
+	candidateIds := make([]int, 0, len(users))
+	for _, u := range users {
+		candidateIds = append(candidateIds, u.Id)
+	}
+
+	if f.date < todayStr {
+		// 历史日：vip_daily_consumptions（00:10 定时任务落盘）
+		type row struct {
+			UserId       int
+			Quota        int64
+			RequestCount int64
+			Tokens       int64
+		}
+		var rows []row
+		if err := model.DB.Model(&model.VipDailyConsumption{}).
+			Where("stat_date = ?", f.date).
+			Where("user_id IN ?", candidateIds).
+			Select("user_id, quota, request_count, tokens").
+			Scan(&rows).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, r := range rows {
+			aggMap[r.UserId] = aggRow{Quota: r.Quota, RequestCount: r.RequestCount, Tokens: r.Tokens}
+		}
+	} else if f.date == todayStr {
+		// 今天：实时聚合 logs
+		loc := now.Location()
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
+		todayEnd := now.Unix()
+		type row struct {
+			UserId       int
+			TotalQuota   int64
+			RequestCount int64
+			TotalTokens  int64
+		}
+		var rows []row
+		if err := model.LOG_DB.Model(&model.Log{}).
+			Where("type = ?", model.LogTypeConsume).
+			Where("user_id IN ?", candidateIds).
+			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+			Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COUNT(*) AS request_count, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, r := range rows {
+			aggMap[r.UserId] = aggRow{Quota: r.TotalQuota, RequestCount: r.RequestCount, Tokens: r.TotalTokens}
+		}
+	}
+	// f.date > todayStr（未来日）：aggMap 留空，全部展示 0
+
+	// 4. 反查邀请人 display_name + business_channel
+	inviterDisplayMap := map[int]string{}
+	inviterChannelMap := map[int]string{}
+	{
+		inviterIdSet := map[int]struct{}{}
+		for _, u := range users {
+			if u.InviterId > 0 {
+				inviterIdSet[u.InviterId] = struct{}{}
+			}
+		}
+		if len(inviterIdSet) > 0 {
+			invIds := make([]int, 0, len(inviterIdSet))
+			for id := range inviterIdSet {
+				invIds = append(invIds, id)
+			}
+			type row struct {
+				Id              int
+				DisplayName     string
+				BusinessChannel string
+			}
+			var inv []row
+			if err := model.DB.Model(&model.User{}).
+				Select("id, display_name, business_channel").
+				Where("id IN ?", invIds).
+				Scan(&inv).Error; err == nil {
+				for _, r := range inv {
+					inviterDisplayMap[r.Id] = r.DisplayName
+					inviterChannelMap[r.Id] = r.BusinessChannel
+				}
+			}
+		}
+	}
+
+	// 5. 正式用户
+	officialSet := map[int]struct{}{}
+	if oids, err := model.GetOfficialUserIds(); err == nil {
+		for _, id := range oids {
+			officialSet[id] = struct{}{}
+		}
+	}
+
+	// 6. 排序：quota DESC, id ASC
+	sort.SliceStable(users, func(i, j int) bool {
+		qi := aggMap[users[i].Id].Quota
+		qj := aggMap[users[j].Id].Quota
+		if qi != qj {
+			return qi > qj
+		}
+		return users[i].Id < users[j].Id
+	})
+
+	total := int64(len(users))
+
+	// 7. 分页
+	offset := (f.page - 1) * f.pageSize
+	if offset >= len(users) {
+		users = nil
+	} else {
+		end := offset + f.pageSize
+		if end > len(users) {
+			end = len(users)
+		}
+		users = users[offset:end]
+	}
+
+	// 8. 拼装
+	rows := make([]detailsDailyRow, 0, len(users))
+	for _, u := range users {
+		a := aggMap[u.Id]
+		_, isOfficial := officialSet[u.Id]
+		rows = append(rows, detailsDailyRow{
+			Date:               f.date,
+			UserId:             u.Id,
+			Username:           u.Username,
+			DisplayName:        u.DisplayName,
+			IsVipCustomer:      u.IsVipCustomer,
+			IsOfficial:         isOfficial,
+			BusinessChannel:    inviterChannelMap[u.InviterId],
+			InviterDisplayName: inviterDisplayMap[u.InviterId],
+			UserGroup:          u.UserGroup,
+			DailyRequests:      a.RequestCount,
+			DailyConsumedUsd:   quotaToUSD(a.Quota),
+			DailyTokens:        a.Tokens,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": detailsSingleDayResp{
+			Rows:     rows,
+			Total:    total,
+			Page:     f.page,
+			PageSize: f.pageSize,
+		},
+	})
 }

@@ -47,8 +47,8 @@ var (
 )
 
 // StartVipDailyStatTask 启动 VIP 每日消耗统计任务（仅 master 节点执行）。
-// 每天本地时间 02:00 后第一次 tick 时聚合"昨天"的消耗写入 vip_daily_consumption 表。
-// 失败时不更新 lastDate，下次 tick 重试；重启时若今天 2 点已过且未统计，立即补跑。
+// 每天本地时间 00:10（vipStatReportHour/Minute）后第一次 tick 时聚合"昨天"的消耗写入 vip_daily_consumption 表。
+// 失败时不更新 lastDate，下次 tick 重试；重启时若今天触发点已过且未统计，立即补跑。
 func StartVipDailyStatTask() {
 	vipStatOnce.Do(func() {
 		if !common.IsMasterNode {

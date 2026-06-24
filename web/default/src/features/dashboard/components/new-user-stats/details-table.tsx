@@ -21,7 +21,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { fetchUserStatsDetails, fetchUserStatsDetailsDaily } from './api'
+import {
+  fetchUserStatsDetails,
+  fetchUserStatsDetailsDaily,
+  fetchUserStatsDetailsSingleDay,
+} from './api'
 import { DetailsFilterBar } from './details-filter-bar'
 import type {
   DetailsDailyRow,
@@ -30,7 +34,7 @@ import type {
   FilterOptions,
 } from './types'
 
-type StatsMode = 'summary' | 'daily'
+type StatsMode = 'summary' | 'daily' | 'singleday'
 
 type SortDir = 'asc' | 'desc'
 
@@ -89,6 +93,10 @@ export function DetailsTable({
   const [dailyRange, setDailyRange] = useState<{ start: string; end: string }>(
     defaultDailyRange
   )
+  // singleday 模式的单日日期（默认昨天）
+  const [singleDayDate, setSingleDayDate] = useState<string>(() =>
+    dayjs().subtract(1, 'day').format('YYYY-MM-DD')
+  )
 
   // 汇总
   const summaryKey = useMemo(() => JSON.stringify(filter), [filter])
@@ -124,10 +132,40 @@ export function DetailsTable({
     enabled: mode === 'daily',
   })
 
+  // 当日
+  const singleDayKey = useMemo(
+    () => JSON.stringify({ filter, singleDayDate }),
+    [filter, singleDayDate]
+  )
+  const singleDayQuery = useQuery({
+    queryKey: ['user-stats', 'details_singleday', singleDayKey],
+    queryFn: () =>
+      fetchUserStatsDetailsSingleDay({
+        date: singleDayDate,
+        username: filter.username,
+        channel: filter.channel,
+        sales: filter.sales,
+        user_group: filter.user_group,
+        is_vip: filter.is_vip,
+        page: filter.page,
+        page_size: filter.page_size,
+      }),
+    placeholderData: (prev) => prev,
+    enabled: mode === 'singleday',
+  })
+
   const total =
-    mode === 'summary' ? (summaryQuery.data?.total ?? 0) : (dailyQuery.data?.total ?? 0)
+    mode === 'summary'
+      ? (summaryQuery.data?.total ?? 0)
+      : mode === 'daily'
+        ? (dailyQuery.data?.total ?? 0)
+        : (singleDayQuery.data?.total ?? 0)
   const isLoading =
-    mode === 'summary' ? summaryQuery.isLoading : dailyQuery.isLoading
+    mode === 'summary'
+      ? summaryQuery.isLoading
+      : mode === 'daily'
+        ? dailyQuery.isLoading
+        : singleDayQuery.isLoading
   const pageSize = filter.page_size ?? PAGE_SIZE
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const page = filter.page ?? 1
@@ -174,6 +212,7 @@ export function DetailsTable({
 
   const summaryRows = summaryQuery.data?.rows ?? []
   const dailyRows = dailyQuery.data?.rows ?? []
+  const singleDayRows = singleDayQuery.data?.rows ?? []
 
   // 切 mode 时把页码重置
   const handleModeChange = (m: string) => {
@@ -194,6 +233,9 @@ export function DetailsTable({
             <TabsTrigger value='daily' className='px-3 text-xs'>
               {t('Daily Statistics')}
             </TabsTrigger>
+            <TabsTrigger value='singleday' className='px-3 text-xs'>
+              {t('Single Day Statistics')}
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       </CardHeader>
@@ -208,6 +250,11 @@ export function DetailsTable({
           dailyEndDate={dailyRange.end}
           onDailyDateChange={(s, e) => {
             setDailyRange({ start: s, end: e })
+            setFilter({ ...filter, page: 1 })
+          }}
+          singleDayDate={singleDayDate}
+          onSingleDayDateChange={(d) => {
+            setSingleDayDate(d)
             setFilter({ ...filter, page: 1 })
           }}
         />
@@ -235,6 +282,7 @@ export function DetailsTable({
                   <TableHead>{t('Tags')}</TableHead>
                   <TableHead>{t('Owning Channel')}</TableHead>
                   <TableHead>{t('Owning Sales')}</TableHead>
+                  <TableHead>{t('User Group')}</TableHead>
                   <TableHead
                     className='cursor-pointer select-none'
                     onClick={() => handleSort('last_consume')}
@@ -291,7 +339,7 @@ export function DetailsTable({
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      <TableCell colSpan={13}>
+                      <TableCell colSpan={14}>
                         <Skeleton className='h-5 w-full' />
                       </TableCell>
                     </TableRow>
@@ -299,7 +347,7 @@ export function DetailsTable({
                 ) : summaryRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={13}
+                      colSpan={14}
                       className='text-muted-foreground text-center'
                     >
                       {t('No data')}
@@ -315,6 +363,7 @@ export function DetailsTable({
                       <TableCell>{renderTags(row)}</TableCell>
                       <TableCell>{row.business_channel || '-'}</TableCell>
                       <TableCell>{row.inviter_display_name || '-'}</TableCell>
+                      <TableCell>{row.user_group || '-'}</TableCell>
                       <TableCell className='whitespace-nowrap'>
                         {fmtTimeDate(row.last_consume_at)}
                       </TableCell>
@@ -350,7 +399,7 @@ export function DetailsTable({
                 )}
               </TableBody>
             </Table>
-          ) : (
+          ) : mode === 'daily' ? (
             // ====== 按天统计表 ======
             <Table>
               <TableHeader>
@@ -379,6 +428,7 @@ export function DetailsTable({
                   <TableHead>{t('Tags')}</TableHead>
                   <TableHead>{t('Owning Channel')}</TableHead>
                   <TableHead>{t('Owning Sales')}</TableHead>
+                  <TableHead>{t('User Group')}</TableHead>
                   <TableHead
                     className='cursor-pointer select-none text-right'
                     onClick={() => handleSort('requests')}
@@ -406,7 +456,7 @@ export function DetailsTable({
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      <TableCell colSpan={9}>
+                      <TableCell colSpan={10}>
                         <Skeleton className='h-5 w-full' />
                       </TableCell>
                     </TableRow>
@@ -414,7 +464,7 @@ export function DetailsTable({
                 ) : dailyRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={10}
                       className='text-muted-foreground text-center'
                     >
                       {t('No data')}
@@ -431,6 +481,76 @@ export function DetailsTable({
                       <TableCell>{renderTags(row)}</TableCell>
                       <TableCell>{row.business_channel || '-'}</TableCell>
                       <TableCell>{row.inviter_display_name || '-'}</TableCell>
+                      <TableCell>{row.user_group || '-'}</TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        {row.daily_requests.toLocaleString()}
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        {row.daily_consumed_usd.toFixed(2)}
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        {row.daily_tokens.toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          ) : (
+            // ====== 当日统计表 ======
+            // 后端固定排序 quota DESC, id ASC；表头不响应点击。
+            // 用户全集，无消耗补 0。
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('Date')}</TableHead>
+                  <TableHead>{t('Customer')}</TableHead>
+                  <TableHead>{t('Display Name')}</TableHead>
+                  <TableHead>{t('Tags')}</TableHead>
+                  <TableHead>{t('Owning Channel')}</TableHead>
+                  <TableHead>{t('Owning Sales')}</TableHead>
+                  <TableHead>{t('User Group')}</TableHead>
+                  <TableHead className='text-right'>
+                    {t('Daily Requests')}
+                  </TableHead>
+                  <TableHead className='text-right'>
+                    {t('Daily Consumed ($)')}
+                  </TableHead>
+                  <TableHead className='text-right'>
+                    {t('Daily Tokens')}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={`sk-${i}`}>
+                      <TableCell colSpan={10}>
+                        <Skeleton className='h-5 w-full' />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : singleDayRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={10}
+                      className='text-muted-foreground text-center'
+                    >
+                      {t('No data')}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  singleDayRows.map((row) => (
+                    <TableRow key={`${row.user_id}-${row.date}`}>
+                      <TableCell className='whitespace-nowrap font-medium'>
+                        {row.date}
+                      </TableCell>
+                      <TableCell>{row.username}</TableCell>
+                      <TableCell>{row.display_name || '-'}</TableCell>
+                      <TableCell>{renderTags(row)}</TableCell>
+                      <TableCell>{row.business_channel || '-'}</TableCell>
+                      <TableCell>{row.inviter_display_name || '-'}</TableCell>
+                      <TableCell>{row.user_group || '-'}</TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.daily_requests.toLocaleString()}
                       </TableCell>

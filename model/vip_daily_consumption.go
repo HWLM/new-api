@@ -25,7 +25,7 @@ import (
 )
 
 // VipDailyConsumption 用户每日消耗+充值统计（历史名 vip_*，现已扩展为全量用户）。
-// 由凌晨 2 点的定时任务写入，每条记录代表「某用户某一天」的总消耗 quota / 请求次数 / token 数 / 管理员充值金额。
+// 由 00:10 的定时任务写入，每条记录代表「某用户某一天」的总消耗 quota / 请求次数 / token 数 / 管理员充值金额。
 // 表名沿用历史命名，但底层数据已包含所有用户；重点客户统计页通过 user_id IN (VIP ids) 过滤后再查询。
 type VipDailyConsumption struct {
 	Id             int     `json:"id" gorm:"primaryKey"`

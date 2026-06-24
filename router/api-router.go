@@ -385,6 +385,7 @@ func SetApiRouter(router *gin.Engine) {
 			userStatsRoute.GET("/consumption_trend", controller.GetUserStatsConsumptionTrend)
 			userStatsRoute.GET("/details", controller.GetUserStatsDetails)
 			userStatsRoute.GET("/details_daily", controller.GetUserStatsDetailsDaily)
+			userStatsRoute.GET("/details_singleday", controller.GetUserStatsDetailsSingleDay)
 			userStatsRoute.GET("/user_trend", controller.GetUserStatsUserTrend)
 		}
 

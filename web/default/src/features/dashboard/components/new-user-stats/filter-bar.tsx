@@ -18,7 +18,7 @@ import { MultiSelect } from '@/components/multi-select'
 import type { FilterOptions, StatsFilter } from './types'
 
 // 时间快捷选项
-type QuickRange = 'today' | '3d' | '7d' | '1m' | 'custom'
+type QuickRange = 'today' | 'yesterday' | '3d' | '7d' | '1m' | 'custom'
 
 function rangeToDates(range: QuickRange): {
   start_date?: string
@@ -32,6 +32,14 @@ function rangeToDates(range: QuickRange): {
     case 'today':
       start = end
       break
+    case 'yesterday': {
+      const y = new Date(now)
+      y.setDate(now.getDate() - 1)
+      return {
+        start_date: formatDateLocal(y),
+        end_date: formatDateLocal(y),
+      }
+    }
     case '3d':
       start.setDate(end.getDate() - 2)
       break
@@ -116,6 +124,7 @@ export function FilterBar({
 
   const rangeButtons: Array<{ key: QuickRange; label: string }> = [
     { key: 'today', label: t('Today') },
+    { key: 'yesterday', label: t('Yesterday') },
     { key: '3d', label: t('Last 3 Days') },
     { key: '7d', label: t('Last 7 Days') },
     { key: '1m', label: t('Last Month') },

@@ -11,6 +11,8 @@ import type {
   DetailsDailyResp,
   DetailsFilter,
   DetailsResp,
+  DetailsSingleDayFilter,
+  DetailsSingleDayResp,
   FilterOptions,
   RechargeTrendPoint,
   StatsFilter,
@@ -150,6 +152,30 @@ export async function fetchUserStatsDetailsDaily(
   const res = await api.get<ApiResp<DetailsDailyResp>>(
     '/api/user_stats/details_daily',
     { params: toDetailsDailyParams(filter) }
+  )
+  return res.data.data
+}
+
+function toDetailsSingleDayParams(
+  f: DetailsSingleDayFilter
+): Record<string, string> {
+  const p: Record<string, string> = { date: f.date }
+  if (f.username) p.username = f.username
+  if (f.channel && f.channel.length) p.channel = f.channel.join(',')
+  if (f.sales && f.sales.length) p.sales = f.sales.join(',')
+  if (f.user_group && f.user_group.length) p.user_group = f.user_group.join(',')
+  if (f.is_vip) p.is_vip = f.is_vip
+  if (f.page) p.page = String(f.page)
+  if (f.page_size) p.page_size = String(f.page_size)
+  return p
+}
+
+export async function fetchUserStatsDetailsSingleDay(
+  filter: DetailsSingleDayFilter
+): Promise<DetailsSingleDayResp> {
+  const res = await api.get<ApiResp<DetailsSingleDayResp>>(
+    '/api/user_stats/details_singleday',
+    { params: toDetailsSingleDayParams(filter) }
   )
   return res.data.data
 }
