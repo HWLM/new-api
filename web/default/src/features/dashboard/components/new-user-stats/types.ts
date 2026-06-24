@@ -151,6 +151,8 @@ export type DetailsDailyRow = {
   daily_requests: number
   daily_consumed_usd: number
   daily_tokens: number
+  // 仅 singleday 接口返回：用户实时余额（与查询日期无关）
+  remaining_usd?: number
 }
 
 export type DetailsDailyResp = {

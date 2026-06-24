@@ -180,6 +180,22 @@ export async function fetchUserStatsDetailsSingleDay(
   return res.data.data
 }
 
+// 导出当日统计 Excel —— 后端返回二进制流，绕过 axios 默认的 JSON 解析。
+// 同时跳过业务错误处理，因为响应不是 ApiResp 格式。
+export async function exportUserStatsDetailsSingleDay(
+  filter: DetailsSingleDayFilter
+): Promise<Blob> {
+  const res = await api.get<Blob>(
+    '/api/user_stats/details_singleday/export',
+    {
+      params: toDetailsSingleDayParams(filter),
+      responseType: 'blob',
+      skipBusinessError: true,
+    }
+  )
+  return res.data
+}
+
 export async function fetchUserStatsUserTrend(
   params: UserTrendParams
 ): Promise<ApiResp<UserTrendResp>> {

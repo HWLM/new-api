@@ -5,8 +5,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import dayjs from '@/lib/dayjs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
+  exportUserStatsDetailsSingleDay,
   fetchUserStatsDetails,
   fetchUserStatsDetailsDaily,
   fetchUserStatsDetailsSingleDay,
@@ -221,6 +223,36 @@ export function DetailsTable({
     setFilter({ ...filter, page: 1, sort_by: '', sort_dir: 'desc' })
   }
 
+  // 当日统计导出
+  const [exporting, setExporting] = useState(false)
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const blob = await exportUserStatsDetailsSingleDay({
+        date: singleDayDate,
+        username: filter.username,
+        channel: filter.channel,
+        sales: filter.sales,
+        user_group: filter.user_group,
+        is_vip: filter.is_vip,
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `当日统计_${singleDayDate}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      toast.error(t('Export failed') + ': ' + msg)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <Card>
       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
@@ -258,6 +290,20 @@ export function DetailsTable({
             setFilter({ ...filter, page: 1 })
           }}
         />
+
+        {mode === 'singleday' && (
+          <div className='flex justify-end'>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={handleExport}
+              disabled={exporting}
+            >
+              <Download className='mr-1 size-4' />
+              {exporting ? t('Exporting...') : t('Export')}
+            </Button>
+          </div>
+        )}
 
         <div className='overflow-x-auto'>
           {mode === 'summary' ? (
@@ -519,13 +565,16 @@ export function DetailsTable({
                   <TableHead className='text-right'>
                     {t('Daily Tokens')}
                   </TableHead>
+                  <TableHead className='text-right'>
+                    {t('Remaining ($)')}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      <TableCell colSpan={10}>
+                      <TableCell colSpan={11}>
                         <Skeleton className='h-5 w-full' />
                       </TableCell>
                     </TableRow>
@@ -533,7 +582,7 @@ export function DetailsTable({
                 ) : singleDayRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={10}
+                      colSpan={11}
                       className='text-muted-foreground text-center'
                     >
                       {t('No data')}
@@ -559,6 +608,9 @@ export function DetailsTable({
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.daily_tokens.toLocaleString()}
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        {(row.remaining_usd ?? 0).toFixed(2)}
                       </TableCell>
                     </TableRow>
                   ))

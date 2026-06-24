@@ -527,6 +527,8 @@ type detailsDailyRow struct {
 	DailyRequests      int64   `json:"daily_requests"`
 	DailyConsumedUsd   float64 `json:"daily_consumed_usd"`
 	DailyTokens        int64   `json:"daily_tokens"`
+	// 当日统计专用：用户实时余额（与查询日期无关）；daily 接口不填该字段，omitempty 不输出
+	RemainingUsd *float64 `json:"remaining_usd,omitempty"`
 }
 
 type detailsDailyResp struct {
@@ -988,6 +990,41 @@ func GetUserStatsDetailsSingleDay(c *gin.Context) {
 		return
 	}
 
+	all, err := loadSingleDayAllRows(f)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	total := int64(len(all))
+
+	// 分页
+	offset := (f.page - 1) * f.pageSize
+	var rows []detailsDailyRow
+	if offset >= len(all) {
+		rows = []detailsDailyRow{}
+	} else {
+		end := offset + f.pageSize
+		if end > len(all) {
+			end = len(all)
+		}
+		rows = all[offset:end]
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": detailsSingleDayResp{
+			Rows:     rows,
+			Total:    total,
+			Page:     f.page,
+			PageSize: f.pageSize,
+		},
+	})
+}
+
+// loadSingleDayAllRows 加载「当日统计」全量数据（不分页），按 quota DESC, id ASC 排序。
+// 抽出来供导出接口复用。
+func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) {
 	// 1. inviter 过滤（channel / sales 维度按 inviter 语义）
 	var inviterIds []int
 	needInviterFilter := len(f.channels) > 0 || len(f.sales) > 0
@@ -1000,15 +1037,10 @@ func GetUserStatsDetailsSingleDay(c *gin.Context) {
 			tx = tx.Where("display_name IN ?", f.sales)
 		}
 		if err := tx.Pluck("id", &inviterIds).Error; err != nil {
-			common.ApiError(c, err)
-			return
+			return nil, err
 		}
 		if len(inviterIds) == 0 {
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"data":    detailsSingleDayResp{Rows: []detailsDailyRow{}, Total: 0, Page: f.page, PageSize: f.pageSize},
-			})
-			return
+			return []detailsDailyRow{}, nil
 		}
 	}
 
@@ -1038,21 +1070,17 @@ func GetUserStatsDetailsSingleDay(c *gin.Context) {
 		BusinessChannel string
 		InviterId       int
 		UserGroup       string
+		Quota           int64
 	}
 	var users []userBrief
 	if err := userTx.
-		Select("id, username, display_name, is_vip_customer, business_channel, inviter_id, " +
+		Select("id, username, display_name, is_vip_customer, business_channel, inviter_id, quota, " +
 			commonUserGroupCol() + " AS user_group").
 		Scan(&users).Error; err != nil {
-		common.ApiError(c, err)
-		return
+		return nil, err
 	}
 	if len(users) == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    detailsSingleDayResp{Rows: []detailsDailyRow{}, Total: 0, Page: f.page, PageSize: f.pageSize},
-		})
-		return
+		return []detailsDailyRow{}, nil
 	}
 
 	// 3. 当日聚合
@@ -1084,8 +1112,7 @@ func GetUserStatsDetailsSingleDay(c *gin.Context) {
 			Where("user_id IN ?", candidateIds).
 			Select("user_id, quota, request_count, tokens").
 			Scan(&rows).Error; err != nil {
-			common.ApiError(c, err)
-			return
+			return nil, err
 		}
 		for _, r := range rows {
 			aggMap[r.UserId] = aggRow{Quota: r.Quota, RequestCount: r.RequestCount, Tokens: r.Tokens}
@@ -1109,8 +1136,7 @@ func GetUserStatsDetailsSingleDay(c *gin.Context) {
 			Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COUNT(*) AS request_count, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens").
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
-			common.ApiError(c, err)
-			return
+			return nil, err
 		}
 		for _, r := range rows {
 			aggMap[r.UserId] = aggRow{Quota: r.TotalQuota, RequestCount: r.RequestCount, Tokens: r.TotalTokens}
@@ -1169,25 +1195,12 @@ func GetUserStatsDetailsSingleDay(c *gin.Context) {
 		return users[i].Id < users[j].Id
 	})
 
-	total := int64(len(users))
-
-	// 7. 分页
-	offset := (f.page - 1) * f.pageSize
-	if offset >= len(users) {
-		users = nil
-	} else {
-		end := offset + f.pageSize
-		if end > len(users) {
-			end = len(users)
-		}
-		users = users[offset:end]
-	}
-
-	// 8. 拼装
+	// 7. 拼装
 	rows := make([]detailsDailyRow, 0, len(users))
 	for _, u := range users {
 		a := aggMap[u.Id]
 		_, isOfficial := officialSet[u.Id]
+		remaining := quotaToUSD(u.Quota)
 		rows = append(rows, detailsDailyRow{
 			Date:               f.date,
 			UserId:             u.Id,
@@ -1201,16 +1214,8 @@ func GetUserStatsDetailsSingleDay(c *gin.Context) {
 			DailyRequests:      a.RequestCount,
 			DailyConsumedUsd:   quotaToUSD(a.Quota),
 			DailyTokens:        a.Tokens,
+			RemainingUsd:       &remaining,
 		})
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": detailsSingleDayResp{
-			Rows:     rows,
-			Total:    total,
-			Page:     f.page,
-			PageSize: f.pageSize,
-		},
-	})
+	return rows, nil
 }
