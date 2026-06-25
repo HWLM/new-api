@@ -12,7 +12,7 @@ package controller
 // 输出结构（单 sheet）：
 //
 //	A. 明细表：
-//	   表头：日期 / 商务渠道 / 客户ID / 客户名称 / 客户类型 / 当日消耗($) / 账户余额($)
+//	   表头：日期 / 商务渠道 / 客户账号 / 客户名称 / 客户类型 / 当日消耗($) / 账户余额($)
 //	   按 business_channel 分组：有渠道在前（每组末尾"汇总"行），无渠道排最后
 //	   组内排序：客户类型 ASC, 当日消耗 DESC, id ASC
 //	B. 数据汇总：客户数 / 总消耗 / 按 group 分组的"客户数 + 消耗 + 余额"
@@ -84,7 +84,7 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 	})
 
 	// 表头
-	headers := []string{"日期", "商务渠道", "客户ID", "客户名称", "客户类型", "当日消耗($)", "账户余额($)"}
+	headers := []string{"日期", "商务渠道", "客户账号", "客户名称", "客户类型", "当日消耗($)", "账户余额($)"}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		_ = file.SetCellValue(sheet, cell, h)
@@ -115,8 +115,8 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 			vals := []any{
 				r.Date,
 				g.label,
-				r.UserId,
-				orDash(r.Username),
+				r.Username,
+				orDash(r.DisplayName),
 				orDash(r.UserGroup),
 				roundFloat(r.DailyConsumedUsd),
 				roundFloat(remaining),
@@ -189,7 +189,7 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 	// 列宽
 	_ = file.SetColWidth(sheet, "A", "A", 12)
 	_ = file.SetColWidth(sheet, "B", "B", 18)
-	_ = file.SetColWidth(sheet, "C", "C", 14)
+	_ = file.SetColWidth(sheet, "C", "C", 18)
 	_ = file.SetColWidth(sheet, "D", "D", 22)
 	_ = file.SetColWidth(sheet, "E", "E", 14)
 	_ = file.SetColWidth(sheet, "F", "G", 14)
