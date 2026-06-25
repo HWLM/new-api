@@ -347,8 +347,12 @@ func GetUserStatsDetails(c *gin.Context) {
 				return
 			}
 			for _, r := range inv {
-				inviterDisplayMap[r.Id] = r.DisplayName
+				// 「归属销售」语义：邀请人 business_channel 非空才算销售；
+				// 否则可能是普通客户邀请普通客户，display_name 不参与展示。
 				inviterChannelMap[r.Id] = r.BusinessChannel
+				if r.BusinessChannel != "" {
+					inviterDisplayMap[r.Id] = r.DisplayName
+				}
 			}
 		}
 	}
@@ -767,8 +771,11 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 				Where("id IN ?", invIds).
 				Scan(&inv).Error; err == nil {
 				for _, r := range inv {
-					inviterDisplayMap[r.Id] = r.DisplayName
+					// 「归属销售」语义：邀请人 business_channel 非空才算销售。
 					inviterChannelMap[r.Id] = r.BusinessChannel
+					if r.BusinessChannel != "" {
+						inviterDisplayMap[r.Id] = r.DisplayName
+					}
 				}
 			}
 		}
@@ -1170,8 +1177,11 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 				Where("id IN ?", invIds).
 				Scan(&inv).Error; err == nil {
 				for _, r := range inv {
-					inviterDisplayMap[r.Id] = r.DisplayName
+					// 「归属销售」语义：邀请人 business_channel 非空才算销售。
 					inviterChannelMap[r.Id] = r.BusinessChannel
+					if r.BusinessChannel != "" {
+						inviterDisplayMap[r.Id] = r.DisplayName
+					}
 				}
 			}
 		}
