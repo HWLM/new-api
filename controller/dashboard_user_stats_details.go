@@ -930,7 +930,7 @@ func sortDailyRows(rows []detailsDailyRow, sortBy, sortDir string) {
 //
 // 与 daily 的关键差异：
 //   - 只查单天，不接受日期范围
-//   - 展示所有候选用户（默认排除 deleted/disabled/admin/root），没消耗的补 0
+//   - 展示所有候选用户（默认排除 deleted/disabled），没消耗的补 0
 //   - 排序固定为 quota DESC, id ASC
 
 type detailsSingleDayFilter struct {
@@ -986,7 +986,7 @@ func parseDetailsSingleDayFilter(c *gin.Context) (*detailsSingleDayFilter, error
 // GetUserStatsDetailsSingleDay 「当日统计」明细：单天，含所有候选用户（无消耗补 0）。
 //
 // 数据流：
-//  1. 候选用户 = users 表过滤后的全集（默认排除 deleted/disabled/admin/root）
+//  1. 候选用户 = users 表过滤后的全集（默认排除 deleted/disabled）
 //  2. 当日聚合：历史日读 vip_daily_consumptions；今天实时聚合 logs
 //  3. 内存 LEFT JOIN：用户全集 ⊕ 当日 map（缺失补 0）
 //  4. 排序 quota DESC, id ASC；分页
@@ -1051,10 +1051,9 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 		}
 	}
 
-	// 2. users 候选（固定排除 disabled/admin/root；soft delete 由 gorm.DeletedAt 自动过滤）
+	// 2. users 候选（固定排除 disabled；soft delete 由 gorm.DeletedAt 自动过滤）
 	userTx := model.DB.Model(&model.User{}).
-		Where("status = ?", common.UserStatusEnabled).
-		Where("role <= ?", common.RoleCommonUser)
+		Where("status = ?", common.UserStatusEnabled)
 	if f.username != "" {
 		userTx = userTx.Where("username LIKE ? OR display_name LIKE ?",
 			"%"+f.username+"%", "%"+f.username+"%")

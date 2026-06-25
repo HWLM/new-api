@@ -62,6 +62,7 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 		},
 	})
 	cellStyle, _ := file.NewStyle(&excelize.Style{
+		Alignment: &excelize.Alignment{Horizontal: "left", Vertical: "center"},
 		Border: []excelize.Border{
 			{Type: "left", Color: "#BFBFBF", Style: 1},
 			{Type: "right", Color: "#BFBFBF", Style: 1},
@@ -70,8 +71,9 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 		},
 	})
 	summaryStyle, _ := file.NewStyle(&excelize.Style{
-		Font: &excelize.Font{Bold: true},
-		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFF4CE"}},
+		Font:      &excelize.Font{Bold: true},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFF4CE"}},
+		Alignment: &excelize.Alignment{Horizontal: "left", Vertical: "center"},
 		Border: []excelize.Border{
 			{Type: "left", Color: "#BFBFBF", Style: 1},
 			{Type: "right", Color: "#BFBFBF", Style: 1},
