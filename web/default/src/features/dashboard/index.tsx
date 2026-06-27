@@ -37,7 +37,7 @@ import {
 import {
   type DashboardSectionId,
   DASHBOARD_DEFAULT_SECTION,
-  DASHBOARD_SECTION_IDS,
+  getVisibleDashboardSectionIds,
 } from './section-registry'
 import {
   type DashboardChartPreferences,
@@ -223,21 +223,8 @@ export function Dashboard() {
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
   const visibleSections = useMemo(
     () =>
-      DASHBOARD_SECTION_IDS.filter((section) => {
-        if (section === 'overview') return false
-        // users: 仅管理员可见
-        if (section === 'users' && !isAdmin) return false
-        // new-user-stats: 仅管理员可见
-        if (section === 'new-user-stats' && !isAdmin) return false
-        // inviter: 仅非管理员可见
-        if (section === 'inviter' && isAdmin) return false
-        return true
-      }),
-      DASHBOARD_SECTION_IDS.filter(
-        (section) =>
-          section !== 'overview' &&
-          (section !== 'users' || isAdmin) &&
-          (section !== 'request-analytics' || isAdmin)
+      getVisibleDashboardSectionIds({ isAdmin }).filter(
+        (section) => section !== 'overview'
       ),
     [isAdmin]
   )

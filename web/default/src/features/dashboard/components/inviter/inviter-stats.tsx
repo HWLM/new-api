@@ -83,7 +83,13 @@ function getRangeOfPreset(p: TimePreset): {
   }
   const map: Record<string, number> = { '3d': 3, '7d': 7, '1m': 30 }
   const days = map[p] ?? 7
-  return { startTs: now.subtract(days - 1, 'day').startOf('day').unix(), endTs }
+  return {
+    startTs: now
+      .subtract(days - 1, 'day')
+      .startOf('day')
+      .unix(),
+    endTs,
+  }
 }
 
 // ============================================================================
@@ -106,13 +112,7 @@ export function InviterStats() {
           <DetailSection />
         </>
       ) : (
-        <Card>
-          <CardContent className='text-muted-foreground py-6 text-center text-sm'>
-            {t(
-              'You are not a business account; detailed analytics is unavailable.'
-            )}
-          </CardContent>
-        </Card>
+        <></>
       )}
     </div>
   )
@@ -191,7 +191,11 @@ function ChartsSection() {
           >
             <TabsList>
               {TIME_PRESETS.map((p) => (
-                <TabsTrigger key={p.key} value={p.key} className='px-2.5 text-xs'>
+                <TabsTrigger
+                  key={p.key}
+                  value={p.key}
+                  className='px-2.5 text-xs'
+                >
                   {t(p.labelKey)}
                 </TabsTrigger>
               ))}
@@ -362,7 +366,10 @@ function ModeSwitch(props: {
 }) {
   const { t } = useTranslation()
   return (
-    <Tabs value={props.mode} onValueChange={(v) => props.onChange(v as DetailMode)}>
+    <Tabs
+      value={props.mode}
+      onValueChange={(v) => props.onChange(v as DetailMode)}
+    >
       <TabsList>
         <TabsTrigger value='summary' className='px-3 text-xs'>
           {t('Summary')}
@@ -413,8 +420,7 @@ function SummaryView(props: {
 
   const handleQuery = () => {
     const remVal = Number(remainingValue)
-    const usdToQuota = (usd: number) =>
-      Math.round(usd / quotaUnitsToDollars(1))
+    const usdToQuota = (usd: number) => Math.round(usd / quotaUnitsToDollars(1))
     setAppliedQuery({
       last_consumed_start: lastConsumedStart
         ? dayjs(lastConsumedStart).startOf('day').unix()
@@ -520,7 +526,9 @@ function SummaryView(props: {
               {t('Total Consumed ($)')}
             </TableHead>
             <TableHead className='text-center'>{t('Total Tokens')}</TableHead>
-            <TableHead className='text-center'>{t('Current Balance ($)')}</TableHead>
+            <TableHead className='text-center'>
+              {t('Current Balance ($)')}
+            </TableHead>
             <TableHead className='text-center'>{t('Actions')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -726,10 +734,7 @@ function DailyView(props: {
   )
 }
 
-function FilterField(props: {
-  label: string
-  children: React.ReactNode
-}) {
+function FilterField(props: { label: string; children: React.ReactNode }) {
   return (
     <div className='flex flex-col gap-1'>
       <Label className='text-muted-foreground text-xs'>{props.label}</Label>

@@ -7,7 +7,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
-func GetUserUsableGroups(userGroup string) map[string]string {
+// getConfiguredUsableGroups 返回基于 UserUsableGroups + GroupSpecialUsableGroup
+// 配置计算出的可用分组集合，不包含将 userGroup 自身作为兜底强制注入的逻辑。
+// 用于前端下拉展示场景：仅展示管理员显式配置可用的分组。
+func getConfiguredUsableGroups(userGroup string) map[string]string {
 	groupsCopy := setting.GetUserUsableGroupsCopy()
 	if userGroup != "" {
 		specialSettings, b := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)
@@ -28,6 +31,20 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 				}
 			}
 		}
+	}
+	return groupsCopy
+}
+
+// GetUserUsableGroupsForDisplay 仅供前端下拉展示使用：不把 userGroup 自身兜底注入结果。
+// 若管理员在 UserUsableGroups / GroupSpecialUsableGroup 中显式配置了与 userGroup 同名的分组，
+// 仍会保留在结果中。
+func GetUserUsableGroupsForDisplay(userGroup string) map[string]string {
+	return getConfiguredUsableGroups(userGroup)
+}
+
+func GetUserUsableGroups(userGroup string) map[string]string {
+	groupsCopy := getConfiguredUsableGroups(userGroup)
+	if userGroup != "" {
 		// 如果userGroup不在UserUsableGroups中，返回UserUsableGroups + userGroup
 		if _, ok := groupsCopy[userGroup]; !ok {
 			groupsCopy[userGroup] = "用户分组"
