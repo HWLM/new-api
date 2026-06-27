@@ -14,7 +14,7 @@ package controller
 //	A. 明细表：
 //	   表头：日期 / 商务渠道 / 客户账号 / 客户名称 / 客户类型 / 当日消耗($) / 账户余额($)
 //	   按 business_channel 分组：有渠道在前（每组末尾"汇总"行），无渠道排最后
-//	   组内排序：客户类型 ASC, 当日消耗 DESC, id ASC
+//	   组内排序：当日消耗 DESC, id ASC
 //	B. 数据汇总：客户数 / 总消耗 / 按 group 分组的"客户数 + 消耗 + 余额"
 //	C. 渠道明细：按每个渠道（含"无渠道"）重复 B 的内容
 
@@ -53,7 +53,7 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 	headerStyle, _ := file.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Bold: true},
 		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#E8E8E8"}},
-		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Alignment: &excelize.Alignment{Horizontal: "left", Vertical: "center"},
 		Border: []excelize.Border{
 			{Type: "left", Color: "#BFBFBF", Style: 1},
 			{Type: "right", Color: "#BFBFBF", Style: 1},
@@ -97,12 +97,9 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 	groups := groupRowsByChannel(rows)
 	row := 2
 	for _, g := range groups {
-		// 组内：客户类型 ASC, 当日消耗 DESC, id ASC
+		// 组内：当日消耗 DESC, id ASC
 		sort.SliceStable(g.rows, func(i, j int) bool {
 			ai, aj := g.rows[i], g.rows[j]
-			if ai.UserGroup != aj.UserGroup {
-				return ai.UserGroup < aj.UserGroup
-			}
 			if ai.DailyConsumedUsd != aj.DailyConsumedUsd {
 				return ai.DailyConsumedUsd > aj.DailyConsumedUsd
 			}
@@ -242,7 +239,7 @@ func groupRowsByChannel(rows []detailsDailyRow) []channelGroup {
 type channelStat struct {
 	totalCustomers int
 	totalConsumed  float64
-	groupKeys      []string // 按字母排序的 group 名
+	groupKeys      []string // 按消耗 DESC 排序的 group 名
 	byGroup        map[string]groupStat
 }
 
@@ -276,7 +273,13 @@ func computeChannelStat(rows []detailsDailyRow) channelStat {
 	for k := range seenGroups {
 		st.groupKeys = append(st.groupKeys, k)
 	}
-	sort.Strings(st.groupKeys)
+	sort.SliceStable(st.groupKeys, func(i, j int) bool {
+		gi, gj := st.byGroup[st.groupKeys[i]], st.byGroup[st.groupKeys[j]]
+		if gi.consumed != gj.consumed {
+			return gi.consumed > gj.consumed
+		}
+		return st.groupKeys[i] < st.groupKeys[j]
+	})
 	return st
 }
 
