@@ -196,6 +196,8 @@ export interface LogOtherData {
  */
 export interface LogStatistics {
   quota: number
+  sub_quota: number
+  sub_tokens: number
   rpm: number
   tpm: number
 }

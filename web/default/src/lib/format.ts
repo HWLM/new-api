@@ -177,6 +177,22 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
+ * Format a large count with K/M/B/T suffixes (compact, 2 decimals).
+ * Renders 0 as "0" so it remains visible in stat badges.
+ * Example: 5929926787 → "5.93B"
+ */
+export function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0'
+  const sign = value < 0 ? '-' : ''
+  const n = Math.abs(value)
+  if (n < 1000) return `${sign}${n}`
+  if (n < 1_000_000) return `${sign}${(n / 1000).toFixed(2)}K`
+  if (n < 1_000_000_000) return `${sign}${(n / 1_000_000).toFixed(2)}M`
+  if (n < 1_000_000_000_000) return `${sign}${(n / 1_000_000_000).toFixed(2)}B`
+  return `${sign}${(n / 1_000_000_000_000).toFixed(2)}T`
+}
+
+/**
  * Format use time in seconds with appropriate unit
  */
 export function formatUseTime(seconds: number): string {

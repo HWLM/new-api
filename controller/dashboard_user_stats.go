@@ -55,7 +55,8 @@ type userStatsCardSection struct {
 	TodayRechargeCnyDelta *float64 `json:"today_recharge_cny_delta"` // 较昨日百分比；nil 表示无法对比（凌晨 / 昨日为 0）
 	TodayConsumedUsd      float64  `json:"today_consumed_usd"`       // 今日消耗（$）
 	TodayConsumedUsdDelta *float64 `json:"today_consumed_usd_delta"`
-	TotalRemainingUsd     float64  `json:"total_remaining_usd"` // 总剩余额度（$）
+	TodaySubConsumedUsd   float64  `json:"today_sub_consumed_usd"` // 今日 sub 渠道消耗（$），用于卡片细分展示
+	TotalRemainingUsd     float64  `json:"total_remaining_usd"`    // 总剩余额度（$）
 }
 
 type userStatsCardsResp struct {
@@ -159,6 +160,12 @@ func buildCardSection(todayStart, todayEnd int64, todayStr, yesterdayStr string,
 	section.TodayRechargeCny = todayRecharge
 	section.TodayConsumedUsd = quotaToUSD(todayQuota)
 
+	// 5.1 今日消耗的 sub 渠道部分（用于卡片细分展示）。
+	// 拿不到 sub 渠道 ID 或查询失败时静默置 0，避免影响主统计。
+	if subQuota, err := sumTodaySubConsume(todayStart, todayEnd, officialIds); err == nil {
+		section.TodaySubConsumedUsd = quotaToUSD(subQuota)
+	}
+
 	// 昨日整天值：尝试从 daily_summary 拿 stat_date = yesterday 那行
 	yRow, hasY, err := getDailySummaryByDate(yesterdayStr)
 	if err != nil {
@@ -230,6 +237,35 @@ func sumUserRemaining(userIds []int) (int64, error) {
 	}
 	err := tx.Select("COALESCE(SUM(quota), 0) AS total").Scan(&r).Error
 	return r.Total, err
+}
+
+// sumTodaySubConsume 实时聚合「今天」logs 中 channel_id IN sub_channel_ids 的消耗 quota。
+// sub 渠道配置（operation_setting.sub_channel_setting.tags）为空或没匹配渠道时返回 0。
+// userIds 过滤可空（nil = 全量，空切片 = 没有任何用户即直接返回 0）。
+func sumTodaySubConsume(startTs, endTs int64, userIds []int) (int64, error) {
+	if userIds != nil && len(userIds) == 0 {
+		return 0, nil
+	}
+	subIds, err := model.ResolveSubChannelIds()
+	if err != nil {
+		return 0, err
+	}
+	if len(subIds) == 0 {
+		return 0, nil
+	}
+	tx := model.LOG_DB.Model(&model.Log{}).
+		Where("type = ?", model.LogTypeConsume).
+		Where("user_id > 0").
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
+		Where("channel_id IN ?", subIds)
+	if userIds != nil {
+		tx = tx.Where("user_id IN ?", userIds)
+	}
+	var quota int64
+	if err := tx.Select("COALESCE(SUM(quota), 0)").Scan(&quota).Error; err != nil {
+		return 0, err
+	}
+	return quota, nil
 }
 
 // sumTodayConsumeRecharge 实时聚合「今天」logs 的消耗 quota + 管理员充值（¥）。
