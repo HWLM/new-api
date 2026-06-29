@@ -88,7 +88,7 @@ export function UsersTable() {
     columnFilters: [
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
-      { columnId: 'group', searchKey: 'group', type: 'string' },
+      { columnId: 'group', searchKey: 'group', type: 'array' },
       { columnId: 'is_vip_customer', searchKey: 'vip', type: 'array' },
     ],
   })
@@ -101,8 +101,10 @@ export function UsersTable() {
       | string[]
       | undefined) ?? []
   const groupFilter =
-    (columnFilters.find((filter) => filter.id === 'group')?.value as string) ??
-    ''
+    (columnFilters.find((filter) => filter.id === 'group')?.value as
+      | string[]
+      | undefined) ?? []
+  const groupFilterValue = groupFilter[0] ?? ''
   const vipFilter =
     (columnFilters.find((filter) => filter.id === 'is_vip_customer')?.value as
       | string[]
@@ -154,6 +156,7 @@ export function UsersTable() {
     queryKey: ['user-groups'],
     queryFn: () => getGroups(),
     staleTime: 5 * 60_000,
+    meta: { skipGlobalErrorPage: true },
   })
   const groupOptions = useMemo(() => {
     const list = groupListData?.success ? groupListData.data ?? [] : []
@@ -180,7 +183,7 @@ export function UsersTable() {
       const hasColumnFilter =
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
-        Boolean(groupFilter) ||
+        Boolean(groupFilterValue) ||
         Boolean(vipFilterValue) ||
         Boolean(createdAtStartTs) ||
         Boolean(createdAtEndTs)
@@ -196,7 +199,7 @@ export function UsersTable() {
               keyword: globalFilter,
               status: statusFilter[0] ?? '',
               role: roleFilter[0] ?? '',
-              group: groupFilter,
+              group: groupFilterValue,
               is_vip: vipFilterValue,
               created_at_start: createdAtStartTs,
               created_at_end: createdAtEndTs,
@@ -216,6 +219,7 @@ export function UsersTable() {
       }
     },
     placeholderData: (previousData) => previousData,
+    meta: { skipGlobalErrorPage: true },
   })
 
   const users = data?.items || []
