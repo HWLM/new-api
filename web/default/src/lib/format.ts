@@ -36,9 +36,10 @@ export function formatNumber(value: number | null | undefined): string {
 
 export function formatCompactNumber(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(undefined, {
+  // 固定 en-US locale 输出 K/M/B/T，避免浏览器中文环境下渲染为「亿/万」。
+  return Intl.NumberFormat('en-US', {
     notation: 'compact',
-    maximumFractionDigits: 1,
+    maximumFractionDigits: 2,
   }).format(value as number)
 }
 
