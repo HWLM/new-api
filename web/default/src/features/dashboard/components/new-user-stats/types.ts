@@ -154,6 +154,8 @@ export type DetailsDailyRow = {
   daily_tokens: number
   // 仅 singleday 接口返回：用户实时余额（与查询日期无关）
   remaining_usd?: number
+  // 仅 singleday 接口返回：当天管理员"调整额度-充值"录入金额（¥ 人民币）
+  daily_recharge_cny?: number
 }
 
 export type DetailsDailyResp = {

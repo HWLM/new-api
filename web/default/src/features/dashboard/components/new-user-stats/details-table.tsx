@@ -563,6 +563,9 @@ export function DetailsTable({
                     {t('Daily Consumed ($)')}
                   </TableHead>
                   <TableHead className='text-right'>
+                    {t('Daily Recharge (¥)')}
+                  </TableHead>
+                  <TableHead className='text-right'>
                     {t('Daily Tokens')}
                   </TableHead>
                   <TableHead className='text-right'>
@@ -574,7 +577,7 @@ export function DetailsTable({
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      <TableCell colSpan={11}>
+                      <TableCell colSpan={12}>
                         <Skeleton className='h-5 w-full' />
                       </TableCell>
                     </TableRow>
@@ -582,7 +585,7 @@ export function DetailsTable({
                 ) : singleDayRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={11}
+                      colSpan={12}
                       className='text-muted-foreground text-center'
                     >
                       {t('No data')}
@@ -605,6 +608,9 @@ export function DetailsTable({
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.daily_consumed_usd.toFixed(2)}
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        ¥{(row.daily_recharge_cny ?? 0).toFixed(2)}
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.daily_tokens.toLocaleString()}

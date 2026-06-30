@@ -37,7 +37,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
+import { LOG_TYPE_ALL_VALUE, LOG_TYPE_ENUM, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
@@ -55,8 +55,20 @@ const logTypeValues = ['0', '1', '2', '3', '4', '5', '6'] as const
 
 type LogTypeValue = (typeof logTypeValues)[number]
 
+// 管理类日志（type=3）属于管理员审计数据，下拉与 URL 解析对非管理员一律隐藏。
+const MANAGE_LOG_TYPE_VALUE = String(LOG_TYPE_ENUM.MANAGE)
+
 function isLogTypeValue(value: string): value is LogTypeValue {
   return (logTypeValues as readonly string[]).includes(value)
+}
+
+function isAllowedLogTypeValue(
+  value: string,
+  isAdmin: boolean
+): value is LogTypeValue {
+  if (!isLogTypeValue(value)) return false
+  if (!isAdmin && value === MANAGE_LOG_TYPE_VALUE) return false
+  return true
 }
 
 interface CommonLogsFilterBarProps<TData> {
@@ -100,11 +112,12 @@ export function CommonLogsFilterBar<TData>(
     const nextLogType =
       Array.isArray(typeArr) &&
       typeArr.length === 1 &&
-      isLogTypeValue(typeArr[0])
+      isAllowedLogTypeValue(typeArr[0], isAdmin)
         ? typeArr[0]
         : LOG_TYPE_ALL_VALUE
     setLogType(nextLogType)
   }, [
+    isAdmin,
     searchParams.startTime,
     searchParams.endTime,
     searchParams.channel,
@@ -185,13 +198,22 @@ export function CommonLogsFilterBar<TData>(
     filters.upstreamRequestId,
   ].filter(Boolean).length
   const sensitiveType = sensitiveVisible ? 'text' : 'password'
+  const visibleLogTypeFilters = useMemo(
+    () =>
+      isAdmin
+        ? LOG_TYPE_FILTERS
+        : LOG_TYPE_FILTERS.filter(
+            (type) => type.value !== MANAGE_LOG_TYPE_VALUE
+          ),
+    [isAdmin]
+  )
   const logTypeItems = useMemo(
     () =>
-      LOG_TYPE_FILTERS.map((type) => ({
+      visibleLogTypeFilters.map((type) => ({
         value: type.value,
         label: t(type.label),
       })),
-    [t]
+    [t, visibleLogTypeFilters]
   )
   const logTypeLabel =
     logTypeItems.find((type) => type.value === logType)?.label ?? t('All Types')
@@ -260,7 +282,9 @@ export function CommonLogsFilterBar<TData>(
         value={logType}
         onValueChange={(value) => {
           setLogType(
-            value !== null && isLogTypeValue(value) ? value : LOG_TYPE_ALL_VALUE
+            value !== null && isAllowedLogTypeValue(value, isAdmin)
+              ? value
+              : LOG_TYPE_ALL_VALUE
           )
         }}
       >
@@ -269,7 +293,7 @@ export function CommonLogsFilterBar<TData>(
         </SelectTrigger>
         <SelectContent alignItemWithTrigger={false}>
           <SelectGroup>
-            {LOG_TYPE_FILTERS.map((type) => (
+            {visibleLogTypeFilters.map((type) => (
               <SelectItem key={type.value} value={type.value}>
                 {t(type.label)}
               </SelectItem>

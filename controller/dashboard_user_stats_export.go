@@ -86,12 +86,12 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 	})
 
 	// 表头
-	headers := []string{"日期", "商务渠道", "客户账号", "客户名称", "客户类型", "当日消耗($)", "账户余额($)"}
+	headers := []string{"日期", "商务渠道", "客户账号", "客户名称", "客户类型", "当日消耗($)", "当日充值(¥)", "账户余额($)"}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		_ = file.SetCellValue(sheet, cell, h)
 	}
-	_ = file.SetCellStyle(sheet, "A1", "G1", headerStyle)
+	_ = file.SetCellStyle(sheet, "A1", "H1", headerStyle)
 
 	// 按 business_channel 分组：有渠道在前（按渠道名升序），无渠道排最后
 	groups := groupRowsByChannel(rows)
@@ -105,11 +105,15 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 			}
 			return ai.UserId < aj.UserId
 		})
-		var sumConsumed, sumRemaining float64
+		var sumConsumed, sumRecharge, sumRemaining float64
 		for _, r := range g.rows {
 			remaining := 0.0
 			if r.RemainingUsd != nil {
 				remaining = *r.RemainingUsd
+			}
+			recharge := 0.0
+			if r.DailyRechargeCny != nil {
+				recharge = *r.DailyRechargeCny
 			}
 			vals := []any{
 				r.Date,
@@ -118,18 +122,20 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 				orDash(r.DisplayName),
 				orDash(r.UserGroup),
 				roundFloat(r.DailyConsumedUsd),
+				roundFloat(recharge),
 				roundFloat(remaining),
 			}
 			writeRow(file, sheet, row, vals)
 			_ = file.SetCellStyle(sheet,
 				mustCell(1, row), mustCell(len(headers), row), cellStyle)
 			sumConsumed += r.DailyConsumedUsd
+			sumRecharge += recharge
 			sumRemaining += remaining
 			row++
 		}
 		// 汇总行
 		writeRow(file, sheet, row, []any{"汇总", "", "", "", "",
-			roundFloat(sumConsumed), roundFloat(sumRemaining)})
+			roundFloat(sumConsumed), roundFloat(sumRecharge), roundFloat(sumRemaining)})
 		_ = file.SetCellStyle(sheet,
 			mustCell(1, row), mustCell(len(headers), row), summaryStyle)
 		row++
@@ -149,11 +155,14 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 	_ = file.SetCellValue(sheet, mustCell(1, row),
 		fmt.Sprintf("总消耗：$%s", formatMoney(allStat.totalConsumed)))
 	row++
+	_ = file.SetCellValue(sheet, mustCell(1, row),
+		fmt.Sprintf("总充值：¥%s", formatMoney(allStat.totalRecharge)))
+	row++
 	for _, groupName := range allStat.groupKeys {
 		gs := allStat.byGroup[groupName]
 		_ = file.SetCellValue(sheet, mustCell(1, row),
-			fmt.Sprintf("%s：%d 个，消耗 $%s，剩余余额 $%s",
-				groupName, gs.count, formatMoney(gs.consumed), formatMoney(gs.remaining)))
+			fmt.Sprintf("%s：%d 个，消耗 $%s，充值 ¥%s，剩余余额 $%s",
+				groupName, gs.count, formatMoney(gs.consumed), formatMoney(gs.recharge), formatMoney(gs.remaining)))
 		row++
 	}
 
@@ -175,11 +184,14 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 		_ = file.SetCellValue(sheet, mustCell(1, row),
 			fmt.Sprintf("总消耗：$%s", formatMoney(st.totalConsumed)))
 		row++
+		_ = file.SetCellValue(sheet, mustCell(1, row),
+			fmt.Sprintf("总充值：¥%s", formatMoney(st.totalRecharge)))
+		row++
 		for _, groupName := range st.groupKeys {
 			gs := st.byGroup[groupName]
 			_ = file.SetCellValue(sheet, mustCell(1, row),
-				fmt.Sprintf("%s：%d 个，消耗 $%s，剩余余额 $%s",
-					groupName, gs.count, formatMoney(gs.consumed), formatMoney(gs.remaining)))
+				fmt.Sprintf("%s：%d 个，消耗 $%s，充值 ¥%s，剩余余额 $%s",
+					groupName, gs.count, formatMoney(gs.consumed), formatMoney(gs.recharge), formatMoney(gs.remaining)))
 			row++
 		}
 		row++
@@ -191,7 +203,7 @@ func ExportUserStatsDetailsSingleDay(c *gin.Context) {
 	_ = file.SetColWidth(sheet, "C", "C", 18)
 	_ = file.SetColWidth(sheet, "D", "D", 22)
 	_ = file.SetColWidth(sheet, "E", "E", 14)
-	_ = file.SetColWidth(sheet, "F", "G", 14)
+	_ = file.SetColWidth(sheet, "F", "H", 14)
 
 	filename := fmt.Sprintf("当日统计_%s.xlsx", f.date)
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -235,10 +247,11 @@ func groupRowsByChannel(rows []detailsDailyRow) []channelGroup {
 	return out
 }
 
-// channelStat 汇总块中的统计：总客户数、总消耗，以及按 group 分组的明细
+// channelStat 汇总块中的统计：总客户数、总消耗、总充值，以及按 group 分组的明细
 type channelStat struct {
 	totalCustomers int
 	totalConsumed  float64
+	totalRecharge  float64
 	groupKeys      []string // 按消耗 DESC 排序的 group 名
 	byGroup        map[string]groupStat
 }
@@ -246,6 +259,7 @@ type channelStat struct {
 type groupStat struct {
 	count     int
 	consumed  float64
+	recharge  float64
 	remaining float64
 }
 
@@ -259,6 +273,11 @@ func computeChannelStat(rows []detailsDailyRow) channelStat {
 		if r.RemainingUsd != nil {
 			remaining = *r.RemainingUsd
 		}
+		recharge := 0.0
+		if r.DailyRechargeCny != nil {
+			recharge = *r.DailyRechargeCny
+		}
+		st.totalRecharge += recharge
 		key := r.UserGroup
 		if key == "" {
 			key = "(空分组)"
@@ -266,6 +285,7 @@ func computeChannelStat(rows []detailsDailyRow) channelStat {
 		gs := st.byGroup[key]
 		gs.count++
 		gs.consumed += r.DailyConsumedUsd
+		gs.recharge += recharge
 		gs.remaining += remaining
 		st.byGroup[key] = gs
 		seenGroups[key] = struct{}{}

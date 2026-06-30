@@ -525,6 +525,9 @@ function SummaryView(props: {
             <TableHead className='text-center'>
               {t('Total Consumed ($)')}
             </TableHead>
+            <TableHead className='text-center'>
+              {t('Total Recharge (¥)')}
+            </TableHead>
             <TableHead className='text-center'>{t('Total Tokens')}</TableHead>
             <TableHead className='text-center'>
               {t('Current Balance ($)')}
@@ -553,6 +556,9 @@ function SummaryView(props: {
                 {formatCurrencyFromUSD(quotaToUsd(r.total_consumed))}
               </TableCell>
               <TableCell className='text-center tabular-nums'>
+                ¥{(r.total_recharge_cny ?? 0).toFixed(2)}
+              </TableCell>
+              <TableCell className='text-center tabular-nums'>
                 {r.total_tokens.toLocaleString()}
               </TableCell>
               <TableCell className='text-center tabular-nums'>
@@ -572,7 +578,7 @@ function SummaryView(props: {
           {!isLoading && (data ?? []).length === 0 && (
             <TableRow>
               <TableCell
-                colSpan={8}
+                colSpan={9}
                 className='text-muted-foreground text-center'
               >
                 {t('No data')}
@@ -582,7 +588,7 @@ function SummaryView(props: {
           {isLoading && (
             <TableRow>
               <TableCell
-                colSpan={8}
+                colSpan={9}
                 className='text-muted-foreground text-center'
               >
                 {t('Loading...')}
@@ -689,6 +695,9 @@ function DailyView(props: {
             <TableHead className='text-center'>
               {t('Total Consumed ($)')}
             </TableHead>
+            <TableHead className='text-center'>
+              {t('Total Recharge (¥)')}
+            </TableHead>
             <TableHead className='text-center'>{t('Total Tokens')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -704,6 +713,9 @@ function DailyView(props: {
                 {formatCurrencyFromUSD(quotaToUsd(r.total_consumed))}
               </TableCell>
               <TableCell className='text-center tabular-nums'>
+                ¥{(r.total_recharge_cny ?? 0).toFixed(2)}
+              </TableCell>
+              <TableCell className='text-center tabular-nums'>
                 {r.total_tokens.toLocaleString()}
               </TableCell>
             </TableRow>
@@ -711,7 +723,7 @@ function DailyView(props: {
           {!isLoading && (data ?? []).length === 0 && (
             <TableRow>
               <TableCell
-                colSpan={5}
+                colSpan={6}
                 className='text-muted-foreground text-center'
               >
                 {t('No data')}
@@ -721,7 +733,7 @@ function DailyView(props: {
           {isLoading && (
             <TableRow>
               <TableCell
-                colSpan={5}
+                colSpan={6}
                 className='text-muted-foreground text-center'
               >
                 {t('Loading...')}

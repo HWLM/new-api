@@ -68,6 +68,7 @@ export interface InviterSummaryRow {
   total_requests: number
   total_consumed: number
   total_tokens: number
+  total_recharge_cny: number // ¥ 人民币：累计 operation_type=额度 + quota_type=充值
   current_remaining: number
 }
 
@@ -77,6 +78,7 @@ export interface InviterDailyRow {
   total_requests: number
   total_consumed: number
   total_tokens: number
+  total_recharge_cny: number // ¥ 人民币：当天 operation_type=额度 + quota_type=充值
 }
 
 // ============================================================================
