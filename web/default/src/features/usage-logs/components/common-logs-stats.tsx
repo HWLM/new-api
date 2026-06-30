@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { formatLogQuota } from '@/lib/format'
+import { formatCompactNumber, formatLogQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -78,18 +78,41 @@ export function CommonLogsStats() {
     return (
       <div className='flex items-center gap-2'>
         <Skeleton className='h-7 w-[150px] rounded-md' />
-        <Skeleton className='h-7 w-[100px] rounded-md' />
         <Skeleton className='h-7 w-[120px] rounded-md' />
+        <Skeleton className='h-7 w-[120px] rounded-md' />
+        <Skeleton className='h-7 w-[120px] rounded-md' />
+        <Skeleton className='h-7 w-[100px] rounded-md' />
+        <Skeleton className='h-7 w-[100px] rounded-md' />
       </div>
     )
   }
 
+  const totalQuota = stats?.quota || 0
+  const subQuota = stats?.sub_quota || 0
+  const otherQuota = Math.max(totalQuota - subQuota, 0)
+  const subTokens = stats?.sub_tokens || 0
+
   return (
     <div className='flex flex-wrap items-center gap-2'>
       <StatBadge
-        label={t('Usage')}
-        value={sensitiveVisible ? formatLogQuota(stats?.quota || 0) : '••••'}
+        label={t('Total Usage')}
+        value={sensitiveVisible ? formatLogQuota(totalQuota) : '••••'}
         accent='bg-sky-500/70'
+      />
+      <StatBadge
+        label={t('Sub Usage')}
+        value={sensitiveVisible ? formatLogQuota(subQuota) : '••••'}
+        accent='bg-emerald-500/70'
+      />
+      <StatBadge
+        label={t('Other Usage')}
+        value={sensitiveVisible ? formatLogQuota(otherQuota) : '••••'}
+        accent='bg-amber-500/70'
+      />
+      <StatBadge
+        label={t('Sub Total Tokens')}
+        value={sensitiveVisible ? formatCompactNumber(subTokens) : '••••'}
+        accent='bg-violet-500/70'
       />
       <StatBadge
         label={t('RPM')}

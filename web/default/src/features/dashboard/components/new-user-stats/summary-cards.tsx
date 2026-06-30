@@ -113,8 +113,12 @@ function buildRow(
     totalRemaining: string
     todayActiveSuffix: string
     vsYesterday: string
+    subLabel: string
+    otherLabel: string
   }
 ): CardItem[] {
+  const todaySub = s.today_sub_consumed_usd || 0
+  const todayOther = Math.max(s.today_consumed_usd - todaySub, 0)
   return [
     {
       label: labels.users,
@@ -134,6 +138,7 @@ function buildRow(
     {
       label: labels.todayConsumed,
       value: formatNumber(s.today_consumed_usd, 2),
+      subtitle: `(${labels.subLabel}: ${formatNumber(todaySub, 2)}  ${labels.otherLabel}: ${formatNumber(todayOther, 2)})`,
       delta: {
         compareLabel: labels.vsYesterday,
         value: s.today_consumed_usd_delta,
@@ -166,6 +171,8 @@ export function SummaryCards({
 
   const todayActive = t('Today Active Users')
   const vsYesterday = t('vs Yesterday')
+  const subLabel = 'sub'
+  const otherLabel = t('Other')
 
   const allRow = buildRow(data.all, {
     users: t('Total Users'),
@@ -176,6 +183,8 @@ export function SummaryCards({
     totalRemaining: t('Total Remaining ($)'),
     todayActiveSuffix: todayActive,
     vsYesterday,
+    subLabel,
+    otherLabel,
   })
   const officialRow = buildRow(data.official, {
     users: t('Official Users'),
@@ -186,6 +195,8 @@ export function SummaryCards({
     totalRemaining: t('Total Remaining ($)'),
     todayActiveSuffix: todayActive,
     vsYesterday,
+    subLabel,
+    otherLabel,
   })
 
   return (

@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -508,9 +509,57 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 }
 
 type Stat struct {
-	Quota int `json:"quota"`
-	Rpm   int `json:"rpm"`
-	Tpm   int `json:"tpm"`
+	Quota     int   `json:"quota"`
+	SubQuota  int   `json:"sub_quota"`
+	SubTokens int64 `json:"sub_tokens"`
+	Rpm       int   `json:"rpm"`
+	Tpm       int   `json:"tpm"`
+}
+
+// subTokensExpr 返回 sum(prompt_tokens + completion_tokens
+// + other.cache_tokens + other.cache_creation_tokens) 在三种数据库下的等价 SQL 表达式。
+// 仅在 sub 渠道过滤后的子集上调用。other 列为 JSON 字符串，需要按 DB 拆分语法。
+func subTokensExpr() string {
+	if common.UsingPostgreSQL {
+		// PostgreSQL：other 是 text，先用正则确认形如 JSON 对象再 cast，避免对非 JSON 行直接 cast 报错。
+		return `COALESCE(SUM(prompt_tokens + completion_tokens` +
+			` + CASE WHEN other ~ '^\s*\{' THEN COALESCE(NULLIF(other::jsonb->>'cache_tokens','')::bigint, 0) ELSE 0 END` +
+			` + CASE WHEN other ~ '^\s*\{' THEN COALESCE(NULLIF(other::jsonb->>'cache_creation_tokens','')::bigint, 0) ELSE 0 END` +
+			`), 0) AS sub_tokens`
+	}
+	if common.UsingMySQL {
+		// MySQL 5.7.8+：用 JSON_VALID 保护，JSON_EXTRACT 通过 + 0 隐式转 number。
+		return `COALESCE(SUM(prompt_tokens + completion_tokens` +
+			` + CASE WHEN JSON_VALID(other) THEN COALESCE(JSON_EXTRACT(other, '$.cache_tokens') + 0, 0) ELSE 0 END` +
+			` + CASE WHEN JSON_VALID(other) THEN COALESCE(JSON_EXTRACT(other, '$.cache_creation_tokens') + 0, 0) ELSE 0 END` +
+			`), 0) AS sub_tokens`
+	}
+	// SQLite：json_extract 对非 JSON 字符串返回 NULL，IFNULL 处理即可。
+	return `COALESCE(SUM(prompt_tokens + completion_tokens` +
+		` + IFNULL(CAST(json_extract(other, '$.cache_tokens') AS INTEGER), 0)` +
+		` + IFNULL(CAST(json_extract(other, '$.cache_creation_tokens') AS INTEGER), 0)` +
+		`), 0) AS sub_tokens`
+}
+
+// resolveSubChannelIds 解析当前配置中 sub 渠道 tag 对应的渠道 ID 列表。
+// 配置为空或没有任何匹配渠道时返回 nil（调用方据此跳过 sub 统计）。
+func resolveSubChannelIds() ([]int, error) {
+	return ResolveSubChannelIds()
+}
+
+// ResolveSubChannelIds 与 resolveSubChannelIds 等价，供 controller 等外部包复用。
+func ResolveSubChannelIds() ([]int, error) {
+	tags := operation_setting.GetSubChannelTags()
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	var ids []int
+	if err := DB.Model(&Channel{}).
+		Where("tag IN ?", tags).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
@@ -564,6 +613,49 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if err := rpmTpmQuery.Scan(&stat).Error; err != nil {
 		common.SysError("failed to query rpm/tpm stat: " + err.Error())
 		return stat, errors.New("查询统计数据失败")
+	}
+
+	// sub 渠道统计：复用相同筛选条件，再叠加 channel_id IN sub_ids。
+	subIds, subErr := resolveSubChannelIds()
+	if subErr != nil {
+		common.SysError("failed to resolve sub channel ids: " + subErr.Error())
+	} else if len(subIds) > 0 {
+		subQuery := LOG_DB.Table("logs").
+			Select("COALESCE(SUM(quota), 0) AS sub_quota, " + subTokensExpr())
+		if subQuery, err = applyExplicitLogTextFilter(subQuery, "username", username); err != nil {
+			return stat, err
+		}
+		if tokenName != "" {
+			subQuery = subQuery.Where("token_name = ?", tokenName)
+		}
+		if startTimestamp != 0 {
+			subQuery = subQuery.Where("created_at >= ?", startTimestamp)
+		}
+		if endTimestamp != 0 {
+			subQuery = subQuery.Where("created_at <= ?", endTimestamp)
+		}
+		if subQuery, err = applyExplicitLogTextFilter(subQuery, "model_name", modelName); err != nil {
+			return stat, err
+		}
+		if channel != 0 {
+			subQuery = subQuery.Where("channel_id = ?", channel)
+		}
+		if group != "" {
+			subQuery = subQuery.Where(logGroupCol+" = ?", group)
+		}
+		subQuery = subQuery.Where("type = ?", LogTypeConsume).
+			Where("channel_id IN ?", subIds)
+
+		var subStat struct {
+			SubQuota  int   `gorm:"column:sub_quota"`
+			SubTokens int64 `gorm:"column:sub_tokens"`
+		}
+		if err := subQuery.Scan(&subStat).Error; err != nil {
+			common.SysError("failed to query sub channel stat: " + err.Error())
+			return stat, errors.New("查询统计数据失败")
+		}
+		stat.SubQuota = subStat.SubQuota
+		stat.SubTokens = subStat.SubTokens
 	}
 
 	return stat, nil

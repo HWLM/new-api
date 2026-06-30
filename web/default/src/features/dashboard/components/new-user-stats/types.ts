@@ -18,6 +18,7 @@ export type CardSection = {
   today_recharge_cny_delta: number | null
   today_consumed_usd: number
   today_consumed_usd_delta: number | null
+  today_sub_consumed_usd: number
   total_remaining_usd: number
 }
 
