@@ -431,38 +431,38 @@ export function usePricingColumns(
       enableSorting: false,
     },
 
-    // Enable Groups column
-    {
-      accessorKey: 'enable_groups',
-      meta: { label: t('Groups') },
-      header: t('Groups'),
-      cell: ({ row }) => {
-        const groups = row.original.enable_groups || []
-        if (groups.length === 0) {
-          return <span className='text-muted-foreground/50 text-xs'>—</span>
-        }
+    // Enable Groups column  先注释掉 前端用户不需要看到分组
+    // {
+    //   accessorKey: 'enable_groups',
+    //   meta: { label: t('Groups') },
+    //   header: t('Groups'),
+    //   cell: ({ row }) => {
+    //     const groups = row.original.enable_groups || []
+    //     if (groups.length === 0) {
+    //       return <span className='text-muted-foreground/50 text-xs'>—</span>
+    //     }
 
-        return (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger render={<div />}>
-                {renderLimitedGroupBadges(groups, 2)}
-              </TooltipTrigger>
-              {groups.length > 2 && (
-                <TooltipContent side='top' className='max-w-[280px] p-2'>
-                  <div className='flex flex-wrap gap-1'>
-                    {groups.map((group) => (
-                      <GroupBadge key={group} group={group} size='sm' />
-                    ))}
-                  </div>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
-        )
-      },
-      size: 130,
-      enableSorting: false,
-    },
+    //     return (
+    //       <TooltipProvider>
+    //         <Tooltip>
+    //           <TooltipTrigger render={<div />}>
+    //             {renderLimitedGroupBadges(groups, 2)}
+    //           </TooltipTrigger>
+    //           {groups.length > 2 && (
+    //             <TooltipContent side='top' className='max-w-[280px] p-2'>
+    //               <div className='flex flex-wrap gap-1'>
+    //                 {groups.map((group) => (
+    //                   <GroupBadge key={group} group={group} size='sm' />
+    //                 ))}
+    //               </div>
+    //             </TooltipContent>
+    //           )}
+    //         </Tooltip>
+    //       </TooltipProvider>
+    //     )
+    //   },
+    //   size: 130,
+    //   enableSorting: false,
+    // },
   ]
 }
