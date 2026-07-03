@@ -697,6 +697,7 @@
     "Checking connection": "Проверка подключения",
     "Checking name...": "Проверяю имя...",
     "Checking updates...": "Проверка обновлений...",
+    "Cheaper than official by {{percent}}%": "Дешевле официальной цены на {{percent}}%",
     "checkout.session.completed": "checkout.session.completed",
     "checkout.session.expired": "checkout.session.expired",
     "Chinese": "Китайский",

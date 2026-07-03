@@ -707,6 +707,7 @@
     "Checking connection": "检查连接",
     "Checking name...": "正在检查名称...",
     "Checking updates...": "检查更新中...",
+    "Cheaper than official by {{percent}}%": "比官方便宜{{percent}}%",
     "checkout.session.completed": "checkout.session.completed",
     "checkout.session.expired": "checkout.session.expired",
     "Chinese": "中文",

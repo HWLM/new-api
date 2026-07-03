@@ -132,6 +132,12 @@ export const TOKEN_UNIT_DIVISORS = {
 /** Default token unit for pricing display */
 export const DEFAULT_TOKEN_UNIT: TokenUnit = 'M'
 
+/**
+ * Official market USD/CNY exchange rate used by the pricing plaza to compare
+ * this relay site's recharge price against the provider's official price.
+ */
+export const OFFICIAL_USD_EXCHANGE_RATE = 6.79
+
 /** View mode options */
 export const VIEW_MODES = {
   CARD: 'card',

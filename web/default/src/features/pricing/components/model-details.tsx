@@ -23,6 +23,7 @@ import { ArrowLeft, Code2, HeartPulse, Info, Timer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -85,6 +86,79 @@ function SectionTitle(props: { children: React.ReactNode }) {
     <h2 className='text-muted-foreground mb-3 text-xs font-semibold tracking-wider uppercase'>
       {props.children}
     </h2>
+  )
+}
+
+/**
+ * Compute how much this relay site's effective price beats the official price.
+ *
+ * The comparison is made in local currency:
+ *   official cost = official model USD price * official USD exchange rate
+ *   relay cost    = current model USD price * group ratio * platform price
+ *
+ * In the implementation this is equivalent to composing:
+ *   1. Current model price vs official: model_ratio / official_model_ratio
+ *      (or model_price / official_model_price for per-request models)
+ *   2. Group ratio: e.g. VIP group at 0.5x
+ *   3. Relay exchange advantage: platform priceRate / official USD rate
+ *
+ * Returns null when the official baseline is unavailable, the discount is <= 0,
+ * or inputs are unusable.
+ */
+function getOfficialDiscountPercent(params: {
+  model: PricingModel
+  ratio: number
+  isDynamic: boolean
+  priceRate: number
+  usdExchangeRate: number
+}): number | null {
+  if (params.isDynamic) return null
+
+  const ratio = Number.isFinite(params.ratio) ? Math.max(params.ratio, 0) : 1
+  const platformExchangeFactor =
+    Number.isFinite(params.priceRate) &&
+    Number.isFinite(params.usdExchangeRate) &&
+    params.priceRate > 0 &&
+    params.usdExchangeRate > 0
+      ? params.priceRate / params.usdExchangeRate
+      : 1
+
+  const officialBase =
+    params.model.quota_type === QUOTA_TYPE_VALUES.REQUEST
+      ? params.model.official_model_price
+      : params.model.official_model_ratio
+  const currentBase =
+    params.model.quota_type === QUOTA_TYPE_VALUES.REQUEST
+      ? params.model.model_price
+      : params.model.model_ratio
+
+  if (
+    !Number.isFinite(Number(officialBase)) ||
+    !Number.isFinite(Number(currentBase)) ||
+    Number(officialBase) <= 0 ||
+    Number(currentBase) < 0
+  ) {
+    return null
+  }
+
+  const currentPrice = Number(currentBase) * ratio * platformExchangeFactor
+  const percent = Math.round((1 - currentPrice / Number(officialBase)) * 100)
+  return percent > 0 ? percent : null
+}
+
+function OfficialDiscountBadge(props: {
+  percent: number | null
+  label: (percent: number) => string
+}) {
+  if (props.percent == null) return null
+
+  return (
+    <Badge
+      variant='outline'
+      className='max-w-full border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    >
+      {props.label(props.percent)}
+    </Badge>
   )
 }
 
@@ -610,6 +684,23 @@ function GroupPricingSection(props: {
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
 
+  const renderDiscountBadge = (ratio: number) => {
+    return (
+      <OfficialDiscountBadge
+        percent={getOfficialDiscountPercent({
+          model: props.model,
+          ratio,
+          isDynamic: isDynamicPricingModel(props.model),
+          priceRate: props.priceRate,
+          usdExchangeRate: props.usdExchangeRate,
+        })}
+        label={(percent) =>
+          t('Cheaper than official by {{percent}}%', { percent })
+        }
+      />
+    )
+  }
+
   const extraPriceTypes = useMemo(() => {
     const types: { label: string; type: PriceType }[] = []
     if (props.model.cache_ratio != null)
@@ -697,11 +788,14 @@ function GroupPricingSection(props: {
         <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
         <div className='space-y-3'>
           {availableGroups.map((group) => {
-            const ratio = props.groupRatio[group] || 1
+            const ratio = props.groupRatio[group] ?? 1
             return (
               <div key={group} className='overflow-hidden rounded-lg border'>
                 <div className='bg-muted/20 flex items-center justify-between gap-3 border-b px-3 py-2'>
-                  <GroupBadge group={group} size='sm' />
+                  <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                    <GroupBadge group={group} size='sm' />
+                    {renderDiscountBadge(ratio)}
+                  </div>
                   <span className='text-muted-foreground font-mono text-xs'>
                     {ratio}x
                   </span>
@@ -803,11 +897,14 @@ function GroupPricingSection(props: {
           </TableHeader>
           <TableBody>
             {availableGroups.map((group) => {
-              const ratio = props.groupRatio[group] || 1
+              const ratio = props.groupRatio[group] ?? 1
               return (
                 <TableRow key={group}>
                   <TableCell className='py-2.5'>
-                    <GroupBadge group={group} size='sm' />
+                    <div className='flex min-w-max flex-wrap items-center gap-2'>
+                      <GroupBadge group={group} size='sm' />
+                      {renderDiscountBadge(ratio)}
+                    </div>
                   </TableCell>
                   <TableCell className='text-muted-foreground py-2.5 font-mono'>
                     {ratio}x

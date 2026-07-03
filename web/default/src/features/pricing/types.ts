@@ -38,6 +38,8 @@ export type PricingModel = {
   quota_type: number
   model_ratio: number
   completion_ratio: number
+  official_model_ratio?: number
+  official_model_price?: number
   model_price?: number
   cache_ratio?: number | null
   create_cache_ratio?: number | null

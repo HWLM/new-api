@@ -697,6 +697,7 @@
     "Checking connection": "接続を確認しています",
     "Checking name...": "名前をチェック中...",
     "Checking updates...": "更新を確認中...",
+    "Cheaper than official by {{percent}}%": "公式より{{percent}}%安い",
     "checkout.session.completed": "checkout.session.completed",
     "checkout.session.expired": "checkout.session.expired",
     "Chinese": "中国語",

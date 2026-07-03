@@ -697,6 +697,7 @@
     "Checking connection": "Vérification de la connexion",
     "Checking name...": "Vérification du nom...",
     "Checking updates...": "Vérification des mises à jour...",
+    "Cheaper than official by {{percent}}%": "Moins cher que l'officiel de {{percent}} %",
     "checkout.session.completed": "checkout.session.completed",
     "checkout.session.expired": "checkout.session.expired",
     "Chinese": "Chinois",

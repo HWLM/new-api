@@ -46,12 +46,6 @@ func GetPricing(c *gin.Context) {
 		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
 			group = user.Group
-			for g := range groupRatio {
-				ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
-				if ok {
-					groupRatio[g] = ratio
-				}
-			}
 		}
 	}
 
@@ -61,6 +55,14 @@ func GetPricing(c *gin.Context) {
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
 			delete(groupRatio, group)
+		}
+	}
+	if group != "" {
+		for g := range usableGroup {
+			ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
+			if ok {
+				groupRatio[g] = ratio
+			}
 		}
 	}
 

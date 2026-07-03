@@ -728,6 +728,7 @@
         "Checking connection": "Checking connection",
         "Checking name...": "Checking name...",
         "Checking updates...": "Checking updates...",
+        "Cheaper than official by {{percent}}%": "Cheaper than official by {{percent}}%",
         "checkout.session.completed": "checkout.session.completed",
         "checkout.session.expired": "checkout.session.expired",
         "Chinese": "Chinese",
