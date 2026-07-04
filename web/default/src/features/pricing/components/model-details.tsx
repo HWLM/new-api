@@ -100,75 +100,61 @@ function SectionTitle(props: { children: React.ReactNode }) {
   );
 }
 
-/**
- * Compute how much this relay site's effective price beats the official price.
- *
- * The comparison is made in local currency:
- *   official cost = official model USD price * official USD exchange rate
- *   relay cost    = current model USD price * group ratio * platform price
- *
- * In the implementation this is equivalent to composing:
- *   1. Current model price vs official: model_ratio / official_model_ratio
- *      (or model_price / official_model_price for per-request models)
- *   2. Group ratio: e.g. VIP group at 0.5x
- *   3. Relay exchange advantage: platform priceRate / official USD rate
- *
- * Returns null when the official baseline is unavailable, the discount is <= 0,
- * or inputs are unusable.
- */
-function getOfficialDiscountPercent(params: {
+function getOfficialDiscountFold(params: {
   model: PricingModel;
   ratio: number;
   isDynamic: boolean;
   priceRate: number;
   usdExchangeRate: number;
+  topupGroupRatio: number;
 }): number | null {
   if (params.isDynamic) return null;
 
   const ratio = Number.isFinite(params.ratio) ? Math.max(params.ratio, 0) : 1;
-  const platformExchangeFactor =
-    Number.isFinite(params.priceRate) &&
-    Number.isFinite(params.usdExchangeRate) &&
-    params.priceRate > 0 &&
-    params.usdExchangeRate > 0
-      ? params.priceRate / params.usdExchangeRate
+  const topupGroupRatio =
+    Number.isFinite(params.topupGroupRatio) && params.topupGroupRatio > 0
+      ? params.topupGroupRatio
       : 1;
 
   const officialBase =
     params.model.quota_type === QUOTA_TYPE_VALUES.REQUEST
-      ? params.model.official_model_price
-      : params.model.official_model_ratio;
-  const currentBase =
-    params.model.quota_type === QUOTA_TYPE_VALUES.REQUEST
-      ? params.model.model_price
-      : params.model.model_ratio;
+      ? (params.model.official_model_price ?? 1)
+      : (params.model.official_model_ratio ?? 1);
+  const officialPrice = Number(officialBase);
 
   if (
-    !Number.isFinite(Number(officialBase)) ||
-    !Number.isFinite(Number(currentBase)) ||
-    Number(officialBase) <= 0 ||
-    Number(currentBase) < 0
+    !Number.isFinite(params.priceRate) ||
+    !Number.isFinite(params.usdExchangeRate) ||
+    !Number.isFinite(officialPrice) ||
+    params.priceRate <= 0 ||
+    params.usdExchangeRate <= 0 ||
+    officialPrice <= 0
   ) {
     return null;
   }
 
-  const currentPrice = Number(currentBase) * ratio * platformExchangeFactor;
-  const percent = Math.round((1 - currentPrice / Number(officialBase)) * 100);
-  return percent > 0 ? percent : null;
+  const platformActualCost = ratio * params.priceRate * topupGroupRatio;
+  const fold = (platformActualCost / params.usdExchangeRate) * 10;
+  return fold > 0 && fold < 10 ? fold : null;
 }
 
-function OfficialDiscountBadge(props: {
-  percent: number | null;
-  label: (percent: number) => string;
-}) {
-  if (props.percent == null) return null;
+function formatDiscountFold(fold: number | null): string {
+  if (fold == null) return "-";
+  const rounded = Math.round(fold * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded}\u6298`;
+}
+
+function DiscountFoldTag(props: { fold: number | null }) {
+  if (props.fold == null) {
+    return <span className="text-muted-foreground">-</span>;
+  }
 
   return (
     <Badge
       variant="outline"
-      className="max-w-full border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      className="border-emerald-500/25 bg-emerald-500/10 font-mono text-emerald-700 dark:text-emerald-300"
     >
-      {props.label(props.percent)}
+      {formatDiscountFold(props.fold)}
     </Badge>
   );
 }
@@ -523,10 +509,13 @@ function ModelBackendSignalsSection(props: { model: PricingModel }) {
   );
 }
 
-function ModelBackendProviderSection(props: { model: PricingModel }) {
+function ModelBackendProviderSection(props: {
+  model: PricingModel;
+  visibleGroups: string[];
+}) {
   const { t } = useTranslation();
   const model = props.model;
-  const groups = normalizeCatalogItems(model.enable_groups);
+  const groups = normalizeCatalogItems(props.visibleGroups);
   const endpoints = normalizeCatalogItems(model.supported_endpoint_types);
   const tags = parseTags(model.tags);
   const cells: React.ReactNode[] = [];
@@ -593,12 +582,18 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   );
 }
 
-function ModelBackendDetailsSection(props: { model: PricingModel }) {
+function ModelBackendDetailsSection(props: {
+  model: PricingModel;
+  visibleGroups: string[];
+}) {
   return (
     <>
       <ModelBackendQuickStats model={props.model} />
       <ModelBackendSignalsSection model={props.model} />
-      <ModelBackendProviderSection model={props.model} />
+      <ModelBackendProviderSection
+        model={props.model}
+        visibleGroups={props.visibleGroups}
+      />
     </>
   );
 }
@@ -886,14 +881,9 @@ function PriceSection(props: {
 // Auto group chain (used inside group pricing section)
 // ----------------------------------------------------------------------------
 
-function AutoGroupChain(props: { model: PricingModel; autoGroups: string[] }) {
+function AutoGroupChain(props: { groups: string[]; autoGroups: string[] }) {
   const { t } = useTranslation();
-  const modelEnableGroups = Array.isArray(props.model.enable_groups)
-    ? props.model.enable_groups
-    : [];
-  const autoChain = props.autoGroups.filter((g) =>
-    modelEnableGroups.includes(g),
-  );
+  const autoChain = props.autoGroups.filter((g) => props.groups.includes(g));
 
   if (autoChain.length === 0) return null;
 
@@ -924,13 +914,13 @@ function getDynamicPriceFields(
   tiers: DynamicPricingTier[],
   options: DynamicPriceOptions,
 ) {
-  return Array.from(
-    new Map(
+  return [
+    ...new Map(
       tiers
         .flatMap((tier) => getDynamicPriceEntries(tier, options))
         .map((entry) => [entry.field, entry]),
     ).values(),
-  );
+  ];
 }
 
 function getDynamicFormattedPricesByTier(
@@ -957,56 +947,43 @@ function getDynamicFormattedPricesByTier(
 function GroupPricingSection(props: {
   model: PricingModel;
   groupRatio: Record<string, number>;
-  usableGroup: Record<string, { desc: string; ratio: number }>;
+  visibleGroups: string[];
   autoGroups: string[];
   priceRate: number;
   usdExchangeRate: number;
+  topupGroupRatio: number;
   tokenUnit: TokenUnit;
   showRechargePrice?: boolean;
+  pricingDiscountColumnEnabled?: boolean;
 }) {
   const { t } = useTranslation();
   const showRechargePrice = props.showRechargePrice ?? false;
 
-  const availableGroups = useMemo(
-    () => getAvailableGroups(props.model, props.usableGroup || {}),
-    [props.model, props.usableGroup],
-  );
+  const availableGroups = props.visibleGroups;
 
   const isTokenBased = isTokenBasedModel(props.model);
   const tokenUnitLabel = props.tokenUnit === "K" ? "1K" : "1M";
 
-  const renderDiscountBadge = (ratio: number) => {
-    return (
-      <OfficialDiscountBadge
-        percent={getOfficialDiscountPercent({
-          model: props.model,
-          ratio,
-          isDynamic: isDynamicPricingModel(props.model),
-          priceRate: props.priceRate,
-          usdExchangeRate: props.usdExchangeRate,
-        })}
-        label={(percent) =>
-          t("Cheaper than official by {{percent}}%", { percent })
-        }
-      />
-    );
-  };
-
   const extraPriceTypes = useMemo(() => {
     const types: { label: string; type: PriceType }[] = [];
-    if (props.model.cache_ratio != null)
+    if (props.model.cache_ratio != null) {
       types.push({ label: t("Cache"), type: "cache" });
-    if (props.model.create_cache_ratio != null)
+    }
+    if (props.model.create_cache_ratio != null) {
       types.push({ label: t("Cache Write"), type: "create_cache" });
-    if (props.model.image_ratio != null)
+    }
+    if (props.model.image_ratio != null) {
       types.push({ label: t("Image"), type: "image" });
-    if (props.model.audio_ratio != null)
+    }
+    if (props.model.audio_ratio != null) {
       types.push({ label: t("Audio In"), type: "audio_input" });
+    }
     if (
       props.model.audio_ratio != null &&
       props.model.audio_completion_ratio != null
-    )
+    ) {
       types.push({ label: t("Audio Out"), type: "audio_output" });
+    }
     return types;
   }, [props.model, t]);
 
@@ -1014,7 +991,7 @@ function GroupPricingSection(props: {
     return (
       <section>
         <SectionTitle>{t("Pricing by Group")}</SectionTitle>
-        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+        <AutoGroupChain groups={availableGroups} autoGroups={props.autoGroups} />
         <p className="text-muted-foreground text-sm">
           {t(
             "This model is not available in any group, or no group pricing information is configured.",
@@ -1034,7 +1011,10 @@ function GroupPricingSection(props: {
       return (
         <section>
           <SectionTitle>{t("Pricing by Group")}</SectionTitle>
-          <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+          <AutoGroupChain
+            groups={availableGroups}
+            autoGroups={props.autoGroups}
+          />
           <div className="rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10">
             <div className="text-sm font-medium text-amber-800 dark:text-amber-200">
               {t("Special billing expression")}
@@ -1083,7 +1063,7 @@ function GroupPricingSection(props: {
     return (
       <section>
         <SectionTitle>{t("Pricing by Group")}</SectionTitle>
-        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+        <AutoGroupChain groups={availableGroups} autoGroups={props.autoGroups} />
         <div className="space-y-3">
           {availableGroups.map((group) => {
             const ratio = props.groupRatio[group] || 1;
@@ -1096,7 +1076,6 @@ function GroupPricingSection(props: {
                 <div className="bg-muted/20 flex items-center justify-between gap-3 border-b px-3 py-2">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <GroupBadge group={group} size="sm" />
-                    {renderDiscountBadge(ratio)}
                   </div>
                   <span className="text-muted-foreground font-mono text-xs">
                     {ratio}x
@@ -1144,13 +1123,13 @@ function GroupPricingSection(props: {
   return (
     <section>
       <SectionTitle>{t("Pricing by Group")}</SectionTitle>
-      <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+      <AutoGroupChain groups={availableGroups} autoGroups={props.autoGroups} />
       <div className="-mx-4 overflow-x-auto sm:mx-0">
         <Table className="text-sm">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className={thClass}>{t("Group")}</TableHead>
-              <TableHead className={thClass}>{t("Ratio")}</TableHead>
+              {/* <TableHead className={thClass}>{t("Ratio")}</TableHead> */}
               {isTokenBased ? (
                 <>
                   <TableHead className={`${thClass} text-right`}>
@@ -1173,6 +1152,11 @@ function GroupPricingSection(props: {
                   {t("Price")}
                 </TableHead>
               )}
+              {props.pricingDiscountColumnEnabled && (
+                <TableHead className={`${thClass} text-right`}>
+                  {t("Discount Fold")}
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1183,12 +1167,11 @@ function GroupPricingSection(props: {
                   <TableCell className="py-2.5">
                     <div className="flex min-w-max flex-wrap items-center gap-2">
                       <GroupBadge group={group} size="sm" />
-                      {renderDiscountBadge(ratio)}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground py-2.5 font-mono">
+                  {/* <TableCell className="text-muted-foreground py-2.5 font-mono">
                     {ratio}x
-                  </TableCell>
+                  </TableCell> */}
                   {isTokenBased ? (
                     <>
                       <TableCell className="py-2.5 text-right font-mono">
@@ -1245,6 +1228,22 @@ function GroupPricingSection(props: {
                       )}
                     </TableCell>
                   )}
+                  {props.pricingDiscountColumnEnabled && (
+                    <TableCell className="py-2.5">
+                      <div className="flex justify-end">
+                        <DiscountFoldTag
+                          fold={getOfficialDiscountFold({
+                            model: props.model,
+                            ratio,
+                            isDynamic: isDynamicPricingModel(props.model),
+                            priceRate: props.priceRate,
+                            usdExchangeRate: props.usdExchangeRate,
+                            topupGroupRatio: props.topupGroupRatio,
+                          })}
+                        />
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
@@ -1262,6 +1261,18 @@ function GroupPricingSection(props: {
 
 const TAB_VALUES = ["overview", "performance", "api"] as const;
 type TabValue = (typeof TAB_VALUES)[number];
+const OVERVIEW_SKELETON_KEYS = [
+  "overview-skeleton-1",
+  "overview-skeleton-2",
+  "overview-skeleton-3",
+  "overview-skeleton-4",
+] as const;
+const DETAIL_SKELETON_KEYS = [
+  "detail-skeleton-1",
+  "detail-skeleton-2",
+  "detail-skeleton-3",
+  "detail-skeleton-4",
+] as const;
 
 const TAB_META: Record<
   TabValue,
@@ -1280,8 +1291,10 @@ export interface ModelDetailsContentProps {
   autoGroups: string[];
   priceRate: number;
   usdExchangeRate: number;
+  topupGroupRatio: number;
   tokenUnit: TokenUnit;
   showRechargePrice?: boolean;
+  pricingDiscountColumnEnabled?: boolean;
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
@@ -1291,6 +1304,10 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const isDynamic =
     props.model.billing_mode === "tiered_expr" &&
     Boolean(props.model.billing_expr);
+  const visibleGroups = useMemo(
+    () => getAvailableGroups(props.model, props.usableGroup || {}),
+    [props.model, props.usableGroup],
+  );
 
   return (
     <div className="@container/details space-y-4">
@@ -1331,16 +1348,21 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             <GroupPricingSection
               model={props.model}
               groupRatio={props.groupRatio}
-              usableGroup={props.usableGroup}
+              visibleGroups={visibleGroups}
               autoGroups={props.autoGroups}
               priceRate={props.priceRate}
               usdExchangeRate={props.usdExchangeRate}
+              topupGroupRatio={props.topupGroupRatio}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              pricingDiscountColumnEnabled={props.pricingDiscountColumnEnabled}
             />
           </section>
 
-          <ModelBackendDetailsSection model={props.model} />
+          <ModelBackendDetailsSection
+            model={props.model}
+            visibleGroups={visibleGroups}
+          />
         </TabsContent>
 
         <TabsContent value="performance" className="outline-none">
@@ -1406,6 +1428,8 @@ export function ModelDetails() {
     isLoading,
     priceRate,
     usdExchangeRate,
+    topupGroupRatio,
+    pricingDiscountColumnEnabled,
   } = usePricingData();
 
   const tokenUnit: TokenUnit =
@@ -1431,13 +1455,13 @@ export function ModelDetails() {
             <Skeleton className="h-4 w-full max-w-md" />
           </div>
           <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-16 w-full" />
+            {OVERVIEW_SKELETON_KEYS.map((key) => (
+              <Skeleton key={key} className="h-16 w-full" />
             ))}
           </div>
           <div className="mt-6 space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-24 w-full" />
+            {DETAIL_SKELETON_KEYS.map((key) => (
+              <Skeleton key={key} className="h-24 w-full" />
             ))}
           </div>
         </div>
@@ -1483,6 +1507,8 @@ export function ModelDetails() {
           autoGroups={autoGroups || []}
           priceRate={priceRate ?? 1}
           usdExchangeRate={usdExchangeRate ?? 1}
+          topupGroupRatio={topupGroupRatio ?? 1}
+          pricingDiscountColumnEnabled={pricingDiscountColumnEnabled}
           tokenUnit={tokenUnit}
           showRechargePrice={search.rechargePrice ?? false}
           endpointMap={

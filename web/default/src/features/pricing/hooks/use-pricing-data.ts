@@ -39,6 +39,10 @@ export function usePricingData() {
     [status?.price]
   )
   const usdExchangeRate = OFFICIAL_USD_EXCHANGE_RATE
+  const topupGroupRatio = useMemo(() => {
+    const ratio = Number(data?.topup_group_ratio)
+    return Number.isFinite(ratio) && ratio > 0 ? ratio : 1
+  }, [data?.topup_group_ratio])
 
   const models = useMemo(() => {
     if (!data?.data || !data?.vendors) return []
@@ -72,5 +76,8 @@ export function usePricingData() {
     refetch,
     priceRate,
     usdExchangeRate,
+    topupGroupRatio,
+    pricingDiscountColumnEnabled:
+      data?.pricing_discount_column_enabled ?? false,
   }
 }

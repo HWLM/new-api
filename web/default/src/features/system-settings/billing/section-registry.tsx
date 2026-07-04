@@ -88,6 +88,7 @@ const BILLING_SECTIONS = [
           USDExchangeRate: settings.USDExchangeRate,
           DisplayInCurrencyEnabled: settings.DisplayInCurrencyEnabled,
           DisplayTokenStatEnabled: settings.DisplayTokenStatEnabled,
+          PricingDiscountColumnEnabled: settings.PricingDiscountColumnEnabled,
           general_setting: {
             quota_display_type: parseCurrencyDisplayType(
               settings['general_setting.quota_display_type']
