@@ -34,8 +34,8 @@ ADD go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-COPY --from=builder /build/dist ./web/default/dist
-COPY --from=builder-classic /build/dist ./web/classic/dist
+COPY --from=builder /build/web/default/dist ./web/default/dist
+COPY --from=builder-classic /build/web/classic/dist ./web/classic/dist
 RUN go build -ldflags "-s -w -X 'github.com/HWLM/new-api/common.Version=$(cat VERSION)'" -o new-api
 
 FROM registry.cn-guangzhou.aliyuncs.com/kestudy/bookworm-slim
