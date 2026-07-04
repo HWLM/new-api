@@ -64,6 +64,7 @@ const createPricingSchema = (t: (key: string) => string) =>
         .min(0.0001, t('Exchange rate must be greater than 0')),
       DisplayInCurrencyEnabled: z.boolean(),
       DisplayTokenStatEnabled: z.boolean(),
+      PricingDiscountColumnEnabled: z.boolean(),
       general_setting: z.object({
         quota_display_type: z.enum(['USD', 'CNY', 'TOKENS', 'CUSTOM']),
         custom_currency_symbol: z.string().max(8).optional(),
@@ -238,9 +239,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                     <FormLabel>
                       {displayType === 'CNY'
                         ? t('CNY per USD')
-                        : displayType === 'USD'
-                          ? t('USD Exchange Rate')
-                          : t('USD Exchange Rate')}
+                        : t('USD Exchange Rate')}
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -357,6 +356,27 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                     <FormLabel>{t('Display Token Statistics')}</FormLabel>
                     <FormDescription>
                       {t('Show token usage statistics in the UI')}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='PricingDiscountColumnEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Show Pricing Discount Column')}</FormLabel>
+                    <FormDescription>
+                      {t('Show discount tags in the model pricing group table')}
                     </FormDescription>
                   </SettingsSwitchContent>
                   <FormControl>

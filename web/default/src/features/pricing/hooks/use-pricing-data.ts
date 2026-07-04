@@ -22,6 +22,7 @@ import { useMemo } from 'react'
 import { useStatus } from '@/hooks/use-status'
 
 import { getPricing } from '../api'
+import { OFFICIAL_USD_EXCHANGE_RATE } from '../constants'
 
 export function usePricingData() {
   const { status } = useStatus()
@@ -37,10 +38,11 @@ export function usePricingData() {
     () => Math.max((status?.price as number) ?? 1, 0.001),
     [status?.price]
   )
-  const usdExchangeRate = useMemo(
-    () => Math.max((status?.usd_exchange_rate as number) ?? priceRate, 0.001),
-    [status?.usd_exchange_rate, priceRate]
-  )
+  const usdExchangeRate = OFFICIAL_USD_EXCHANGE_RATE
+  const topupGroupRatio = useMemo(() => {
+    const ratio = Number(data?.topup_group_ratio)
+    return Number.isFinite(ratio) && ratio > 0 ? ratio : 1
+  }, [data?.topup_group_ratio])
 
   const models = useMemo(() => {
     if (!data?.data || !data?.vendors) return []
@@ -74,5 +76,8 @@ export function usePricingData() {
     refetch,
     priceRate,
     usdExchangeRate,
+    topupGroupRatio,
+    pricingDiscountColumnEnabled:
+      data?.pricing_discount_column_enabled ?? false,
   }
 }

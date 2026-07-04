@@ -52,6 +52,8 @@ export function Pricing() {
     isLoading,
     priceRate,
     usdExchangeRate,
+    topupGroupRatio,
+    pricingDiscountColumnEnabled,
   } = usePricingData()
 
   const {
@@ -276,6 +278,8 @@ export function Pricing() {
               autoGroups={autoGroups || []}
               priceRate={priceRate ?? 1}
               usdExchangeRate={usdExchangeRate ?? 1}
+              topupGroupRatio={topupGroupRatio ?? 1}
+              pricingDiscountColumnEnabled={pricingDiscountColumnEnabled}
               tokenUnit={tokenUnit}
               showRechargePrice={showRechargePrice}
             />

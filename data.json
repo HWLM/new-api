@@ -1,0 +1,696 @@
+{
+    "data": {
+        "items": [
+            {
+                "id": 27,
+                "model_name": "glm-5.2",
+                "description": "GLM-5.2 是面向长任务时代的旗舰模型。支持真正可用的 1M 上下文，可承载项目级工程上下文，长程任务执行更稳定、工程规范遵循更可靠，一次任务即可完成从需求到多端部署的完整开发链路。",
+                "icon": "Zhipu",
+                "tags": "对话,工具",
+                "vendor_id": 4,
+                "endpoints": "{\n  \"anthropic\": {\n    \"path\": \"/v1/messages\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1782910139,
+                "updated_time": 1782911387,
+                "bound_channels": [
+                    {
+                        "name": "oxoapi-智谱-anthropic",
+                        "type": 14
+                    },
+                    {
+                        "name": "oxoapi-智谱-codex",
+                        "type": 1
+                    }
+                ],
+                "enable_groups": [
+                    "default",
+                    "glm智谱"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 26,
+                "model_name": "claude-sonnet-5",
+                "description": "Claude Sonnet 5 默认支持 100 万令牌上下文窗口（100万 令牌既是默认也是最大值;没有更小的上下文变体）、128k 最大输出令牌、自适应思维，以及与 Claude Sonnet 4.6 相同的工具和平台功能，除了优先级（Priority Tier）功能，Claude Sonnet 5 不支持优先级。",
+                "icon": "Anthropic",
+                "tags": "对话,识图,工具",
+                "vendor_id": 1,
+                "endpoints": "[\"anthropic\",\"openai\"]",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1782878767,
+                "updated_time": 1782878767,
+                "bound_channels": [
+                    {
+                        "name": "Claude反代",
+                        "type": 14
+                    },
+                    {
+                        "name": "claude测试",
+                        "type": 14
+                    }
+                ],
+                "enable_groups": [
+                    "default",
+                    "claude-可外接",
+                    "超级VIP",
+                    "合作客户",
+                    "试用客户",
+                    "优质客户",
+                    "claude专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 25,
+                "model_name": "claude-fable-5",
+                "description": "Claude‑fable‑5 是 Anthropic 推出的公开可用的高性能大型语言模型，具备超长上下文、多模态理解、复杂推理与企业级知识工作能力，同时带有严格安全保护。",
+                "icon": "Anthropic",
+                "tags": "对话,识图,工具",
+                "vendor_id": 1,
+                "endpoints": "{\n  \"anthropic\": {\n    \"path\": \"/v1/messages\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1781076859,
+                "updated_time": 1781076859,
+                "bound_channels": [
+                    {
+                        "name": "Claude反代",
+                        "type": 14
+                    }
+                ],
+                "enable_groups": [
+                    "default",
+                    "claude-可外接",
+                    "超级VIP",
+                    "合作客户",
+                    "试用客户",
+                    "优质客户",
+                    "claude专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 24,
+                "model_name": "claude-opus-4-8",
+                "description": "claude-opus-4-8 是目前 Anthropic 最强的“能一个人扛住长时间复杂工作的工具”，特别适合开发者做大项目、建 Agent，或者对质量和自主性要求极高的场景",
+                "icon": "Anthropic",
+                "tags": "对话,识图,工具",
+                "vendor_id": 1,
+                "endpoints": "{\n  \"anthropic\": {\n    \"path\": \"/v1/messages\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1780035110,
+                "updated_time": 1780035349,
+                "bound_channels": [
+                    {
+                        "name": "Claude反代",
+                        "type": 14
+                    },
+                    {
+                        "name": "claude测试",
+                        "type": 14
+                    },
+                    {
+                        "name": "Claude-AI-GO",
+                        "type": 14
+                    }
+                ],
+                "enable_groups": [
+                    "claude-可外接",
+                    "claude专属",
+                    "default",
+                    "超级VIP",
+                    "合作客户",
+                    "试用客户",
+                    "优质客户"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 20,
+                "model_name": "gemini-3.1-flash-lite",
+                "description": "Google 旗下最具成本效益的模型，针对高容量智能体任务、翻译和简单的数据处理进行了优化。",
+                "icon": "Gemini",
+                "tags": "对话,工具,识图",
+                "vendor_id": 3,
+                "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779787093,
+                "updated_time": 1779787093,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Gemini",
+                        "type": 24
+                    }
+                ],
+                "enable_groups": [
+                    "gemini专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 19,
+                "model_name": "gemini-3-flash-preview",
+                "description": "gemini-3-flash-preview我们打造的最智能的模型，兼具速度和前沿智能，并具备出色的搜索和接地能力。",
+                "icon": "Gemini",
+                "tags": "对话,识图,工具",
+                "vendor_id": 3,
+                "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779786995,
+                "updated_time": 1779786995,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Gemini",
+                        "type": 24
+                    }
+                ],
+                "enable_groups": [
+                    "gemini专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 18,
+                "model_name": "gemini-3.1-pro-preview",
+                "description": "Gemini 3.1 是谷歌迄今为止最智能的模型系列，以先进的推理能力为基础。它旨在通过掌握智能体工作流、自主编码和复杂的多模态任务，将任何想法变为现实。gemini-3.1-pro-preview 最适合需要广泛的世界知识和跨模态的高级推理的复杂任务。",
+                "icon": "Gemini",
+                "tags": "对话,思考,多模态",
+                "vendor_id": 3,
+                "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779786951,
+                "updated_time": 1779786951,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Gemini",
+                        "type": 24
+                    }
+                ],
+                "enable_groups": [
+                    "gemini专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 17,
+                "model_name": "gemini-3.1-flash-image-preview",
+                "description": "Nano Banana 2 以主流价格提供高质量的图片生成和对话式编辑功能，延迟时间短。",
+                "icon": "Gemini",
+                "tags": "绘画",
+                "vendor_id": 3,
+                "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779786895,
+                "updated_time": 1779786895,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Gemini",
+                        "type": 24
+                    }
+                ],
+                "enable_groups": [
+                    "gemini专属"
+                ],
+                "quota_types": [
+                    1
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 16,
+                "model_name": "gemini-3-pro-image-preview",
+                "description": "Nano Banana pro是Google Gemini系列中的下一代AI图像生成与编辑模型,是Gemini 2.5 Flash Image(Nano Banana)的升级版。该模型融合多模态Transformer和扩散模型,原生支持2K(2048×2048)及4K分辨率输出,在图像质量、文字渲染、物理推理等方面实现显著提升。",
+                "icon": "Gemini",
+                "tags": "绘画",
+                "vendor_id": 3,
+                "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779786852,
+                "updated_time": 1779786852,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Gemini",
+                        "type": 24
+                    }
+                ],
+                "enable_groups": [
+                    "gemini专属"
+                ],
+                "quota_types": [
+                    1
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 15,
+                "model_name": "gemini-3.1-flash-tts-preview",
+                "description": "gemini-3.1-flash-tts-preview文字转语音音频模型经过优化，可实现高性价比、低延迟、可控的语音生成。",
+                "icon": "Gemini",
+                "tags": "音频",
+                "vendor_id": 3,
+                "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"geminitts\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779786789,
+                "updated_time": 1779786789,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Gemini",
+                        "type": 24
+                    }
+                ],
+                "enable_groups": [
+                    "gemini专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 14,
+                "model_name": "gemini-3.5-flash",
+                "description": "Gemini 3.5 Flash 已正式发布 (GA)，性能稳定，可大规模用于生产环境。作为我们最智能的 Flash 模型，它在智能体执行、编码和长期任务方面可大规模提供持续的领先性能。",
+                "icon": "Gemini",
+                "tags": "对话,工具,识图",
+                "vendor_id": 3,
+                "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779786312,
+                "updated_time": 1779786312,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Gemini",
+                        "type": 24
+                    }
+                ],
+                "enable_groups": [
+                    "gemini专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 11,
+                "model_name": "gpt-5.5",
+                "description": "GPT-5.5是OpenAI于2026年4月24日发布的旗舰大语言模型，定位为面向实际工作与智能体的新型智能，核心突破在于自主规划与执行多步骤复杂任务，擅长编程、计算机操作、科研分析等领域，并以更少Token消耗实现更高效率。加后缀high/low/medium/xhigh代表思考努力程度",
+                "icon": "OpenAI",
+                "tags": "对话,识图,思考,工具",
+                "vendor_id": 2,
+                "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779434350,
+                "updated_time": 1779434440,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Codex",
+                        "type": 1
+                    },
+                    {
+                        "name": "CodexCli反代_默认分组专用",
+                        "type": 1
+                    },
+                    {
+                        "name": "CodexCli反代",
+                        "type": 1
+                    },
+                    {
+                        "name": "Codex未限制反代",
+                        "type": 1
+                    }
+                ],
+                "enable_groups": [
+                    "svip",
+                    "vip",
+                    "超级VIP",
+                    "default",
+                    "试用客户",
+                    "合作客户",
+                    "codex未限制",
+                    "codex专属",
+                    "优质客户"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 10,
+                "model_name": "gpt-5.4-nano",
+                "description": "GPT‑5.4 nano 是 GPT‑5.4 最轻量、最快速的版本，专为对速度和成本要求极高的任务而设计。",
+                "icon": "OpenAI",
+                "tags": "对话,识图,思考,工具",
+                "vendor_id": 2,
+                "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 0,
+                "sync_official": 1,
+                "created_time": 1779434257,
+                "updated_time": 1779434257,
+                "name_rule": 0
+            },
+            {
+                "id": 9,
+                "model_name": "gpt-5.4-mini",
+                "description": "GPT-5.4mini将GPT-5.4的优势融入到一个更快、更高效的模型中，专为高负载工作量设计。",
+                "icon": "OpenAI",
+                "tags": "对话,识图,思考,工具",
+                "vendor_id": 2,
+                "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779434025,
+                "updated_time": 1779434165,
+                "bound_channels": [
+                    {
+                        "name": "CodexCli反代",
+                        "type": 1
+                    },
+                    {
+                        "name": "Codex未限制反代",
+                        "type": 1
+                    },
+                    {
+                        "name": "KL-API-Codex",
+                        "type": 1
+                    },
+                    {
+                        "name": "CodexCli反代_默认分组专用",
+                        "type": 1
+                    }
+                ],
+                "enable_groups": [
+                    "codex专属",
+                    "default",
+                    "试用客户",
+                    "超级VIP",
+                    "优质客户",
+                    "合作客户",
+                    "codex未限制",
+                    "svip",
+                    "vip"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 8,
+                "model_name": "gpt-5.4",
+                "description": "GPT-5.4是我们用于复杂专业工作的前沿模型。加后缀high/low/medium/xhigh代表思考努力程度",
+                "icon": "OpenAI",
+                "tags": "对话,识图,工具",
+                "vendor_id": 2,
+                "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779433972,
+                "updated_time": 1779434144,
+                "bound_channels": [
+                    {
+                        "name": "CodexCli反代",
+                        "type": 1
+                    },
+                    {
+                        "name": "Codex未限制反代",
+                        "type": 1
+                    },
+                    {
+                        "name": "CodexCli反代_默认分组专用",
+                        "type": 1
+                    },
+                    {
+                        "name": "KL-API-Codex",
+                        "type": 1
+                    }
+                ],
+                "enable_groups": [
+                    "default",
+                    "试用客户",
+                    "优质客户",
+                    "svip",
+                    "超级VIP",
+                    "合作客户",
+                    "codex未限制",
+                    "vip",
+                    "codex专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 7,
+                "model_name": "gpt-image-2",
+                "description": "GPT Image 2 是我们最先进的图像生成模型，支持快速、高质量的图像生成和编辑。它支持灵活的图像尺寸和高保真图像输入。",
+                "icon": "OpenAI",
+                "tags": "绘画,dall-e-3格式",
+                "vendor_id": 2,
+                "endpoints": "{\n  \"image-generation\": {\n    \"path\": \"/v1/images/generations\",\n    \"method\": \"POST\"\n  },\n  \"image-edits\": {\n    \"path\": \"/v1/images/edits\",\n    \"method\": \"POST\"\n  }\n}",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779433801,
+                "updated_time": 1779435497,
+                "bound_channels": [
+                    {
+                        "name": "KL-API-Codex",
+                        "type": 1
+                    },
+                    {
+                        "name": "CodexCli反代",
+                        "type": 1
+                    },
+                    {
+                        "name": "CodexCli反代_默认分组专用",
+                        "type": 1
+                    },
+                    {
+                        "name": "Codex未限制反代",
+                        "type": 1
+                    }
+                ],
+                "enable_groups": [
+                    "超级VIP",
+                    "合作客户",
+                    "codex未限制",
+                    "svip",
+                    "vip",
+                    "codex专属",
+                    "default",
+                    "试用客户",
+                    "优质客户"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 6,
+                "model_name": "claude-haiku-4-5-20251001",
+                "description": "Claude Haiku 4.5 是速度最快、性价比最高的模型，在编码、计算机使用和代理任务方面的表现与 Sonnet 4 相当。",
+                "icon": "Anthropic",
+                "tags": "对话,识图,思考,工具",
+                "vendor_id": 1,
+                "endpoints": "[\"anthropic\",\"openai\"]",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779196210,
+                "updated_time": 1779196210,
+                "bound_channels": [
+                    {
+                        "name": "Claude-AI-GO",
+                        "type": 14
+                    },
+                    {
+                        "name": "Claude反代",
+                        "type": 14
+                    },
+                    {
+                        "name": "claude测试",
+                        "type": 14
+                    }
+                ],
+                "enable_groups": [
+                    "default",
+                    "claude-可外接",
+                    "超级VIP",
+                    "合作客户",
+                    "试用客户",
+                    "优质客户",
+                    "claude专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 5,
+                "model_name": "claude-sonnet-4-6",
+                "description": "Claude Sonnet 4.6 可大规模提供前沿智能，专为编码、代理和企业工作流而打造。",
+                "icon": "Anthropic",
+                "tags": "对话,识图,工具",
+                "vendor_id": 1,
+                "endpoints": "[\"anthropic\",\"openai\"]",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779195931,
+                "updated_time": 1779196008,
+                "bound_channels": [
+                    {
+                        "name": "claude测试",
+                        "type": 14
+                    },
+                    {
+                        "name": "Claude-AI-GO",
+                        "type": 14
+                    },
+                    {
+                        "name": "Claude反代",
+                        "type": 14
+                    }
+                ],
+                "enable_groups": [
+                    "default",
+                    "claude-可外接",
+                    "超级VIP",
+                    "合作客户",
+                    "试用客户",
+                    "优质客户",
+                    "claude专属"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 2,
+                "model_name": "claude-opus-4-7",
+                "description": "Claude Opus 4.7 支持 100 万令牌上下文窗口 、128k 最大输出令牌、 自适应思维 ，以及与 Claude Opus 4.6 相同的工具和平台功能。",
+                "icon": "Anthropic",
+                "tags": "对话,识图,工具",
+                "vendor_id": 1,
+                "endpoints": "[\"anthropic\",\"openai\"]",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779195217,
+                "updated_time": 1779195231,
+                "bound_channels": [
+                    {
+                        "name": "Claude反代",
+                        "type": 14
+                    },
+                    {
+                        "name": "Claude-AI-GO",
+                        "type": 14
+                    },
+                    {
+                        "name": "claude测试",
+                        "type": 14
+                    }
+                ],
+                "enable_groups": [
+                    "claude专属",
+                    "default",
+                    "claude-可外接",
+                    "超级VIP",
+                    "合作客户",
+                    "试用客户",
+                    "优质客户"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            },
+            {
+                "id": 1,
+                "model_name": "claude-opus-4-6",
+                "description": "Claude Opus 4.6 是 Anthropic 最新发布的旗舰级 AI 模型，在专业任务处理、长上下文理解和多智能体协作方面实现了重大突破。",
+                "icon": "Anthropic",
+                "tags": "对话,识图,工具",
+                "vendor_id": 1,
+                "endpoints": "[\"anthropic\",\"openai\"]",
+                "status": 1,
+                "sync_official": 1,
+                "created_time": 1779195129,
+                "updated_time": 1779195173,
+                "bound_channels": [
+                    {
+                        "name": "claude测试",
+                        "type": 14
+                    },
+                    {
+                        "name": "Claude反代",
+                        "type": 14
+                    },
+                    {
+                        "name": "Claude-AI-GO",
+                        "type": 14
+                    }
+                ],
+                "enable_groups": [
+                    "合作客户",
+                    "试用客户",
+                    "优质客户",
+                    "claude专属",
+                    "default",
+                    "claude-可外接",
+                    "超级VIP"
+                ],
+                "quota_types": [
+                    0
+                ],
+                "name_rule": 0
+            }
+        ],
+        "page": 1,
+        "page_size": 20,
+        "total": 20,
+        "vendor_counts": {
+            "1": 7,
+            "2": 5,
+            "3": 7,
+            "4": 1
+        }
+    },
+    "message": "",
+    "success": true
+}

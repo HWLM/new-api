@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -24,6 +23,8 @@ type Pricing struct {
 	QuotaType              int                     `json:"quota_type"`
 	ModelRatio             float64                 `json:"model_ratio"`
 	ModelPrice             float64                 `json:"model_price"`
+	OfficialModelRatio     float64                 `json:"official_model_ratio,omitempty"`
+	OfficialModelPrice     float64                 `json:"official_model_price,omitempty"`
 	OwnerBy                string                  `json:"owner_by"`
 	CompletionRatio        float64                 `json:"completion_ratio"`
 	CacheRatio             *float64                `json:"cache_ratio,omitempty"`
@@ -62,6 +63,32 @@ var (
 	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
 	modelSupportEndpointsLock = sync.RWMutex{}
 )
+
+func getDefaultModelRatio(model string) (float64, bool) {
+	name := ratio_setting.FormatMatchingModelName(model)
+	defaultRatios := ratio_setting.GetDefaultModelRatioMap()
+	if ratio, ok := defaultRatios[name]; ok {
+		return ratio, true
+	}
+	if strings.HasSuffix(name, ratio_setting.CompactModelSuffix) {
+		ratio, ok := defaultRatios[ratio_setting.CompactWildcardModelKey]
+		return ratio, ok
+	}
+	return 0, false
+}
+
+func getDefaultModelPrice(model string) (float64, bool) {
+	name := ratio_setting.FormatMatchingModelName(model)
+	defaultPrices := ratio_setting.GetDefaultModelPriceMap()
+	if price, ok := defaultPrices[name]; ok {
+		return price, true
+	}
+	if strings.HasSuffix(name, ratio_setting.CompactModelSuffix) {
+		price, ok := defaultPrices[ratio_setting.CompactWildcardModelKey]
+		return price, ok
+	}
+	return 0, false
+}
 
 func GetPricing() []Pricing {
 	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
@@ -220,7 +247,7 @@ func updatePricing() {
 			continue
 		}
 		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
+		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			endpoints := make([]string, 0, len(raw))
 			for k, v := range raw {
 				switch v.(type) {
@@ -264,7 +291,7 @@ func updatePricing() {
 			continue
 		}
 		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
+		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			for k, v := range raw {
 				switch val := v.(type) {
 				case string:
@@ -308,11 +335,17 @@ func updatePricing() {
 		if findPrice {
 			pricing.ModelPrice = modelPrice
 			pricing.QuotaType = 1
+			if officialPrice, ok := getDefaultModelPrice(model); ok {
+				pricing.OfficialModelPrice = officialPrice
+			}
 		} else {
 			modelRatio, _, _ := ratio_setting.GetModelRatio(model)
 			pricing.ModelRatio = modelRatio
 			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(model)
 			pricing.QuotaType = 0
+			if officialRatio, ok := getDefaultModelRatio(model); ok {
+				pricing.OfficialModelRatio = officialRatio
+			}
 		}
 		if cacheRatio, ok := ratio_setting.GetCacheRatio(model); ok {
 			pricing.CacheRatio = &cacheRatio

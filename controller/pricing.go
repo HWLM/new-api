@@ -37,42 +37,52 @@ func GetPricing(c *gin.Context) {
 	pricing := model.GetPricing()
 	userId, exists := c.Get("id")
 	usableGroup := map[string]string{}
+	displayUsableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
 	for s, f := range ratio_setting.GetGroupRatioCopy() {
 		groupRatio[s] = f
 	}
 	var group string
+	topupGroupRatio := 1.0
 	if exists {
 		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
 			group = user.Group
-			for g := range groupRatio {
-				ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
-				if ok {
-					groupRatio[g] = ratio
-				}
+			if ratio := common.GetTopupGroupRatio(group); ratio > 0 {
+				topupGroupRatio = ratio
 			}
 		}
 	}
 
 	usableGroup = service.GetUserUsableGroups(group)
+	displayUsableGroup = service.GetUserUsableGroupsForDisplay(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
-	// check groupRatio contains usableGroup
+	// check groupRatio contains displayUsableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
-		if _, ok := usableGroup[group]; !ok {
+		if _, ok := displayUsableGroup[group]; !ok {
 			delete(groupRatio, group)
+		}
+	}
+	if group != "" {
+		for g := range displayUsableGroup {
+			ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
+			if ok {
+				groupRatio[g] = ratio
+			}
 		}
 	}
 
 	c.JSON(200, gin.H{
-		"success":            true,
-		"data":               pricing,
-		"vendors":            model.GetVendors(),
-		"group_ratio":        groupRatio,
-		"usable_group":       usableGroup,
-		"supported_endpoint": model.GetSupportedEndpointMap(),
-		"auto_groups":        service.GetUserAutoGroup(group),
-		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
+		"success":                         true,
+		"data":                            pricing,
+		"vendors":                         model.GetVendors(),
+		"group_ratio":                     groupRatio,
+		"usable_group":                    displayUsableGroup,
+		"supported_endpoint":              model.GetSupportedEndpointMap(),
+		"auto_groups":                     service.GetUserAutoGroup(group),
+		"topup_group_ratio":               topupGroupRatio,
+		"pricing_discount_column_enabled": common.PricingDiscountColumnEnabled,
+		"pricing_version":                 "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
 }
 

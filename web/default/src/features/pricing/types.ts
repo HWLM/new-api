@@ -39,6 +39,8 @@ export type PricingModel = {
   quota_type: number
   model_ratio: number
   completion_ratio: number
+  official_model_ratio?: number
+  official_model_price?: number
   model_price?: number
   cache_ratio?: number | null
   create_cache_ratio?: number | null
@@ -97,6 +99,8 @@ export type PricingData = {
   usable_group: Record<string, { desc: string; ratio: number }>
   supported_endpoint: Record<string, string>
   auto_groups: string[]
+  topup_group_ratio?: number
+  pricing_discount_column_enabled?: boolean
 }
 
 export type TokenUnit = 'M' | 'K'
