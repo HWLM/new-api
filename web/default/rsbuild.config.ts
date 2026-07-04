@@ -1,50 +1,52 @@
-import path from 'path'
-import { fileURLToPath } from 'url'
-import { defineConfig, loadEnv } from '@rsbuild/core'
-import { pluginReact } from '@rsbuild/plugin-react'
-import { tanstackRouter } from '@tanstack/router-plugin/rspack'
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+import { defineConfig, loadEnv } from "@rsbuild/core";
+import { pluginReact } from "@rsbuild/plugin-react";
+import { pluginTailwindcss } from "@rsbuild/plugin-tailwindcss";
+import { tanstackRouter } from "@tanstack/router-plugin/rspack";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ envMode }) => {
-  const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] })
+  const env = loadEnv({ mode: envMode, prefixes: ["VITE_"] });
   const serverUrl =
     process.env.VITE_REACT_APP_SERVER_URL ||
     env.rawPublicVars.VITE_REACT_APP_SERVER_URL ||
-    'http://localhost:3001'
+    "http://localhost:3001";
 
-  const isProd = envMode === 'production'
+  const isProd = envMode === "production";
   const devProxy = Object.fromEntries(
-    (['/api', '/mj', '/pg'] as const).map((key) => [
+    (["/api", "/mj", "/pg"] as const).map((key) => [
       key,
       { target: serverUrl, changeOrigin: true },
     ]),
-  ) as Record<string, { target: string; changeOrigin: boolean }>
+  ) as Record<string, { target: string; changeOrigin: boolean }>;
 
   return {
-    plugins: [pluginReact()],
+    plugins: [pluginReact(), pluginTailwindcss({ optimize: false })],
     // Rsbuild 2: replaces deprecated `performance.chunkSplit` (RSPack 2 aligned)
     splitChunks: {
-      preset: 'default',
+      preset: "default",
       cacheGroups: {
-        'vendor-react': {
+        "vendor-react": {
           test: /node_modules[\\/](react|react-dom)[\\/]/,
-          name: 'vendor-react',
-          chunks: 'all',
+          name: "vendor-react",
+          chunks: "all",
           priority: 0,
           enforce: true,
         },
-        'vendor-ui-primitives': {
+        "vendor-ui-primitives": {
           test: /node_modules[\\/](@base-ui|@radix-ui)[\\/]/,
-          name: 'vendor-ui-primitives',
-          chunks: 'all',
+          name: "vendor-ui-primitives",
+          chunks: "all",
           priority: 0,
           enforce: true,
         },
-        'vendor-tanstack': {
+        "vendor-tanstack": {
           test: /node_modules[\\/]@tanstack[\\/]/,
-          name: 'vendor-tanstack',
-          chunks: 'all',
+          name: "vendor-tanstack",
+          chunks: "all",
           priority: 0,
           enforce: true,
         },
@@ -52,27 +54,28 @@ export default defineConfig(({ envMode }) => {
     },
     source: {
       entry: {
-        index: './src/main.tsx',
+        index: "./src/main.tsx",
       },
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'),
+        "@": path.resolve(__dirname, "./src"),
       },
     },
     html: {
-      template: './index.html',
+      template: "./index.html",
     },
     server: {
-      host: '0.0.0.0',
+      host: "0.0.0.0",
+      strictPort: false,
       proxy: devProxy,
     },
     output: {
       // Production optimizations
       minify: isProd,
-      target: 'web',
+      target: "web",
       distPath: {
-        root: 'dist',
+        root: "dist",
       },
       // Rely on Rsbuild default legalComments ("linked" → per-chunk *.LICENSE.txt) in all modes.
       // Do not set "none" in production: that strips minifier-preserved third-party notices and
@@ -80,18 +83,14 @@ export default defineConfig(({ envMode }) => {
     },
     performance: {
       // Remove console in production
-      removeConsole: isProd ? ['log'] : false,
-      // Speed up repeated `rsbuild build` (local + CI when node_modules/.cache is preserved).
-      // @see https://v2.rsbuild.dev/config/performance/build-cache
-      buildCache: {
-        cacheDigest: [process.env.VITE_REACT_APP_VERSION],
-      },
+      removeConsole: isProd ? ["log"] : false,
+      buildCache: false,
     },
     tools: {
       rspack: {
         plugins: [
           tanstackRouter({
-            target: 'react',
+            target: "react",
             // Dev: avoid per-route async chunks (reduces white flash on navigation + faster HMR feedback).
             // Prod: keep route-based code splitting.
             autoCodeSplitting: isProd,
@@ -99,5 +98,5 @@ export default defineConfig(({ envMode }) => {
         ],
       },
     },
-  }
-})
+  };
+});

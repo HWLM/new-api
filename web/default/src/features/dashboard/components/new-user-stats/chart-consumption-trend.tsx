@@ -166,8 +166,8 @@ export function ChartConsumptionTrend({
                   labelFormatter={(_, entries) =>
                     entries?.[0]?.payload?.bucket ?? ''
                   }
-                  formatter={(v: number, name) => [
-                    `$${(Number(v) || 0).toFixed(2)}`,
+                  formatter={(value, name) => [
+                    `$${Number(value ?? 0).toFixed(2)}`,
                     name,
                   ]}
                 />

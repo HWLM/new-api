@@ -16,22 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from 'react'
-import { Link, useRouterState } from '@tanstack/react-router'
-import { Menu } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
+import { useMemo } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { Menu } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { type TopNavLink } from '../types'
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+
+import { type TopNavLink } from "../types";
 
 type TopNavProps = React.HTMLAttributes<HTMLElement> & {
-  links: TopNavLink[]
-}
+  links: TopNavLink[];
+};
 
 /**
  * 顶部导航栏组件
@@ -39,7 +41,7 @@ type TopNavProps = React.HTMLAttributes<HTMLElement> & {
  * 激活态从当前路由 pathname 推导,样式与 public-header 一致(药丸 pill)
  */
 export function TopNav({ className, links, ...props }: TopNavProps) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   const normalizedLinks = useMemo(
     () =>
@@ -49,20 +51,20 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
         ...link,
         isActive: pathname === link.href,
       })),
-    [links, pathname]
-  )
+    [links, pathname],
+  );
 
   return (
     <>
       {/* 移动端下拉菜单 */}
-      <div className='lg:hidden'>
+      <div className="lg:hidden">
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger
-            render={<Button size='icon' variant='outline' className='size-7' />}
+            render={<Button size="icon" variant="outline" className="size-7" />}
           >
             <Menu />
           </DropdownMenuTrigger>
-          <DropdownMenuContent side='bottom' align='start'>
+          <DropdownMenuContent side="bottom" align="start">
             {normalizedLinks.map(
               ({ title, href, isActive, disabled, external }) => (
                 <DropdownMenuItem
@@ -71,11 +73,11 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                     external ? (
                       <a
                         href={href}
-                        target='_blank'
-                        rel='noopener noreferrer'
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className={cn(
-                          'text-muted-foreground',
-                          isActive && 'text-foreground font-medium'
+                          "text-muted-foreground",
+                          isActive && "text-foreground font-medium",
                         )}
                       >
                         {title}
@@ -84,8 +86,8 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                       <Link
                         to={href}
                         className={cn(
-                          'text-muted-foreground',
-                          isActive && 'text-foreground font-medium'
+                          "text-muted-foreground",
+                          isActive && "text-foreground font-medium",
                         )}
                         disabled={disabled}
                       >
@@ -94,7 +96,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                     )
                   }
                 ></DropdownMenuItem>
-              )
+              ),
             )}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -102,45 +104,44 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
 
       {/* 桌面端水平导航 */}
       <nav
-        className={cn(
-          'hidden items-center gap-0.5 lg:flex',
-          className
-        )}
+        className={cn("hidden items-center gap-0.5 lg:flex", className)}
         {...props}
       >
-        {normalizedLinks.map(({ title, href, isActive, disabled, external }) => {
-          const linkClass = cn(
-            'rounded-full px-3 py-1.5 text-[13px] font-medium transition-all duration-200',
-            isActive
-              ? 'text-foreground bg-foreground/[0.06] dark:bg-foreground/[0.09]'
-              : 'text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]',
-            disabled && 'pointer-events-none opacity-50'
-          )
-          if (external) {
+        {normalizedLinks.map(
+          ({ title, href, isActive, disabled, external }) => {
+            const linkClass = cn(
+              "rounded-full px-3 py-1.5 text-[13px] font-medium transition-all duration-200",
+              isActive
+                ? "text-foreground bg-foreground/[0.06] dark:bg-foreground/[0.09]"
+                : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.06]",
+              disabled && "pointer-events-none opacity-50",
+            );
+            if (external) {
+              return (
+                <a
+                  key={`${title}-${href}`}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkClass}
+                >
+                  {title}
+                </a>
+              );
+            }
             return (
-              <a
+              <Link
                 key={`${title}-${href}`}
-                href={href}
-                target='_blank'
-                rel='noopener noreferrer'
+                to={href}
+                disabled={disabled}
                 className={linkClass}
               >
                 {title}
-              </a>
-            )
-          }
-          return (
-            <Link
-              key={`${title}-${href}`}
-              to={href}
-              disabled={disabled}
-              className={linkClass}
-            >
-              {title}
-            </Link>
-          )
-        })}
+              </Link>
+            );
+          },
+        )}
       </nav>
     </>
-  )
+  );
 }

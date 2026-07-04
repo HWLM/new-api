@@ -61,6 +61,7 @@ type RetryParam struct {
 	Ctx          *gin.Context
 	TokenGroup   string
 	ModelName    string
+	RequestPath  string
 	Retry        *int
 	resetNextTry bool
 }
@@ -160,7 +161,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Multi-group selecting: %s, priorityRetry: %d", currentGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(currentGroup, param.ModelName, priorityRetry)
+			channel, _ = model.GetRandomSatisfiedChannel(currentGroup, param.ModelName, priorityRetry, param.RequestPath)
 			if channel == nil {
 				logger.LogDebug(param.Ctx, "No available channel in group %s for model %s at priorityRetry %d, trying next group", currentGroup, param.ModelName, priorityRetry)
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
@@ -191,7 +192,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			queryGroup = groupList[0]
 			selectGroup = queryGroup
 		}
-		channel, err = model.GetRandomSatisfiedChannel(queryGroup, param.ModelName, param.GetRetry())
+		channel, err = model.GetRandomSatisfiedChannel(queryGroup, param.ModelName, param.GetRetry(), param.RequestPath)
 		if err != nil {
 			return nil, queryGroup, err
 		}

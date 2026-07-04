@@ -67,9 +67,9 @@ export function ChartChannelPie({
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(v: number, name: string) => [
-                      `$${v.toFixed(2)}`,
-                      name,
+                    formatter={(value, name) => [
+                      `$${Number(value ?? 0).toFixed(2)}`,
+                      String(name ?? ''),
                     ]}
                   />
                 </PieChart>
