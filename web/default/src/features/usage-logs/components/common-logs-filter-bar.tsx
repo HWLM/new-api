@@ -77,9 +77,7 @@ function isLogTypeValue(value: string): value is LogTypeValue {
 
 function getLogTypeValue(value: unknown, isAdmin: boolean): LogTypeValue {
   const candidate =
-    Array.isArray(value) &&
-    value.length === 1 &&
-    typeof value[0] === "string"
+    Array.isArray(value) && value.length === 1 && typeof value[0] === "string"
       ? value[0]
       : "";
 
