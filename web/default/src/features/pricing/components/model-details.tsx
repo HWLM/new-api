@@ -406,7 +406,7 @@ function ModelBackendQuickStats(props: { model: PricingModel }) {
         <span className="inline-flex items-center gap-1">
           <ModalityLabels items={inputModalities} />
           {inputModalities.length > 0 && outputModalities.length > 0 && (
-            <span className="text-muted-foreground/40">{'\u2192'}</span>
+            <span className="text-muted-foreground/40">{"\u2192"}</span>
           )}
           <ModalityLabels items={outputModalities} />
         </span>
@@ -638,7 +638,7 @@ function ModelHeader(props: { model: PricingModel }) {
         {model.vendor_name && (
           <span className="text-muted-foreground">{model.vendor_name}</span>
         )}
-        <span className="text-muted-foreground/30">{'\u00b7'}</span>
+        <span className="text-muted-foreground/30">{"\u00b7"}</span>
         <span className="text-muted-foreground/70">
           {model.quota_type === QUOTA_TYPE_VALUES.TOKEN
             ? t("Token-based")
@@ -646,7 +646,7 @@ function ModelHeader(props: { model: PricingModel }) {
         </span>
         {model.billing_mode === "tiered_expr" && model.billing_expr && (
           <>
-            <span className="text-muted-foreground/30">{'\u00b7'}</span>
+            <span className="text-muted-foreground/30">{"\u00b7"}</span>
             <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
               {isSpecialExpression
                 ? t("Special billing expression")
@@ -900,12 +900,12 @@ function AutoGroupChain(props: { model: PricingModel; autoGroups: string[] }) {
   return (
     <div className="text-muted-foreground mb-3 flex flex-wrap items-center gap-1 text-xs">
       <span className="font-medium">{t("Auto Group Chain")}</span>
-      <span className="text-muted-foreground/40">{'\u2192'}</span>
+      <span className="text-muted-foreground/40">{"\u2192"}</span>
       {autoChain.map((g, idx) => (
         <span key={g} className="flex items-center gap-1">
           <GroupBadge group={g} size="sm" />
           {idx < autoChain.length - 1 && (
-            <span className="text-muted-foreground/40">{'\u2192'}</span>
+            <span className="text-muted-foreground/40">{"\u2192"}</span>
           )}
         </span>
       ))}
