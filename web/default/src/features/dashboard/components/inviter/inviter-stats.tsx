@@ -97,7 +97,6 @@ function getRangeOfPreset(p: TimePreset): {
 // ============================================================================
 
 export function InviterStats() {
-  const { t } = useTranslation()
   const businessChannel = useAuthStore(
     (s) => s.auth.user?.business_channel || ''
   )

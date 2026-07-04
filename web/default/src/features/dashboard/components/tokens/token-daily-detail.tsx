@@ -212,7 +212,7 @@ export function TokenDailyDetail() {
           <Select
             items={groupItems}
             value={groupName}
-            onValueChange={setGroupName}
+            onValueChange={(value) => setGroupName(value ?? '')}
           >
             <SelectTrigger className='w-32'>
               <SelectValue placeholder={t('Please Select')} />
@@ -232,7 +232,7 @@ export function TokenDailyDetail() {
           <Select
             items={statusItems}
             value={status}
-            onValueChange={setStatus}
+            onValueChange={(value) => setStatus(value ?? '')}
           >
             <SelectTrigger className='w-32'>
               <SelectValue placeholder={t('Please Select')} />

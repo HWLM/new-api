@@ -1,22 +1,24 @@
 FROM registry.cn-guangzhou.aliyuncs.com/kestudy/bun:1 AS builder
 
-WORKDIR /build
-COPY web/default/package.json .
-COPY web/default/bun.lock .
-RUN bun install
-COPY ./web/default .
-COPY ./VERSION .
-RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run build
+WORKDIR /build/web
+COPY web/package.json web/bun.lock ./
+COPY web/default/package.json ./default/package.json
+COPY web/classic/package.json ./classic/package.json
+RUN bun install --frozen-lockfile
+COPY ./web/default ./default
+COPY ./VERSION /build/VERSION
+RUN cd default && DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
 
 FROM registry.cn-guangzhou.aliyuncs.com/kestudy/bun:1 AS builder-classic
 
-WORKDIR /build
-COPY web/classic/package.json .
-COPY web/classic/bun.lock .
-RUN bun install
-COPY ./web/classic .
-COPY ./VERSION .
-RUN VITE_REACT_APP_VERSION=$(cat VERSION) bun run build
+WORKDIR /build/web
+COPY web/package.json web/bun.lock ./
+COPY web/default/package.json ./default/package.json
+COPY web/classic/package.json ./classic/package.json
+RUN bun install --filter ./classic --frozen-lockfile
+COPY ./web/classic ./classic
+COPY ./VERSION /build/VERSION
+RUN cd classic && VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
 
 FROM registry.cn-guangzhou.aliyuncs.com/kestudy/golang:1.26.1-alpine AS builder2
 ENV GO111MODULE=on CGO_ENABLED=0

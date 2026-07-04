@@ -16,11 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useImperativeHandle, useMemo, type Ref } from 'react'
-import * as z from 'zod'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useTranslation } from 'react-i18next'
+import { useEffect, useImperativeHandle, useMemo, type Ref } from "react";
+import * as z from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useTranslation } from "react-i18next";
+
 import {
   Form,
   FormControl,
@@ -28,23 +29,24 @@ import {
   FormField,
   FormLabel,
   FormMessage,
-} from '@/components/ui/form'
-import { Switch } from '@/components/ui/switch'
+} from "@/components/ui/form";
+import { Switch } from "@/components/ui/switch";
+
 import {
   SettingsControlChildren,
   SettingsForm,
   SettingsSwitchContent,
   SettingsControlGroup,
   SettingsSwitchItem,
-} from '../components/settings-form-layout'
-import { SettingsPageFormActions } from '../components/settings-page-context'
-import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+} from "../components/settings-form-layout";
+import { SettingsPageFormActions } from "../components/settings-page-context";
+import { SettingsSection } from "../components/settings-section";
+import { useUpdateOption } from "../hooks/use-update-option";
 import {
   HEADER_NAV_DEFAULT,
   type HeaderNavModulesConfig,
   serializeHeaderNavModules,
-} from './config'
+} from "./config";
 
 const headerNavSchema = z.object({
   home: z.boolean(),
@@ -55,25 +57,25 @@ const headerNavSchema = z.object({
   rankingsRequireAuth: z.boolean(),
   docs: z.boolean(),
   about: z.boolean(),
-})
+});
 
-type HeaderNavFormValues = z.infer<typeof headerNavSchema>
+type HeaderNavFormValues = z.infer<typeof headerNavSchema>;
 
 export type SectionHandle = {
-  submit: () => Promise<void>
-  reset: () => void
-}
+  submit: () => Promise<void>;
+  reset: () => void;
+};
 
 type HeaderNavigationSectionProps = {
-  config: HeaderNavModulesConfig
-  initialSerialized: string
+  config: HeaderNavModulesConfig;
+  initialSerialized: string;
   /** When true, suppress the internal Save/Reset portal — caller renders a unified one. */
-  hideActions?: boolean
+  hideActions?: boolean;
   /** Notify parent of pending state for unified saving indicator. */
-  onPendingChange?: (pending: boolean) => void
+  onPendingChange?: (pending: boolean) => void;
   /** Imperative handle so a parent can trigger submit/reset alongside other forms. */
-  actionsRef?: Ref<SectionHandle>
-}
+  actionsRef?: Ref<SectionHandle>;
+};
 
 const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
   home:
@@ -104,7 +106,7 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.about === undefined
       ? HEADER_NAV_DEFAULT.about
       : Boolean(config.about),
-})
+});
 
 export function HeaderNavigationSection({
   config,
@@ -113,18 +115,18 @@ export function HeaderNavigationSection({
   onPendingChange,
   actionsRef,
 }: HeaderNavigationSectionProps) {
-  const { t } = useTranslation()
-  const updateOption = useUpdateOption()
-  const formDefaults = useMemo(() => toFormValues(config), [config])
+  const { t } = useTranslation();
+  const updateOption = useUpdateOption();
+  const formDefaults = useMemo(() => toFormValues(config), [config]);
 
   const form = useForm<HeaderNavFormValues>({
     resolver: zodResolver(headerNavSchema),
     defaultValues: formDefaults,
-  })
+  });
 
   useEffect(() => {
-    form.reset(formDefaults)
-  }, [formDefaults, form])
+    form.reset(formDefaults);
+  }, [formDefaults, form]);
 
   const onSubmit = async (values: HeaderNavFormValues) => {
     const payload: HeaderNavModulesConfig = {
@@ -143,26 +145,26 @@ export function HeaderNavigationSection({
         enabled: values.rankingsEnabled,
         requireAuth: values.rankingsRequireAuth,
       },
-    }
+    };
 
-    const serialized = serializeHeaderNavModules(payload)
+    const serialized = serializeHeaderNavModules(payload);
     if (serialized === initialSerialized) {
-      return
+      return;
     }
 
     await updateOption.mutateAsync({
-      key: 'HeaderNavModules',
+      key: "HeaderNavModules",
       value: serialized,
-    })
-  }
+    });
+  };
 
   const resetToDefault = () => {
-    form.reset(toFormValues(HEADER_NAV_DEFAULT))
-  }
+    form.reset(toFormValues(HEADER_NAV_DEFAULT));
+  };
 
   useEffect(() => {
-    onPendingChange?.(updateOption.isPending)
-  }, [updateOption.isPending, onPendingChange])
+    onPendingChange?.(updateOption.isPending);
+  }, [updateOption.isPending, onPendingChange]);
 
   useImperativeHandle(
     actionsRef,
@@ -172,71 +174,71 @@ export function HeaderNavigationSection({
     }),
     // form.handleSubmit + onSubmit closure capture latest values via form ref
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [form, config, initialSerialized]
-  )
+    [form, config, initialSerialized],
+  );
 
   const simpleModules: Array<{
-    key: keyof HeaderNavFormValues
-    title: string
-    description: string
+    key: keyof HeaderNavFormValues;
+    title: string;
+    description: string;
   }> = [
     {
-      key: 'home',
-      title: t('Home'),
-      description: t('Landing page with system overview.'),
+      key: "home",
+      title: t("Home"),
+      description: t("Landing page with system overview."),
     },
     {
-      key: 'console',
-      title: t('Console'),
-      description: t('User dashboard and quota controls.'),
+      key: "console",
+      title: t("Console"),
+      description: t("User dashboard and quota controls."),
     },
     {
-      key: 'docs',
-      title: t('Docs'),
-      description: t('Documentation or external knowledge base.'),
+      key: "docs",
+      title: t("Docs"),
+      description: t("Documentation or external knowledge base."),
     },
     {
-      key: 'about',
-      title: t('About'),
-      description: t('Static page describing the platform.'),
+      key: "about",
+      title: t("About"),
+      description: t("Static page describing the platform."),
     },
-  ]
+  ];
 
   const accessModules: Array<{
-    enabledKey: keyof HeaderNavFormValues
-    requireAuthKey: keyof HeaderNavFormValues
-    requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled'
-    title: string
-    description: string
-    requireAuthTitle: string
-    requireAuthDescription: string
+    enabledKey: keyof HeaderNavFormValues;
+    requireAuthKey: keyof HeaderNavFormValues;
+    requireAuthDependsOn: "pricingEnabled" | "rankingsEnabled";
+    title: string;
+    description: string;
+    requireAuthTitle: string;
+    requireAuthDescription: string;
   }> = [
     {
-      enabledKey: 'pricingEnabled',
-      requireAuthKey: 'pricingRequireAuth',
-      requireAuthDependsOn: 'pricingEnabled',
-      title: t('Model Square'),
-      description: t('Public model catalog and pricing page.'),
-      requireAuthTitle: t('Require login to view models'),
+      enabledKey: "pricingEnabled",
+      requireAuthKey: "pricingRequireAuth",
+      requireAuthDependsOn: "pricingEnabled",
+      title: t("Model Square"),
+      description: t("Public model catalog and pricing page."),
+      requireAuthTitle: t("Require login to view models"),
       requireAuthDescription: t(
-        'Visitors must authenticate before accessing the pricing directory.'
+        "Visitors must authenticate before accessing the pricing directory.",
       ),
     },
     {
-      enabledKey: 'rankingsEnabled',
-      requireAuthKey: 'rankingsRequireAuth',
-      requireAuthDependsOn: 'rankingsEnabled',
-      title: t('Rankings'),
-      description: t('Public rankings page based on live usage data.'),
-      requireAuthTitle: t('Require login to view rankings'),
+      enabledKey: "rankingsEnabled",
+      requireAuthKey: "rankingsRequireAuth",
+      requireAuthDependsOn: "rankingsEnabled",
+      title: t("Rankings"),
+      description: t("Public rankings page based on live usage data."),
+      requireAuthTitle: t("Require login to view rankings"),
       requireAuthDescription: t(
-        'Visitors must authenticate before accessing the rankings page.'
+        "Visitors must authenticate before accessing the rankings page.",
       ),
     },
-  ]
+  ];
 
   return (
-    <SettingsSection title={t('Header navigation')}>
+    <SettingsSection title={t("Header navigation")}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           {!hideActions && (
@@ -244,11 +246,11 @@ export function HeaderNavigationSection({
               onSave={form.handleSubmit(onSubmit)}
               onReset={resetToDefault}
               isSaving={updateOption.isPending}
-              resetLabel='Reset to default'
-              saveLabel='Save navigation'
+              resetLabel="Reset to default"
+              saveLabel="Save navigation"
             />
           )}
-          <div className='grid gap-4 md:grid-cols-2'>
+          <div className="grid gap-4 md:grid-cols-2">
             {simpleModules.map((module) => (
               <FormField
                 key={module.key}
@@ -273,7 +275,7 @@ export function HeaderNavigationSection({
             ))}
           </div>
 
-          <div className='grid gap-4 lg:grid-cols-2'>
+          <div className="grid gap-4 lg:grid-cols-2">
             {accessModules.map((module) => (
               <SettingsControlGroup key={module.enabledKey}>
                 <FormField
@@ -301,7 +303,7 @@ export function HeaderNavigationSection({
                   name={module.requireAuthKey}
                   render={({ field }) => (
                     <SettingsControlChildren>
-                      <SettingsSwitchItem className='border-b-0 py-2'>
+                      <SettingsSwitchItem className="py-2">
                         <SettingsSwitchContent>
                           <FormLabel>{module.requireAuthTitle}</FormLabel>
                           <FormDescription>
@@ -326,5 +328,5 @@ export function HeaderNavigationSection({
         </SettingsForm>
       </Form>
     </SettingsSection>
-  )
+  );
 }

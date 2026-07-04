@@ -27,14 +27,20 @@ import {
 // Number Formatting
 // ============================================================================
 
-export function formatNumber(value: number | null | undefined): string {
+export function formatNumber(
+  value: number | null | undefined,
+  locales?: Intl.LocalesArgument
+): string {
   if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
+  return Intl.NumberFormat(locales, { maximumFractionDigits: 2 }).format(
     value as number
   )
 }
 
-export function formatCompactNumber(value: number | null | undefined): string {
+export function formatCompactNumber(
+  value: number | null | undefined,
+  _locales?: Intl.LocalesArgument
+): string {
   if (value == null || Number.isNaN(value as number)) return '-'
   // 固定 en-US locale 输出 K/M/B/T，避免浏览器中文环境下渲染为「亿/万」。
   return Intl.NumberFormat('en-US', {
@@ -138,6 +144,40 @@ export function formatTimestampToDate(
   }
   const ms = unit === 'seconds' ? timestamp * 1000 : timestamp
   return dayjs(ms).format('YYYY-MM-DD HH:mm:ss')
+}
+
+export function formatTimestampRelative(
+  timestamp?: number,
+  unit: 'seconds' | 'milliseconds' = 'seconds',
+  locales?: Intl.LocalesArgument
+): string {
+  if (!timestamp || timestamp === -1 || timestamp === 0) {
+    return '-'
+  }
+
+  const ms = unit === 'seconds' ? timestamp * 1000 : timestamp
+  const diffSeconds = Math.round((ms - Date.now()) / 1000)
+  const absSeconds = Math.abs(diffSeconds)
+  const formatter = new Intl.RelativeTimeFormat(locales, {
+    numeric: 'always',
+  })
+
+  if (absSeconds < 60) {
+    return formatter.format(diffSeconds, 'second')
+  }
+  if (absSeconds < 3600) {
+    return formatter.format(Math.round(diffSeconds / 60), 'minute')
+  }
+  if (absSeconds < 86400) {
+    return formatter.format(Math.round(diffSeconds / 3600), 'hour')
+  }
+  if (absSeconds < 2592000) {
+    return formatter.format(Math.round(diffSeconds / 86400), 'day')
+  }
+  if (absSeconds < 31536000) {
+    return formatter.format(Math.round(diffSeconds / 2592000), 'month')
+  }
+  return formatter.format(Math.round(diffSeconds / 31536000), 'year')
 }
 
 /** Format a Date object to YYYY-MM-DD HH:mm:ss */

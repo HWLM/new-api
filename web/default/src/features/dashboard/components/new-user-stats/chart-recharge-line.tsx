@@ -56,7 +56,7 @@ export function ChartRechargeLine({
               <YAxis tick={{ fontSize: 12 }} />
               <Tooltip
                 labelFormatter={(_, entries) => entries?.[0]?.payload?.date ?? ''}
-                formatter={(v: number) => [`¥${v.toFixed(2)}`, t('Recharge')]}
+                formatter={(value) => [`¥${Number(value ?? 0).toFixed(2)}`, t('Recharge')]}
               />
               <Line
                 type='monotone'
