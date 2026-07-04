@@ -16,68 +16,56 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import i18next from 'i18next'
-import { toast } from 'sonner'
-import { useSystemConfigStore } from '@/stores/system-config-store'
-import { getStatus } from '@/lib/api'
-import { mapStatusDataToConfig } from '@/hooks/use-system-config'
-import { updateSystemOption } from '../api'
-import type { UpdateOptionRequest } from '../types'
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import i18next from "i18next";
+import { toast } from "sonner";
+
+import { updateSystemOption } from "../api";
+import type { UpdateOptionRequest } from "../types";
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = [
-  'theme.frontend',
-  'HeaderNavModules',
-  'SidebarModulesAdmin',
-  'SidebarCustomMenuPages',
-  'Notice',
-  'MetaDescription',
-  'AnalyticsScript',
-  'LogConsumeEnabled',
-  'QuotaPerUnit',
-  'USDExchangeRate',
-  'DisplayInCurrencyEnabled',
-  'DisplayTokenStatEnabled',
-  'general_setting.quota_display_type',
-  'general_setting.custom_currency_symbol',
-  'general_setting.custom_currency_exchange_rate',
-]
+  "theme.frontend",
+  "HeaderNavModules",
+  "SidebarModulesAdmin",
+  "Notice",
+  "LogConsumeEnabled",
+  "QuotaPerUnit",
+  "USDExchangeRate",
+  "DisplayInCurrencyEnabled",
+  "DisplayTokenStatEnabled",
+  "general_setting.quota_display_type",
+  "general_setting.custom_currency_symbol",
+  "general_setting.custom_currency_exchange_rate",
+];
 
 export function useUpdateOption() {
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (request: UpdateOptionRequest) => updateSystemOption(request),
-    onSuccess: async (data, variables) => {
+    onSuccess: (data, variables) => {
       if (data.success) {
         // Always refresh system-options
-        queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        queryClient.invalidateQueries({ queryKey: ["system-options"] });
 
         // If updating frontend-display-related config, also refresh status
         if (STATUS_RELATED_KEYS.includes(variables.key)) {
-          queryClient.invalidateQueries({ queryKey: ['status'] })
+          queryClient.invalidateQueries({ queryKey: ["status"] });
           try {
-            const status = await getStatus()
-            const { setConfig } = useSystemConfigStore.getState()
-            setConfig(mapStatusDataToConfig(status))
-            window.localStorage.setItem('status', JSON.stringify(status))
+            window.localStorage.removeItem("status");
           } catch {
-            try {
-              window.localStorage.removeItem('status')
-            } catch {
-              /* empty */
-            }
+            /* empty */
           }
         }
 
-        toast.success(i18next.t('Setting updated successfully'))
+        toast.success(i18next.t("Setting updated successfully"));
       } else {
-        toast.error(data.message || i18next.t('Failed to update setting'))
+        toast.error(data.message || i18next.t("Failed to update setting"));
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || i18next.t('Failed to update setting'))
+      toast.error(error.message || i18next.t("Failed to update setting"));
     },
-  })
+  });
 }

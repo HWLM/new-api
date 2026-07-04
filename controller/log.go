@@ -37,6 +37,15 @@ func GetUserLogs(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	userId := c.GetInt("id")
 	logType, _ := strconv.Atoi(c.Query("type"))
+	isAdmin := c.GetInt("role") >= common.RoleAdminUser
+	// 管理类日志（type=3）属于管理员审计数据，仅管理员可通过 self 接口查看；
+	// 普通用户即使在 URL 上手动拼接 type=3，也直接返回空结果，避免泄露管理员操作记录。
+	if logType == model.LogTypeManage && !isAdmin {
+		pageInfo.SetTotal(0)
+		pageInfo.SetItems([]*model.Log{})
+		common.ApiSuccess(c, pageInfo)
+		return
+	}
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	tokenName := c.Query("token_name")
@@ -44,7 +53,7 @@ func GetUserLogs(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId)
+	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId, !isAdmin)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -127,6 +136,21 @@ func GetLogsStat(c *gin.Context) {
 func GetLogsSelfStat(c *gin.Context) {
 	username := c.GetString("username")
 	logType, _ := strconv.Atoi(c.Query("type"))
+	// 与 GetUserLogs 保持一致：管理类日志统计仅向管理员开放。
+	if logType == model.LogTypeManage && c.GetInt("role") < common.RoleAdminUser {
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "",
+			"data": gin.H{
+				"quota":      0,
+				"sub_quota":  0,
+				"sub_tokens": 0,
+				"rpm":        0,
+				"tpm":        0,
+			},
+		})
+		return
+	}
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	tokenName := c.Query("token_name")
@@ -154,6 +178,10 @@ func GetLogsSelfStat(c *gin.Context) {
 	return
 }
 
+// DeleteHistoryLogs is the legacy synchronous log cleanup endpoint (DELETE /api/log/).
+// It deletes directly instead of going through the async system task. It is kept only
+// for the classic frontend; the default frontend uses POST /api/system-task/log-cleanup.
+// TODO: remove this handler (and its route) once the classic frontend is removed.
 func DeleteHistoryLogs(c *gin.Context) {
 	targetTimestamp, _ := strconv.ParseInt(c.Query("target_timestamp"), 10, 64)
 	if targetTimestamp == 0 {

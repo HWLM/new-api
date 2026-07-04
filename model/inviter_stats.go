@@ -28,10 +28,10 @@ import (
 // ----------------------------------------------------------------------------
 
 type InviterStatCards struct {
-	InvitedCount       int   `json:"invited_count"`        // 已邀请人数（不受时间影响）
-	TotalConsumed      int64 `json:"total_consumed"`       // 累计消耗金额（SUM(users.used_quota)，不查 logs）
-	TodayActiveUsers   int   `json:"today_active_users"`   // 今日使用用户数（今天 logs 出现的去重 user 数）
-	TodayConsumed      int64 `json:"today_consumed"`       // 今日消耗金额 (SUM(quota) from logs today)
+	InvitedCount     int   `json:"invited_count"`      // 已邀请人数（不受时间影响）
+	TotalConsumed    int64 `json:"total_consumed"`     // 累计消耗金额（SUM(users.used_quota)，不查 logs）
+	TodayActiveUsers int   `json:"today_active_users"` // 今日使用用户数（今天 logs 出现的去重 user 数）
+	TodayConsumed    int64 `json:"today_consumed"`     // 今日消耗金额 (SUM(quota) from logs today)
 }
 
 // GetInviterStatCards 顶部 4 卡片：根据 me 邀请的所有用户，分别计算固定语义指标
@@ -95,9 +95,9 @@ type InviterChartUserSpend struct {
 
 // InviterChartDayPoint 时间趋势单点（按天）
 type InviterChartDayPoint struct {
-	Date     string `json:"date"`      // YYYY-MM-DD
-	Quota    int64  `json:"quota"`     // 消耗趋势
-	Requests int64  `json:"requests"`  // 请求次数
+	Date     string `json:"date"`     // YYYY-MM-DD
+	Quota    int64  `json:"quota"`    // 消耗趋势
+	Requests int64  `json:"requests"` // 请求次数
 }
 
 type InviterCharts struct {
@@ -222,14 +222,15 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 // ----------------------------------------------------------------------------
 
 type InviterSummaryRow struct {
-	UserId           int    `json:"user_id"`
-	Username         string `json:"username"`
-	CreatedAt        int64  `json:"created_at"`
-	LastConsumedAt   int64  `json:"last_consumed_at"`   // 0 表示从未消费
-	TotalRequests    int64  `json:"total_requests"`     // 累计请求次数
-	TotalConsumed    int64  `json:"total_consumed"`     // 累计 quota
-	TotalTokens      int64  `json:"total_tokens"`
-	CurrentRemaining int64  `json:"current_remaining"`
+	UserId           int     `json:"user_id"`
+	Username         string  `json:"username"`
+	CreatedAt        int64   `json:"created_at"`
+	LastConsumedAt   int64   `json:"last_consumed_at"` // 0 表示从未消费
+	TotalRequests    int64   `json:"total_requests"`   // 累计请求次数
+	TotalConsumed    int64   `json:"total_consumed"`   // 累计 quota
+	TotalTokens      int64   `json:"total_tokens"`
+	TotalRechargeCny float64 `json:"total_recharge_cny"` // 累计充值金额（人民币 ¥），仅 operation_type=额度 + quota_type=充值
+	CurrentRemaining int64   `json:"current_remaining"`
 }
 
 type InviterSummaryFilter struct {
@@ -299,6 +300,27 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 		aggBy[a.UserId] = a
 	}
 
+	// 充值聚合：与消耗对称的一次查询；口径 = 管理员"调整额度-充值"录入金额。
+	type rechargeAgg struct {
+		UserId        int
+		TotalRecharge float64
+	}
+	var rechargeAggs []rechargeAgg
+	if err := LOG_DB.Model(&Log{}).
+		Where("type = ?", LogTypeManage).
+		Where("operation_type = ?", OperationTypeQuota).
+		Where("quota_type = ?", QuotaTypeRecharge).
+		Where("user_id IN ?", ids).
+		Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+		Group("user_id").
+		Scan(&rechargeAggs).Error; err != nil {
+		return nil, err
+	}
+	rechargeBy := make(map[int]float64, len(rechargeAggs))
+	for _, r := range rechargeAggs {
+		rechargeBy[r.UserId] = r.TotalRecharge
+	}
+
 	rows := make([]InviterSummaryRow, 0, len(users))
 	for _, u := range users {
 		a := aggBy[u.Id]
@@ -322,6 +344,7 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 			TotalRequests:    a.RequestCount,
 			TotalConsumed:    a.TotalQuota,
 			TotalTokens:      a.TotalTokens,
+			TotalRechargeCny: rechargeBy[u.Id],
 			CurrentRemaining: u.Quota,
 		})
 	}
@@ -336,11 +359,12 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 // ----------------------------------------------------------------------------
 
 type InviterDailyRow struct {
-	Date          string `json:"date"`           // YYYY-MM-DD
-	Username      string `json:"username"`
-	TotalRequests int64  `json:"total_requests"` // 当天该用户的请求次数
-	TotalConsumed int64  `json:"total_consumed"` // 当天 quota
-	TotalTokens   int64  `json:"total_tokens"`
+	Date             string  `json:"date"` // YYYY-MM-DD
+	Username         string  `json:"username"`
+	TotalRequests    int64   `json:"total_requests"` // 当天该用户的请求次数
+	TotalConsumed    int64   `json:"total_consumed"` // 当天 quota
+	TotalTokens      int64   `json:"total_tokens"`
+	TotalRechargeCny float64 `json:"total_recharge_cny"` // 当天充值金额（人民币 ¥），仅 operation_type=额度 + quota_type=充值
 }
 
 type InviterDailyFilter struct {
@@ -420,6 +444,45 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 		row.TotalConsumed += r.Quota
 		row.TotalTokens += r.Tokens
 	}
+
+	// 充值原始行：与消耗对称的一次查询，按 (day, user) 合到同一桶。
+	// 仅有充值无消耗的 (day, user) 也会出现一行（消耗列为 0）。
+	type rawRecharge struct {
+		UserId    int
+		CreatedAt int64
+		Amount    float64
+	}
+	var rawRech []rawRecharge
+	tx3 := LOG_DB.Model(&Log{}).
+		Where("type = ?", LogTypeManage).
+		Where("operation_type = ?", OperationTypeQuota).
+		Where("quota_type = ?", QuotaTypeRecharge).
+		Where("user_id IN ?", ids)
+	if f.StartTs > 0 {
+		tx3 = tx3.Where("created_at >= ?", f.StartTs)
+	}
+	if f.EndTs > 0 {
+		tx3 = tx3.Where("created_at <= ?", f.EndTs)
+	}
+	if err := tx3.
+		Select("user_id, created_at, COALESCE(recharge_input_amount, 0) AS amount").
+		Scan(&rawRech).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rawRech {
+		date := time.Unix(r.CreatedAt, 0).In(loc).Format("2006-01-02")
+		key := bucketKey{Date: date, UserId: r.UserId}
+		row, ok := bucket[key]
+		if !ok {
+			row = &InviterDailyRow{
+				Date:     date,
+				Username: usernameById[r.UserId],
+			}
+			bucket[key] = row
+		}
+		row.TotalRechargeCny += r.Amount
+	}
+
 	rows := make([]InviterDailyRow, 0, len(bucket))
 	for _, r := range bucket {
 		rows = append(rows, *r)

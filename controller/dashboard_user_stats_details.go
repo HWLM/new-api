@@ -533,6 +533,8 @@ type detailsDailyRow struct {
 	DailyTokens        int64   `json:"daily_tokens"`
 	// 当日统计专用：用户实时余额（与查询日期无关）；daily 接口不填该字段，omitempty 不输出
 	RemainingUsd *float64 `json:"remaining_usd,omitempty"`
+	// 当日统计专用：当天管理员"调整额度-充值"录入的金额（人民币 ¥）；daily 接口不填，omitempty 不输出
+	DailyRechargeCny *float64 `json:"daily_recharge_cny,omitempty"`
 }
 
 type detailsDailyResp struct {
@@ -1150,6 +1152,51 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 	}
 	// f.date > todayStr（未来日）：aggMap 留空，全部展示 0
 
+	// 3b. 当日充值聚合：混合模式 —— 历史日读 vip_daily_consumptions.recharge_amount；
+	//     今天实时查 logs（type=3 + operation_type=额度 + quota_type=充值，SUM(recharge_input_amount)）。
+	//     单位：人民币 ¥。未来日：留空，全部 0。
+	rechargeMap := map[int]float64{}
+	if f.date < todayStr {
+		type row struct {
+			UserId         int
+			RechargeAmount float64
+		}
+		var rows []row
+		if err := model.DB.Model(&model.VipDailyConsumption{}).
+			Where("stat_date = ?", f.date).
+			Where("user_id IN ?", candidateIds).
+			Select("user_id, recharge_amount").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			rechargeMap[r.UserId] = r.RechargeAmount
+		}
+	} else if f.date == todayStr {
+		loc := now.Location()
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
+		todayEnd := now.Unix()
+		type row struct {
+			UserId        int
+			TotalRecharge float64
+		}
+		var rows []row
+		if err := model.LOG_DB.Model(&model.Log{}).
+			Where("type = ?", model.LogTypeManage).
+			Where("operation_type = ?", model.OperationTypeQuota).
+			Where("quota_type = ?", model.QuotaTypeRecharge).
+			Where("user_id IN ?", candidateIds).
+			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+			Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			rechargeMap[r.UserId] = r.TotalRecharge
+		}
+	}
+
 	// 4. 反查邀请人 display_name + business_channel
 	inviterDisplayMap := map[int]string{}
 	inviterChannelMap := map[int]string{}
@@ -1210,6 +1257,7 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 		a := aggMap[u.Id]
 		_, isOfficial := officialSet[u.Id]
 		remaining := quotaToUSD(u.Quota)
+		recharge := rechargeMap[u.Id]
 		rows = append(rows, detailsDailyRow{
 			Date:               f.date,
 			UserId:             u.Id,
@@ -1224,6 +1272,7 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 			DailyConsumedUsd:   quotaToUSD(a.Quota),
 			DailyTokens:        a.Tokens,
 			RemainingUsd:       &remaining,
+			DailyRechargeCny:   &recharge,
 		})
 	}
 	return rows, nil

@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
+import {
+  type AdminPermissionMatrix,
+  type PermissionCatalog,
+  normalizeAdminPermissions,
+} from '@/lib/admin-permissions'
 import { quotaUnitsToDollars } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
 import { DEFAULT_GROUP } from '../constants'
 import { type UserFormData, type User } from '../types'
 
@@ -34,6 +40,9 @@ export const userFormSchema = z.object({
   group: z.string().optional(),
   remark: z.string().optional(),
   inviter_username: z.string().optional(),
+  admin_permissions: z
+    .record(z.string(), z.record(z.string(), z.boolean()))
+    .optional(),
 })
 
 export type UserFormValues = z.infer<typeof userFormSchema>
@@ -51,6 +60,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   group: DEFAULT_GROUP,
   remark: '',
   inviter_username: '',
+  admin_permissions: {},
 }
 
 // ============================================================================
@@ -62,7 +72,8 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
  */
 export function transformFormDataToPayload(
   data: UserFormValues,
-  userId?: number
+  userId?: number,
+  catalog?: PermissionCatalog
 ): UserFormData & { id?: number } {
   // 邀请人字段 trim 一下；保留空串(明确表示"清除")也要传给后端
   const inviterUsername = (data.inviter_username ?? '').trim()
@@ -72,10 +83,18 @@ export function transformFormDataToPayload(
     password: data.password || undefined,
     inviter_username: inviterUsername,
   }
+  const role = userId === undefined ? data.role || 1 : (data.role ?? 0)
+
+  if (role >= ROLE.ADMIN && catalog) {
+    payload.admin_permissions = normalizeAdminPermissions(
+      data.admin_permissions as AdminPermissionMatrix | undefined,
+      catalog
+    )
+  }
 
   // For create: only send required fields
   if (userId === undefined) {
-    payload.role = data.role || 1 // Default to common user
+    payload.role = role
   } else {
     // For update: quota is adjusted atomically via /api/user/manage, not sent here
     payload.group = data.group
@@ -99,5 +118,6 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     group: user.group || DEFAULT_GROUP,
     remark: user.remark || '',
     inviter_username: user.inviter_username || '',
+    admin_permissions: user.admin_permissions ?? {},
   }
 }

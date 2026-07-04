@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -24,6 +27,7 @@ import (
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting"
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -102,6 +106,9 @@ func main() {
 	// 热更新配置
 	go model.SyncOptions(common.SyncFrequency)
 
+	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
+	go authz.StartPolicySync(common.SyncFrequency)
+
 	// 数据看板
 	go model.UpdateQuotaData()
 
@@ -112,9 +119,10 @@ func main() {
 		}
 		go controller.AutomaticallyUpdateChannels(frequency)
 	}
-
-	go controller.AutomaticallyTestChannels()
-
+	
+	// Wire task polling adaptor factory (breaks service -> relay import cycle).
+	// Must run before the system task runner starts: the async_task_poll handler
+	// calls service.RunTaskPollingOnce, which needs this factory set.
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()
 
@@ -150,7 +158,42 @@ func main() {
 	// 4. 告警评估器(每 60s 跑一次,仅 master 节点)
 	service.StartRequestAlertEvaluator(context.Background())
 
-	// Wire task polling adaptor factory (breaks service -> relay import cycle)
+	// Token exhausting snapshot task: refresh token_exhausting_snapshot every 5 min
+	service.StartTokenExhaustingSnapshotTask()
+
+	// VIP customer daily TG report task (每天本地 8 点向配置的 TG 群推送)
+	service.StartTgNotificationTask()
+
+	// VIP customer daily consumption stat task (每天本地 2 点统计昨天消耗写入 vip_daily_consumption)
+	service.StartVipDailyStatTask()
+
+	// VIP customer hourly consumption stat task (每小时 :05 统计上一小时消耗写入 vip_hourly_consumption)
+	service.StartVipHourlyStatTask()
+
+	// VIP customer low balance alert (每小时检查，余额 < $100 的客户列表非空就发 TG)
+	service.StartVipLowBalanceTask()
+
+	// ==============================
+	// 请求-响应统计分析模块启动
+	// ==============================
+	// 1. 从 options 表加载 metrics.* 阈值/关键词/TTL 到内存
+	for _, key := range setting.MetricsOptionKeys() {
+		setting.ApplyMetricsOption(key, model.GetOptionString(key))
+	}
+	// 2. 异步埋点 writer worker
+	service.StartRequestMetricsWriter(context.Background())
+	// 3. TTL 定期清理(默认每 6 小时跑一次,删除 N 天前明细)
+	service.StartRequestMetricsCleanup(context.Background())
+	// 4. 告警评估器(每 60s 跑一次,仅 master 节点)
+	service.StartRequestAlertEvaluator(context.Background())
+
+	// Report this process as a system instance so the System Info page can show
+	// all currently alive nodes in multi-instance deployments.
+	service.StartSystemInstanceReporter()
+
+	// Wire task polling adaptor factory (breaks service -> relay import cycle).
+	// Must run before the system task runner starts: the async_task_poll handler
+	// calls service.RunTaskPollingOnce, which needs this factory set.
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
 		a := relay.GetTaskAdaptor(platform)
 		if a == nil {
@@ -159,17 +202,14 @@ func main() {
 		return a
 	}
 
-	// Channel upstream model update check task
-	controller.StartChannelUpstreamModelUpdateTask()
+	// Register the periodic channel test, upstream model update, and async task
+	// polling (Midjourney / Suno / video) jobs as scheduled system tasks
+	// (DB-lease dedup across masters + run history), then start the runner that
+	// schedules and executes them. Master-only execution and the UpdateTask
+	// switch are enforced inside the runner and each handler's Enabled().
+	controller.RegisterScheduledSystemTasks()
+	service.StartSystemTaskRunner()
 
-	if common.IsMasterNode && constant.UpdateTask {
-		gopool.Go(func() {
-			controller.UpdateMidjourneyTaskBulk()
-		})
-		gopool.Go(func() {
-			controller.UpdateTaskBulk()
-		})
-	}
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
@@ -232,13 +272,36 @@ func main() {
 		port = strconv.Itoa(*common.Port)
 	}
 
-	// Log startup success message
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: server,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			common.FatalLog("failed to start HTTP server: " + err.Error())
+		}
+	}()
+
 	common.LogStartupSuccess(startTime, port)
 
-	err = server.Run(":" + port)
-	if err != nil {
-		common.FatalLog("failed to start HTTP server: " + err.Error())
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
+	common.SysLog(fmt.Sprintf("received signal: %v, shutting down...", sig))
+
+	// SSE streams may run for minutes; give them time to finish before forced exit
+	shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
 	}
+	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
+	if common.DataExportEnabled {
+		model.SaveQuotaDataCache()
+	}
+	common.SysLog("server exited")
 }
 
 func InjectUmamiAnalytics() {
@@ -312,6 +375,10 @@ func InitResources() error {
 	err = model.InitDB()
 	if err != nil {
 		common.FatalLog("failed to initialize database: " + err.Error())
+		return err
+	}
+	if err = authz.Init(model.DB); err != nil {
+		common.FatalLog("failed to initialize authorization: " + err.Error())
 		return err
 	}
 

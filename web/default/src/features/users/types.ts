@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import type { AdminPermissionMatrix } from '@/lib/admin-permissions'
+
 // ============================================================================
 // User Schema & Types
 // ============================================================================
@@ -62,6 +64,9 @@ export const userSchema = z.object({
   business_channel: z.string().optional(),
   /** 仅 GET /api/user/:id 返回：用户所在分组对应的充值比例，调整额度弹窗回显使用 */
   topup_group_ratio: z.number().optional(),
+  admin_permissions: z
+    .record(z.string(), z.record(z.string(), z.boolean()))
+    .optional(),
 })
 export type User = z.infer<typeof userSchema>
 
@@ -119,6 +124,7 @@ export interface UserFormData {
   remark?: string // Only used when updating user
   /** 邀请人用户名；空串表示清除邀请人。后端反查 → inviter_id */
   inviter_username?: string
+  admin_permissions?: AdminPermissionMatrix
 }
 
 export type ManageUserAction =
