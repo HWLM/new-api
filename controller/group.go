@@ -28,13 +28,30 @@ func GetUserGroups(c *gin.Context) {
 	userGroup := ""
 	userId := c.GetInt("id")
 	userGroup, _ = model.GetUserGroup(userId, false)
-	userUsableGroups := service.GetUserUsableGroupsForDisplay(userGroup)
+	var userUsableGroups map[string]string
+	if setting.DisplayUserSelfGroup {
+		userUsableGroups = service.GetUserUsableGroups(userGroup)
+	} else {
+		userUsableGroups = service.GetUserUsableGroupsForDisplay(userGroup)
+	}
 	for groupName, _ := range ratio_setting.GetGroupRatioCopy() {
 		// UserUsableGroups contains the groups that the user can use
 		if desc, ok := userUsableGroups[groupName]; ok {
 			usableGroups[groupName] = map[string]interface{}{
 				"ratio": service.GetUserGroupRatio(userGroup, groupName),
 				"desc":  desc,
+			}
+		}
+	}
+	// When DisplayUserSelfGroup is on, still surface the user's own group even if
+	// GroupRatio has no explicit entry for it (falls back to the default ratio).
+	if setting.DisplayUserSelfGroup && userGroup != "" {
+		if _, ok := usableGroups[userGroup]; !ok {
+			if desc, present := userUsableGroups[userGroup]; present {
+				usableGroups[userGroup] = map[string]interface{}{
+					"ratio": service.GetUserGroupRatio(userGroup, userGroup),
+					"desc":  desc,
+				}
 			}
 		}
 	}

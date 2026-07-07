@@ -68,6 +68,7 @@ type GroupFormValues = {
   GroupGroupRatio: string
   AutoGroups: string
   DefaultUseAutoGroup: boolean
+  DisplayUserSelfGroup: boolean
   GroupSpecialUsableGroup: string
 }
 
@@ -165,6 +166,31 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                     <FormDescription>
                       {t(
                         'When enabled, newly created tokens start in the first auto group.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='DisplayUserSelfGroup'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>
+                      {t("Include user's own group in selector")}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        "When enabled, the user's assigned group is exposed in the token creation dropdown even when it is not explicitly listed in selectable groups."
                       )}
                     </FormDescription>
                   </SettingsSwitchContent>
@@ -307,6 +333,31 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                     <FormDescription>
                       {t(
                         'When enabled, newly created tokens start in the first auto group.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='DisplayUserSelfGroup'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>
+                      {t("Include user's own group in selector")}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        "When enabled, the user's assigned group is exposed in the token creation dropdown even when it is not explicitly listed in selectable groups."
                       )}
                     </FormDescription>
                   </SettingsSwitchContent>

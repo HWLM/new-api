@@ -13,6 +13,10 @@ var userUsableGroups = map[string]string{
 }
 var userUsableGroupsMutex sync.RWMutex
 
+// DisplayUserSelfGroup 控制 /api/user/self/groups 是否把用户自身所属分组返回给前端展示。
+// 默认关闭以保持既有行为：仅返回管理员显式配置为可用的分组。
+var DisplayUserSelfGroup = false
+
 func GetUserUsableGroupsCopy() map[string]string {
 	userUsableGroupsMutex.RLock()
 	defer userUsableGroupsMutex.RUnlock()
