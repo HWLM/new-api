@@ -13,7 +13,6 @@
   "Generate a Codex OAuth credential and paste it into the channel key field.": "Generate a Codex OAuth credential and paste it into the channel key field.",
   "No custom menus yet. Click \"Add menu item\" to create one.": "No custom menus yet. Click \"Add menu item\" to create one.",
   "Password expired, please re-enter": "Password expired, please re-enter",
-  "Password must be between 8 and 20 characters": "Password must be between 8 and 20 characters",
   "Paste the full callback URL (includes code & state)": "Paste the full callback URL (includes code & state)",
   "Please enter": "Please enter",
   "Please enter password": "Please enter password",

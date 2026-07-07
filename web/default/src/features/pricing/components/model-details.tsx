@@ -986,12 +986,6 @@ function GroupPricingSection(props: {
     }
     return types;
   }, [props.model, t]);
-  const primaryPriceTypes = useMemo(() => {}, [
-    isTokenBased,
-    props.model,
-    props.tokenUnit,
-    t,
-  ]);
   if (availableGroups.length === 0) {
     return (
       <section>
