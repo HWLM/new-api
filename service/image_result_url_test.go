@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -78,10 +79,28 @@ func TestImageResultUploadSourceSkipsRemoteURL(t *testing.T) {
 }
 
 func TestBuildImageResultObjectKeyUsesPrefixAndDateFolder(t *testing.T) {
-	key := buildImageResultObjectKeyWithTime("generated-images", "image/png", time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC))
+	key := buildImageResultObjectKeyWithTime("ai-images", "image/png", time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC))
 
-	assert.True(t, strings.HasPrefix(key, "generated-images/2026-07-09/"))
+	assert.True(t, strings.HasPrefix(key, "ai-images/2026-07-09/"))
 	assert.True(t, strings.HasSuffix(key, ".png"))
+}
+
+func TestImageResultContentTypeUsesRequestOutputFormat(t *testing.T) {
+	request := &dto.ImageRequest{
+		OutputFormat: json.RawMessage(`"webp"`),
+	}
+
+	assert.Equal(t, "image/webp", imageResultContentTypeForRequest(request, "image/png"))
+}
+
+func TestImageResultContentTypeUsesRequestFormatExtra(t *testing.T) {
+	request := &dto.ImageRequest{
+		Extra: map[string]json.RawMessage{
+			"format": json.RawMessage(`"jpeg"`),
+		},
+	}
+
+	assert.Equal(t, "image/jpeg", imageResultContentTypeForRequest(request, "image/png"))
 }
 
 func setImageResultObjectStoreEnabledForTest(value string) func() {

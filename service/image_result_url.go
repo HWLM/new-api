@@ -17,7 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const imageResultDefaultPrefix = "generated-images"
+const imageResultDefaultPrefix = "ai-images"
 const imageResultSupportedModel = "gpt-image-2"
 
 type imageResultObjectStoreConfig struct {
@@ -80,14 +80,20 @@ func EnsureImageResponseURLs(c *gin.Context, response *dto.ImageResponse, reques
 
 	changed := false
 	for i := range response.Data {
-		_, imageData, ok, _ := imageResultUploadSource(response.Data[i])
+		sourceField, imageData, ok, _ := imageResultUploadSource(response.Data[i])
 		if !ok {
 			continue
 		}
+		preview := imageData
+		if len(preview) > 256 {
+			preview = preview[:256] + "..."
+		}
+		logger.LogWarn(c, fmt.Sprintf("image result upload source before aws: source=%s data_len=%d data_preview=%q", sourceField, len(imageData), preview))
 		imageBytes, contentType, err := decodeImageResultBase64(imageData)
 		if err != nil {
 			return changed, err
 		}
+		contentType = imageResultContentTypeForRequest(request, contentType)
 		key := buildImageResultObjectKey(prefix, contentType)
 		ctx := context.Background()
 		if c != nil && c.Request != nil {
@@ -143,6 +149,53 @@ func isImageResultObjectStoreEnabled() bool {
 func isImageResultSupportedModel(model string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	return normalized == imageResultSupportedModel || strings.HasPrefix(normalized, imageResultSupportedModel+"-")
+}
+
+func imageResultContentTypeForRequest(request *dto.ImageRequest, fallback string) string {
+	format := imageResultOutputFormat(request)
+	switch format {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	case "webp":
+		return "image/webp"
+	case "gif":
+		return "image/gif"
+	default:
+		if strings.TrimSpace(fallback) == "" {
+			return "image/png"
+		}
+		return fallback
+	}
+}
+
+func imageResultOutputFormat(request *dto.ImageRequest) string {
+	if request == nil {
+		return ""
+	}
+	if format := imageResultFormatFromRaw(request.OutputFormat); format != "" {
+		return format
+	}
+	for _, key := range []string{"format", "output_format"} {
+		if raw, ok := request.Extra[key]; ok {
+			if format := imageResultFormatFromRaw(raw); format != "" {
+				return format
+			}
+		}
+	}
+	return ""
+}
+
+func imageResultFormatFromRaw(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var format string
+	if err := common.Unmarshal(raw, &format); err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(format))
 }
 
 func getImageResultUploader() (objectstore.Uploader, string, error) {

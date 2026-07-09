@@ -428,6 +428,9 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
 	switch info.RelayMode {
+	case relayconstant.RelayModeImagesGenerations:
+		request.ResponseFormat = ""
+		return request, nil
 	case relayconstant.RelayModeImagesEdits:
 		if isJSONRequest(c) {
 			return request, nil
