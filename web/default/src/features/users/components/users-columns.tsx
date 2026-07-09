@@ -16,9 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Star } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { BadgeCell, DataTableColumnHeader } from "@/components/data-table";
 import { GroupBadge } from "@/components/group-badge";
@@ -27,6 +29,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { TableId } from "@/components/table-id";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -41,18 +44,54 @@ import {
   USER_ROLES,
   isUserDeleted,
 } from "../constants";
+import { updateUser } from "../api";
 import type { User } from "../types";
 import { DataTableRowActions } from "./data-table-row-actions";
+import { useUsers } from "./users-provider";
 
 function getQuotaProgressColor(percentage: number): string {
-  if (percentage <= 10) return "[&_[data-slot=progress-indicator]]:bg-rose-500";
-  if (percentage <= 30)
+  if (percentage <= 10) {
+    return "[&_[data-slot=progress-indicator]]:bg-rose-500";
+  }
+  if (percentage <= 30) {
     return "[&_[data-slot=progress-indicator]]:bg-amber-500";
+  }
   return "[&_[data-slot=progress-indicator]]:bg-emerald-500";
 }
 
 export function useUsersColumns(): ColumnDef<User>[] {
   const { t } = useTranslation();
+  const { triggerRefresh } = useUsers();
+  const [topupUpdating, setTopupUpdating] = useState<Record<number, boolean>>(
+    {}
+  );
+
+  const handleOnlineTopupChange = async (user: User, checked: boolean) => {
+    setTopupUpdating((prev) => ({ ...prev, [user.id]: true }));
+    try {
+      const result = await updateUser({
+        id: user.id,
+        username: user.username,
+        display_name: user.display_name || user.username,
+        group: user.group,
+        remark: user.remark || "",
+        inviter_username: user.inviter_username || "",
+        allow_online_topup: checked,
+      });
+
+      if (result.success) {
+        toast.success(t("User updated successfully"));
+        triggerRefresh();
+      } else {
+        toast.error(result.message || t("Failed to update user"));
+      }
+    } catch {
+      toast.error(t("An unexpected error occurred"));
+    } finally {
+      setTopupUpdating((prev) => ({ ...prev, [user.id]: false }));
+    }
+  };
+
   return [
     {
       id: "select",
@@ -160,6 +199,31 @@ export function useUsersColumns(): ColumnDef<User>[] {
       },
       enableSorting: false,
       meta: { label: t("Business Channel") },
+    },
+    {
+      accessorKey: "allow_online_topup",
+      header: t("Allow online top-up"),
+      cell: ({ row }) => {
+        const user = row.original;
+        return (
+          <Switch
+            size="sm"
+            checked={user.allow_online_topup === true}
+            disabled={topupUpdating[user.id] === true || isUserDeleted(user)}
+            onCheckedChange={(checked) =>
+              handleOnlineTopupChange(user, checked)
+            }
+            aria-label={t("Allow online top-up")}
+          />
+        );
+      },
+      filterFn: (row, id, value: string[]) => {
+        const v = String(row.getValue(id));
+        return value.includes(v);
+      },
+      enableSorting: false,
+      size: 130,
+      meta: { mobileHidden: true },
     },
     {
       accessorKey: "status",

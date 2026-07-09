@@ -181,6 +181,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.POST("/", controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
 				adminRoute.POST("/batch_vip", controller.BatchMarkVipCustomer)
+				adminRoute.POST("/batch_online_topup", controller.BatchSetAllowOnlineTopup)
 				adminRoute.POST("/business_channel", controller.SetUserBusinessChannel)
 				adminRoute.GET("/tg_notify", controller.GetTgNotifySettings)
 				adminRoute.PUT("/tg_notify", controller.UpdateTgNotifySettings)

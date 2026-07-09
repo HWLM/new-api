@@ -360,6 +360,11 @@ func SearchUsers(c *gin.Context) {
 		b := v == "true" || v == "1"
 		isVip = &b
 	}
+	var allowOnlineTopup *bool
+	if v := c.Query("allow_online_topup"); v != "" {
+		b := v == "true" || v == "1"
+		allowOnlineTopup = &b
+	}
 	var createdAtStart *int64
 	if v := c.Query("created_at_start"); v != "" {
 		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -373,7 +378,7 @@ func SearchUsers(c *gin.Context) {
 		}
 	}
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.SearchUsers(keyword, group, role, status, isVip, createdAtStart, createdAtEnd, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	users, total, err := model.SearchUsers(keyword, group, role, status, isVip, allowOnlineTopup, createdAtStart, createdAtEnd, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1046,11 +1051,12 @@ func CreateUser(c *gin.Context) {
 	}
 	// Even for admin users, we cannot fully trust them!
 	cleanUser := model.User{
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.DisplayName,
-		Role:        user.Role, // 保持管理员设置的角色
-		InviterId:   inviterId,
+		Username:         user.Username,
+		Password:         user.Password,
+		DisplayName:      user.DisplayName,
+		Role:             user.Role, // 保持管理员设置的角色
+		InviterId:        inviterId,
+		AllowOnlineTopup: user.AllowOnlineTopup,
 	}
 
 	authzTouched := false
@@ -1664,6 +1670,30 @@ func BatchMarkVipCustomer(c *gin.Context) {
 		return
 	}
 	affected, err := model.BatchMarkVipCustomer(req.Ids, req.IsVip)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"affected": affected})
+}
+
+type BatchSetAllowOnlineTopupRequest struct {
+	Ids              []int `json:"ids"`
+	AllowOnlineTopup bool  `json:"allow_online_topup"`
+}
+
+// BatchSetAllowOnlineTopup 批量开启/关闭在线充值权限，仅管理员可调用
+func BatchSetAllowOnlineTopup(c *gin.Context) {
+	var req BatchSetAllowOnlineTopupRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if len(req.Ids) == 0 {
+		common.ApiErrorMsg(c, "请至少选择一个用户")
+		return
+	}
+	affected, err := model.BatchSetAllowOnlineTopup(req.Ids, req.AllowOnlineTopup)
 	if err != nil {
 		common.ApiError(c, err)
 		return

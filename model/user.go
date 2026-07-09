@@ -53,6 +53,7 @@ type User struct {
 	StripeCustomer   string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 	IsVipCustomer    bool                       `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
 	BusinessChannel  string                     `json:"business_channel" gorm:"type:varchar(255);default:'';column:business_channel" validate:"max=255"`
+	AllowOnlineTopup bool                       `json:"allow_online_topup" gorm:"type:bool;default:false;column:allow_online_topup;index"`
 	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AdminPermissions map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
@@ -323,7 +324,7 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, createdAtStart, createdAtEnd *int64, startIdx int, num int) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, allowOnlineTopup *bool, createdAtStart, createdAtEnd *int64, startIdx int, num int) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -373,6 +374,13 @@ func SearchUsers(keyword string, group string, role *int, status *int, isVip *bo
 			query = query.Where("is_vip_customer = ?", commonTrueVal)
 		} else {
 			query = query.Where("is_vip_customer = ?", commonFalseVal)
+		}
+	}
+	if allowOnlineTopup != nil {
+		if *allowOnlineTopup {
+			query = query.Where("allow_online_topup = ?", commonTrueVal)
+		} else {
+			query = query.Where("allow_online_topup = ?", commonFalseVal)
 		}
 	}
 	if createdAtStart != nil {
@@ -453,6 +461,15 @@ func BatchMarkVipCustomer(ids []int, isVip bool) (int64, error) {
 		return 0, errors.New("ids 为空")
 	}
 	res := DB.Model(&User{}).Where("id IN ?", ids).Update("is_vip_customer", isVip)
+	return res.RowsAffected, res.Error
+}
+
+// BatchSetAllowOnlineTopup 批量更新用户的在线充值权限
+func BatchSetAllowOnlineTopup(ids []int, allow bool) (int64, error) {
+	if len(ids) == 0 {
+		return 0, errors.New("ids 为空")
+	}
+	res := DB.Model(&User{}).Where("id IN ?", ids).Update("allow_online_topup", allow)
 	return res.RowsAffected, res.Error
 }
 
@@ -786,10 +803,11 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 
 	newUser := *user
 	updates := map[string]interface{}{
-		"username":     newUser.Username,
-		"display_name": newUser.DisplayName,
-		"group":        newUser.Group,
-		"remark":       newUser.Remark,
+		"username":           newUser.Username,
+		"display_name":       newUser.DisplayName,
+		"group":              newUser.Group,
+		"remark":             newUser.Remark,
+		"allow_online_topup": newUser.AllowOnlineTopup,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password

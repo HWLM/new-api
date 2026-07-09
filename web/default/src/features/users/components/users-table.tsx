@@ -60,6 +60,13 @@ function isDisabledUserRow(user: User) {
   return isUserDeleted(user) || user.status === USER_STATUS.DISABLED
 }
 
+function getUsersTableRowClassName(user: User, isMobile: boolean) {
+  if (!isDisabledUserRow(user)) {
+    return undefined
+  }
+  return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
+}
+
 export function UsersTable() {
   const { t } = useTranslation()
   const columns = useUsersColumns()
@@ -90,6 +97,11 @@ export function UsersTable() {
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
       { columnId: 'is_vip_customer', searchKey: 'vip', type: 'array' },
+      {
+        columnId: 'allow_online_topup',
+        searchKey: 'onlineTopup',
+        type: 'array',
+      },
     ],
   })
   const statusFilter =
@@ -112,6 +124,13 @@ export function UsersTable() {
   // 'all' 视为不筛选（"全部"语义），仅在选中 true/false 时透传 is_vip
   const vipFilterValue =
     vipFilter[0] && vipFilter[0] !== 'all' ? vipFilter[0] : ''
+  const onlineTopupFilter =
+    (columnFilters.find((filter) => filter.id === 'allow_online_topup')
+      ?.value as string[] | undefined) ?? []
+  const onlineTopupFilterValue =
+    onlineTopupFilter[0] && onlineTopupFilter[0] !== 'all'
+      ? onlineTopupFilter[0]
+      : ''
 
   // 创建时间区间：YYYY-MM-DD 字符串放在 URL，传给后端时换算成 unix 秒
   const search = route.useSearch()
@@ -174,6 +193,7 @@ export function UsersTable() {
       roleFilter,
       groupFilter,
       vipFilterValue,
+      onlineTopupFilterValue,
       createdAtStartTs,
       createdAtEndTs,
       refreshTrigger,
@@ -185,6 +205,7 @@ export function UsersTable() {
         roleFilter.length > 0 ||
         Boolean(groupFilterValue) ||
         Boolean(vipFilterValue) ||
+        Boolean(onlineTopupFilterValue) ||
         Boolean(createdAtStartTs) ||
         Boolean(createdAtEndTs)
       const params = {
@@ -201,6 +222,7 @@ export function UsersTable() {
               role: roleFilter[0] ?? '',
               group: groupFilterValue,
               is_vip: vipFilterValue,
+              allow_online_topup: onlineTopupFilterValue,
               created_at_start: createdAtStartTs,
               created_at_end: createdAtEndTs,
             })
@@ -307,6 +329,16 @@ export function UsersTable() {
             singleSelect: true,
           },
           {
+            columnId: 'allow_online_topup',
+            title: t('Allow online top-up'),
+            options: [
+              { label: t('All'), value: 'all' },
+              { label: t('Yes'), value: 'true' },
+              { label: t('No'), value: 'false' },
+            ],
+            singleSelect: true,
+          },
+          {
             columnId: 'group',
             title: t('Group'),
             options: groupOptions,
@@ -345,11 +377,7 @@ export function UsersTable() {
         },
       }}
       getRowClassName={(row, { isMobile }) =>
-        isDisabledUserRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
+        getUsersTableRowClassName(row.original, isMobile)
       }
       bulkActions={<DataTableBulkActions table={table} />}
     />

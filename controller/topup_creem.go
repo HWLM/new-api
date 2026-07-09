@@ -68,6 +68,10 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "不支持的支付渠道"})
 		return
 	}
+	user, ok := requireOnlineTopupAllowed(c)
+	if !ok {
+		return
+	}
 
 	if req.ProductId == "" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "请选择产品"})
@@ -97,8 +101,7 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 		return
 	}
 
-	id := c.GetInt("id")
-	user, _ := model.GetUserById(id, false)
+	id := user.Id
 
 	// 生成唯一的订单引用ID
 	reference := fmt.Sprintf("creem-api-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
