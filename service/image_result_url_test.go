@@ -55,6 +55,31 @@ func TestShouldUploadImageResultSkipsWhenObjectStoreDisabled(t *testing.T) {
 	assert.False(t, shouldUploadImageResult(request))
 }
 
+func TestEnsureImageResponseURLsKeepsOriginalWhenUploaderUnavailable(t *testing.T) {
+	restore := setImageResultObjectStoreEnabledForTest("true")
+	defer restore()
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+	t.Setenv("AWS_SESSION_TOKEN", "")
+
+	response := &dto.ImageResponse{
+		Data: []dto.ImageData{
+			{B64Json: "aW1hZ2U="},
+		},
+	}
+	request := &dto.ImageRequest{
+		Model:          "gpt-image-2-codex",
+		ResponseFormat: "url",
+	}
+
+	changed, err := EnsureImageResponseURLs(nil, response, request)
+
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, "aW1hZ2U=", response.Data[0].B64Json)
+	assert.Empty(t, response.Data[0].Url)
+}
+
 func TestImageResultUploadSourceUsesBase64FromURLField(t *testing.T) {
 	source, value, ok, reason := imageResultUploadSource(dto.ImageData{
 		Url: "data:image/png;base64,aW1hZ2U=",

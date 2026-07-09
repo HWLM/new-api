@@ -50,7 +50,7 @@ func EnsureImageResponseBodyURLs(c *gin.Context, body []byte, request *dto.Image
 
 	changed, err := EnsureImageResponseURLs(c, &imageResp, request)
 	if err != nil || !changed {
-		return body, changed, err
+		return body, false, nil
 	}
 
 	var raw map[string]json.RawMessage
@@ -75,7 +75,8 @@ func EnsureImageResponseURLs(c *gin.Context, response *dto.ImageResponse, reques
 	}
 	uploader, prefix, err := getImageResultUploader()
 	if err != nil {
-		return false, err
+		logImageResultUploadError(c, fmt.Sprintf("image result upload failed: err=%v", err))
+		return false, nil
 	}
 
 	changed := false
@@ -84,14 +85,10 @@ func EnsureImageResponseURLs(c *gin.Context, response *dto.ImageResponse, reques
 		if !ok {
 			continue
 		}
-		preview := imageData
-		if len(preview) > 256 {
-			preview = preview[:256] + "..."
-		}
-		logger.LogWarn(c, fmt.Sprintf("image result upload source before aws: source=%s data_len=%d data_preview=%q", sourceField, len(imageData), preview))
 		imageBytes, contentType, err := decodeImageResultBase64(imageData)
 		if err != nil {
-			return changed, err
+			logImageResultUploadError(c, fmt.Sprintf("image result upload failed: source=%s err=%v", sourceField, err))
+			continue
 		}
 		contentType = imageResultContentTypeForRequest(request, contentType)
 		key := buildImageResultObjectKey(prefix, contentType)
@@ -105,14 +102,22 @@ func EnsureImageResponseURLs(c *gin.Context, response *dto.ImageResponse, reques
 			ContentType: contentType,
 		})
 		if err != nil {
-			logger.LogError(c, fmt.Sprintf("image result upload failed: key=%q content_type=%q bytes=%d err=%v", key, contentType, len(imageBytes), err))
-			return changed, err
+			logImageResultUploadError(c, fmt.Sprintf("image result upload failed: key=%q content_type=%q bytes=%d err=%v", key, contentType, len(imageBytes), err))
+			continue
 		}
 		response.Data[i].Url = resultURL
 		response.Data[i].B64Json = ""
 		changed = true
 	}
 	return changed, nil
+}
+
+func logImageResultUploadError(c *gin.Context, msg string) {
+	if c == nil {
+		logger.LogError(nil, msg)
+		return
+	}
+	logger.LogError(c, msg)
 }
 
 func imageResultUploadSource(data dto.ImageData) (string, string, bool, string) {
