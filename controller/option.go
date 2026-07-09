@@ -29,6 +29,29 @@ var completionRatioMetaOptionKeys = []string{
 	"AudioCompletionRatio",
 }
 
+var adminOnlyOptionKeys = map[string]struct{}{
+	"ImageResultObjectStore":        {},
+	"ImageResultObjectStoreEnabled": {},
+}
+
+func isSensitiveOptionKey(key string) bool {
+	return strings.HasSuffix(key, "Token") ||
+		strings.HasSuffix(key, "Secret") ||
+		strings.HasSuffix(key, "Key") ||
+		strings.HasSuffix(key, "secret") ||
+		strings.HasSuffix(key, "api_key")
+}
+
+func canReturnOptionValue(c *gin.Context, key string) bool {
+	if isSensitiveOptionKey(key) {
+		return false
+	}
+	if _, ok := adminOnlyOptionKeys[key]; ok {
+		return c.GetInt("role") >= common.RoleAdminUser
+	}
+	return true
+}
+
 func isPaymentComplianceOptionKey(key string) bool {
 	return strings.HasPrefix(key, "payment_setting.compliance_")
 }
@@ -81,12 +104,7 @@ func GetOptions(c *gin.Context) {
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
 		value := common.Interface2String(v)
-		isSensitiveKey := strings.HasSuffix(k, "Token") ||
-			strings.HasSuffix(k, "Secret") ||
-			strings.HasSuffix(k, "Key") ||
-			strings.HasSuffix(k, "secret") ||
-			strings.HasSuffix(k, "api_key")
-		if isSensitiveKey {
+		if !canReturnOptionValue(c, k) {
 			continue
 		}
 		options = append(options, &model.Option{

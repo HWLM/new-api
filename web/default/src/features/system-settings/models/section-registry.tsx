@@ -46,12 +46,18 @@ const MODELS_SECTIONS = [
           global: {
             pass_through_request_enabled:
               settings['global.pass_through_request_enabled'],
+            image_result_object_store_enabled:
+              settings.ImageResultObjectStoreEnabled,
             thinking_model_blacklist: formatJsonForEditor(
               settings['global.thinking_model_blacklist'],
               '[]'
             ),
             chat_completions_to_responses_policy: formatJsonForEditor(
               settings['global.chat_completions_to_responses_policy'],
+              '{}'
+            ),
+            image_result_object_store: formatJsonForEditor(
+              settings.ImageResultObjectStore,
               '{}'
             ),
           },

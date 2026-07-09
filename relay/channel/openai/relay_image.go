@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
@@ -40,11 +41,41 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	}
 
 	// 写入新的 response body
+	if info != nil {
+		if imageReq, ok := info.Request.(*dto.ImageRequest); ok && shouldEnsureImageResultURLFallback(info, imageReq) {
+			fallbackReq := imageResultURLFallbackRequest(info, imageReq)
+			updatedBody, _, err := service.EnsureImageResponseBodyURLs(c, responseBody, fallbackReq)
+			if err != nil {
+				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+			}
+			responseBody = updatedBody
+		}
+	}
+
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	return &usageResp.Usage, nil
+}
+
+func imageResultURLFallbackRequest(info *relaycommon.RelayInfo, request *dto.ImageRequest) *dto.ImageRequest {
+	fallbackReq := *request
+	fallbackReq.Model = info.OriginModelName
+	return &fallbackReq
+}
+
+func shouldEnsureImageResultURLFallback(info *relaycommon.RelayInfo, request *dto.ImageRequest) bool {
+	return info != nil &&
+		request != nil &&
+		info.RelayMode == relayconstant.RelayModeImagesGenerations &&
+		isGPTImage2Model(info.OriginModelName) &&
+		strings.EqualFold(strings.TrimSpace(request.ResponseFormat), "url")
+}
+
+func isGPTImage2Model(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	return normalized == "gpt-image-2" || strings.HasPrefix(normalized, "gpt-image-2-")
 }
 
 // normalizeOpenAIUsage maps the OpenAI Images usage shape (input_tokens /
@@ -112,6 +143,16 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 			normalizeOpenAIUsage(&usageResp.Usage)
 			if service.ValidUsage(&usageResp.Usage) {
 				usage = &usageResp.Usage
+			}
+		}
+		if info != nil {
+			if imageReq, ok := info.Request.(*dto.ImageRequest); ok && shouldEnsureImageResultURLFallback(info, imageReq) {
+				var err error
+				raw, err = ensureOpenAIImageStreamChunkURLFallback(c, info, imageReq, raw)
+				if err != nil {
+					sr.Stop(err)
+					return
+				}
 			}
 		}
 		writeOpenaiImageStreamChunk(c, raw)
@@ -210,6 +251,23 @@ func OpenaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
+
+	if info != nil {
+		if imageReq, ok := info.Request.(*dto.ImageRequest); ok && shouldEnsureImageResultURLFallback(info, imageReq) {
+			fallbackReq := imageResultURLFallbackRequest(info, imageReq)
+			updatedBody, changed, err := service.EnsureImageResponseBodyURLs(c, responseBody, fallbackReq)
+			if err != nil {
+				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+			}
+			if changed {
+				responseBody = updatedBody
+				if err := common.Unmarshal(responseBody, &imageResp); err != nil {
+					return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+				}
+			}
+		}
+	}
+
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 
@@ -272,6 +330,42 @@ func writeOpenaiImageStreamPayload(c *gin.Context, eventName string, payload any
 		return helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: eventName}, string(data))
 	}
 	return helper.StringData(c, string(data))
+}
+
+func ensureOpenAIImageStreamChunkURLFallback(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ImageRequest, data []byte) ([]byte, error) {
+	if !json.Valid(data) {
+		return data, nil
+	}
+	var payload map[string]json.RawMessage
+	if err := common.Unmarshal(data, &payload); err != nil {
+		return data, nil
+	}
+	if len(payload["url"]) > 0 {
+		return data, nil
+	}
+	rawB64, ok := payload["b64_json"]
+	if !ok || len(rawB64) == 0 {
+		return data, nil
+	}
+	var b64 string
+	if err := common.Unmarshal(rawB64, &b64); err != nil || strings.TrimSpace(b64) == "" {
+		return data, nil
+	}
+	fallbackReq := imageResultURLFallbackRequest(info, request)
+	imageResp := &dto.ImageResponse{
+		Data: []dto.ImageData{{B64Json: b64}},
+	}
+	changed, err := service.EnsureImageResponseURLs(c, imageResp, fallbackReq)
+	if err != nil || !changed || len(imageResp.Data) == 0 || imageResp.Data[0].Url == "" {
+		return data, err
+	}
+	urlData, err := common.Marshal(imageResp.Data[0].Url)
+	if err != nil {
+		return data, err
+	}
+	payload["url"] = urlData
+	delete(payload, "b64_json")
+	return common.Marshal(payload)
 }
 
 func writeOpenaiImageStreamDone(c *gin.Context) error {

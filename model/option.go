@@ -79,6 +79,8 @@ func InitOptionMap() {
 	common.OptionMap["WorkerUrl"] = system_setting.WorkerUrl
 	common.OptionMap["WorkerValidKey"] = system_setting.WorkerValidKey
 	common.OptionMap["WorkerAllowHttpImageRequestEnabled"] = strconv.FormatBool(system_setting.WorkerAllowHttpImageRequestEnabled)
+	common.OptionMap["ImageResultObjectStoreEnabled"] = "false"
+	common.OptionMap["ImageResultObjectStore"] = "{}"
 	common.OptionMap["OpenAPIToken"] = system_setting.GetOpenAPIToken()
 	common.OptionMap["PayAddress"] = ""
 	common.OptionMap["CustomCallbackAddress"] = ""
