@@ -62,6 +62,7 @@ export const userSchema = z.object({
   remark: z.string().optional(),
   is_vip_customer: z.boolean().optional(),
   business_channel: z.string().optional(),
+  allow_online_topup: z.boolean().optional(),
   /** 仅 GET /api/user/:id 返回：用户所在分组对应的充值比例，调整额度弹窗回显使用 */
   topup_group_ratio: z.number().optional(),
   admin_permissions: z
@@ -106,6 +107,7 @@ export interface SearchUsersParams {
   status?: string
   /** '' = 不筛选，'true' = 仅重点客户，'false' = 仅非重点客户 */
   is_vip?: string
+  allow_online_topup?: string
   /** unix 秒，0/undefined = 不筛选 */
   created_at_start?: number
   /** unix 秒，0/undefined = 不筛选 */
@@ -122,6 +124,7 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
+  allow_online_topup?: boolean
   /** 邀请人用户名；空串表示清除邀请人。后端反查 → inviter_id */
   inviter_username?: string
   admin_permissions?: AdminPermissionMatrix

@@ -16,16 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
-import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
-import * as z from 'zod'
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import * as z from "zod";
 
-import { StatusBadge } from '@/components/status-badge'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
+import { StatusBadge } from "@/components/status-badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
   Form,
   FormControl,
@@ -34,113 +34,135 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from '@/components/ui/form'
-import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
-import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 import {
   SettingsForm,
   SettingsSwitchContent,
   SettingsSwitchItem,
-} from '../components/settings-form-layout'
-import { SettingsPageFormActions } from '../components/settings-page-context'
-import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+} from "../components/settings-form-layout";
+import { SettingsPageFormActions } from "../components/settings-page-context";
+import { SettingsSection } from "../components/settings-section";
+import { useUpdateOption } from "../hooks/use-update-option";
 
 const thinkingBlacklistExample = JSON.stringify(
-  ['moonshotai/kimi-k2-thinking', 'kimi-k2-thinking'],
+  ["moonshotai/kimi-k2-thinking", "kimi-k2-thinking"],
   null,
-  2
-)
+  2,
+);
 
 const chatToResponsesPolicyExample = JSON.stringify(
   {
     enabled: true,
     all_channels: false,
     channel_ids: [1, 2],
-    model_patterns: ['^gpt-4o.*$', '^gpt-5.*$'],
+    model_patterns: ["^gpt-4o.*$", "^gpt-5.*$"],
   },
   null,
-  2
-)
+  2,
+);
 
 const chatToResponsesPolicyAllChannelsExample = JSON.stringify(
   {
     enabled: true,
     all_channels: true,
-    model_patterns: ['^gpt-4o.*$', '^gpt-5.*$'],
+    model_patterns: ["^gpt-4o.*$", "^gpt-5.*$"],
   },
   null,
-  2
-)
+  2,
+);
+
+const imageResultObjectStoreExample = JSON.stringify(
+  {
+    accessKey: "",
+    secretKey: "",
+    bucketName: "",
+    region: "",
+    publicUrl: "",
+  },
+  null,
+  2,
+);
 
 const jsonString = z.string().refine((value) => {
-  const trimmed = value.trim()
-  if (!trimmed) return true
+  const trimmed = value.trim();
+  if (!trimmed) return true;
   try {
-    JSON.parse(trimmed)
-    return true
+    JSON.parse(trimmed);
+    return true;
   } catch {
-    return false
+    return false;
   }
-}, 'Invalid JSON format')
+}, "Invalid JSON format");
 
 const schema = z.object({
   global: z.object({
     pass_through_request_enabled: z.boolean(),
+    image_result_object_store_enabled: z.boolean(),
     thinking_model_blacklist: jsonString,
     chat_completions_to_responses_policy: jsonString,
+    image_result_object_store: jsonString,
   }),
   general_setting: z.object({
     ping_interval_enabled: z.boolean(),
     ping_interval_seconds: z.coerce.number().min(1),
   }),
-})
+});
 
-type GlobalModelSettingsFormValues = z.output<typeof schema>
-type GlobalModelSettingsFormInput = z.input<typeof schema>
+type GlobalModelSettingsFormValues = z.output<typeof schema>;
+type GlobalModelSettingsFormInput = z.input<typeof schema>;
 
 type FlatGlobalModelSettings = {
-  'global.pass_through_request_enabled': boolean
-  'global.thinking_model_blacklist': string
-  'global.chat_completions_to_responses_policy': string
-  'general_setting.ping_interval_enabled': boolean
-  'general_setting.ping_interval_seconds': number
-}
+  ImageResultObjectStoreEnabled: boolean;
+  ImageResultObjectStore: string;
+  "global.pass_through_request_enabled": boolean;
+  "global.thinking_model_blacklist": string;
+  "global.chat_completions_to_responses_policy": string;
+  "general_setting.ping_interval_enabled": boolean;
+  "general_setting.ping_interval_seconds": number;
+};
 
 const flattenGlobalValues = (
-  values: GlobalModelSettingsFormValues
+  values: GlobalModelSettingsFormValues,
 ): FlatGlobalModelSettings => ({
-  'global.pass_through_request_enabled':
+  ImageResultObjectStoreEnabled:
+    values.global.image_result_object_store_enabled,
+  ImageResultObjectStore: normalizeJsonText(
+    values.global.image_result_object_store,
+    "{}",
+  ),
+  "global.pass_through_request_enabled":
     values.global.pass_through_request_enabled,
-  'global.thinking_model_blacklist': normalizeJsonText(
+  "global.thinking_model_blacklist": normalizeJsonText(
     values.global.thinking_model_blacklist,
-    '[]'
+    "[]",
   ),
-  'global.chat_completions_to_responses_policy': normalizeJsonText(
+  "global.chat_completions_to_responses_policy": normalizeJsonText(
     values.global.chat_completions_to_responses_policy,
-    '{}'
+    "{}",
   ),
-  'general_setting.ping_interval_enabled':
+  "general_setting.ping_interval_enabled":
     values.general_setting.ping_interval_enabled,
-  'general_setting.ping_interval_seconds':
+  "general_setting.ping_interval_seconds":
     values.general_setting.ping_interval_seconds,
-})
+});
 
 function normalizeJsonText(value: string, fallback: string) {
-  const trimmed = (value ?? '').toString().trim()
-  return trimmed ? trimmed : fallback
+  const trimmed = (value ?? "").toString().trim();
+  return trimmed ? trimmed : fallback;
 }
 
 type GlobalSettingsCardProps = {
-  defaultValues: GlobalModelSettingsFormValues
-}
+  defaultValues: GlobalModelSettingsFormValues;
+};
 
 export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
-  const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const { t } = useTranslation();
+  const updateOption = useUpdateOption();
 
   const form = useForm<
     GlobalModelSettingsFormInput,
@@ -149,68 +171,72 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
   >({
     resolver: zodResolver(schema),
     defaultValues: defaultValues as GlobalModelSettingsFormInput,
-  })
+  });
 
   useEffect(() => {
-    form.reset(defaultValues as GlobalModelSettingsFormInput)
-  }, [defaultValues, form])
+    form.reset(defaultValues as GlobalModelSettingsFormInput);
+  }, [defaultValues, form]);
 
-  const pingEnabled = form.watch('general_setting.ping_interval_enabled')
+  const pingEnabled = form.watch("general_setting.ping_interval_enabled");
+  const imageResultObjectStoreEnabled = form.watch(
+    "global.image_result_object_store_enabled",
+  );
 
   const formatJsonField = (
     field:
-      | 'global.thinking_model_blacklist'
-      | 'global.chat_completions_to_responses_policy'
+      | "global.thinking_model_blacklist"
+      | "global.chat_completions_to_responses_policy"
+      | "global.image_result_object_store",
   ) => {
-    const raw = form.getValues(field)
-    if (!raw || !raw.trim()) return
+    const raw = form.getValues(field);
+    if (!raw || !raw.trim()) return;
     try {
-      const formatted = JSON.stringify(JSON.parse(raw), null, 2)
-      form.setValue(field, formatted, { shouldDirty: true })
+      const formatted = JSON.stringify(JSON.parse(raw), null, 2);
+      form.setValue(field, formatted, { shouldDirty: true });
     } catch {
-      toast.error(t('Invalid JSON format'))
+      toast.error(t("Invalid JSON format"));
     }
-  }
+  };
 
   const onSubmit = async (values: GlobalModelSettingsFormValues) => {
-    const flattenedDefaults = flattenGlobalValues(defaultValues)
-    const flattenedValues = flattenGlobalValues(values)
+    const flattenedDefaults = flattenGlobalValues(defaultValues);
+    const flattenedValues = flattenGlobalValues(values);
     const updates = Object.entries(flattenedValues).filter(
       ([key, value]) =>
-        value !== flattenedDefaults[key as keyof FlatGlobalModelSettings]
-    )
+        value !== flattenedDefaults[key as keyof FlatGlobalModelSettings],
+    );
 
     if (updates.length === 0) {
-      toast.info(t('No changes to save'))
-      return
+      toast.info(t("No changes to save"));
+      return;
     }
 
     for (const [key, value] of updates) {
       await updateOption.mutateAsync({
         key,
         value,
-      })
+      });
     }
-  }
+  };
 
   return (
-    <SettingsSection title={t('Global Model Configuration')}>
+    <SettingsSection title={t("Global Model Configuration")}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete="off">
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
           />
           <FormField
             control={form.control}
-            name='global.pass_through_request_enabled'
+            name="global.pass_through_request_enabled"
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Enable Request Passthrough')}</FormLabel>
+                  <FormLabel>{t("Enable Request Passthrough")}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Forward requests directly to upstream providers without any post-processing.'
+                      "Forward requests directly to upstream providers without any post-processing.",
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -224,124 +250,74 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
             )}
           />
 
-          <FormField
-            control={form.control}
-            name='global.thinking_model_blacklist'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  {t('Models that skip thinking suffix processing')}
-                </FormLabel>
-                <FormControl>
-                  <Textarea
-                    rows={4}
-                    placeholder={`${t('Example:')}\n${thinkingBlacklistExample}`}
-                    {...field}
-                    onChange={(event) => field.onChange(event.target.value)}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t(
-                    'Models listed here will not automatically append or remove -thinking / -nothinking suffixes.'
-                  )}
-                </FormDescription>
-                <div className='flex flex-wrap gap-2'>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    onClick={() =>
-                      formatJsonField('global.thinking_model_blacklist')
-                    }
-                  >
-                    {t('Format JSON')}
-                  </Button>
-                </div>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
           <Separator />
 
-          <div className='space-y-4'>
-            <div className='flex items-center gap-2'>
-              <h3 className='text-base font-semibold'>
-                {t('ChatCompletions -> Responses Compatibility')}
+          <div className="space-y-4">
+            {/* <div className="space-y-1">
+              <h3 className="text-base font-semibold">
+                {t("Image result object storage")}
               </h3>
-              <StatusBadge
-                label={t('Preview')}
-                variant='neutral'
-                copyable={false}
-              />
-            </div>
-
-            <Alert>
-              <AlertTitle>{t('Warning')}</AlertTitle>
-              <AlertDescription>
+              <p className="text-muted-foreground text-sm">
                 {t(
-                  'This feature is experimental. Configuration format and behavior may change.'
+                  "Configure AWS S3 upload for image results that must be returned as URLs.",
                 )}
-              </AlertDescription>
-            </Alert>
+              </p>
+            </div> */}
 
             <FormField
               control={form.control}
-              name='global.chat_completions_to_responses_policy'
+              name="global.image_result_object_store_enabled"
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>
+                      {t("Enable image result object storage")}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        "Upload base64 image results to configured object storage when clients request URLs.",
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="global.image_result_object_store"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Policy JSON')}</FormLabel>
                   <FormControl>
                     <Textarea
                       rows={8}
-                      placeholder={`${t('Example (specific channels):')}\n${chatToResponsesPolicyExample}\n\n${t('Example (all channels):')}\n${chatToResponsesPolicyAllChannelsExample}`}
+                      disabled={!imageResultObjectStoreEnabled}
+                      placeholder={`${t("Example:")}\n${imageResultObjectStoreExample}`}
                       {...field}
                       onChange={(event) => field.onChange(event.target.value)}
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Empty value will be saved as {}.')}
+                    {t(
+                      "Object store configuration is only required when this switch is enabled.",
+                    )}
                   </FormDescription>
-                  <div className='flex flex-wrap gap-2'>
+                  <div className="flex flex-wrap gap-2">
                     <Button
-                      type='button'
-                      variant='outline'
-                      size='sm'
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!imageResultObjectStoreEnabled}
                       onClick={() =>
-                        form.setValue(
-                          'global.chat_completions_to_responses_policy',
-                          chatToResponsesPolicyExample,
-                          { shouldDirty: true }
-                        )
+                        formatJsonField("global.image_result_object_store")
                       }
                     >
-                      {t('Fill example (specific channels)')}
-                    </Button>
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='sm'
-                      onClick={() =>
-                        form.setValue(
-                          'global.chat_completions_to_responses_policy',
-                          chatToResponsesPolicyAllChannelsExample,
-                          { shouldDirty: true }
-                        )
-                      }
-                    >
-                      {t('Fill example (all channels)')}
-                    </Button>
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='sm'
-                      onClick={() =>
-                        formatJsonField(
-                          'global.chat_completions_to_responses_policy'
-                        )
-                      }
-                    >
-                      {t('Format JSON')}
+                      {t("Format JSON")}
                     </Button>
                   </div>
                   <FormMessage />
@@ -354,14 +330,142 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
           <FormField
             control={form.control}
-            name='general_setting.ping_interval_enabled'
+            name="global.thinking_model_blacklist"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  {t("Models that skip thinking suffix processing")}
+                </FormLabel>
+                <FormControl>
+                  <Textarea
+                    rows={4}
+                    placeholder={`${t("Example:")}\n${thinkingBlacklistExample}`}
+                    {...field}
+                    onChange={(event) => field.onChange(event.target.value)}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    "Models listed here will not automatically append or remove -thinking / -nothinking suffixes.",
+                  )}
+                </FormDescription>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      formatJsonField("global.thinking_model_blacklist")
+                    }
+                  >
+                    {t("Format JSON")}
+                  </Button>
+                </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <Separator />
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold">
+                {t("ChatCompletions -> Responses Compatibility")}
+              </h3>
+              <StatusBadge
+                label={t("Preview")}
+                variant="neutral"
+                copyable={false}
+              />
+            </div>
+
+            <Alert>
+              <AlertTitle>{t("Warning")}</AlertTitle>
+              <AlertDescription>
+                {t(
+                  "This feature is experimental. Configuration format and behavior may change.",
+                )}
+              </AlertDescription>
+            </Alert>
+
+            <FormField
+              control={form.control}
+              name="global.chat_completions_to_responses_policy"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("Policy JSON")}</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      rows={8}
+                      placeholder={`${t("Example (specific channels):")}\n${chatToResponsesPolicyExample}\n\n${t("Example (all channels):")}\n${chatToResponsesPolicyAllChannelsExample}`}
+                      {...field}
+                      onChange={(event) => field.onChange(event.target.value)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t("Empty value will be saved as {}.")}
+                  </FormDescription>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        form.setValue(
+                          "global.chat_completions_to_responses_policy",
+                          chatToResponsesPolicyExample,
+                          { shouldDirty: true },
+                        )
+                      }
+                    >
+                      {t("Fill example (specific channels)")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        form.setValue(
+                          "global.chat_completions_to_responses_policy",
+                          chatToResponsesPolicyAllChannelsExample,
+                          { shouldDirty: true },
+                        )
+                      }
+                    >
+                      {t("Fill example (all channels)")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        formatJsonField(
+                          "global.chat_completions_to_responses_policy",
+                        )
+                      }
+                    >
+                      {t("Format JSON")}
+                    </Button>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <Separator />
+
+          <FormField
+            control={form.control}
+            name="general_setting.ping_interval_enabled"
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Keep-alive Ping')}</FormLabel>
+                  <FormLabel>{t("Keep-alive Ping")}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Periodically send ping frames to keep streaming connections active.'
+                      "Periodically send ping frames to keep streaming connections active.",
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -377,19 +481,19 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
           <FormField
             control={form.control}
-            name='general_setting.ping_interval_seconds'
+            name="general_setting.ping_interval_seconds"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Ping Interval (seconds)')}</FormLabel>
+                <FormLabel>{t("Ping Interval (seconds)")}</FormLabel>
                 <FormControl>
                   <Input
-                    type='number'
+                    type="number"
                     min={1}
                     disabled={!pingEnabled}
-                    className='w-24'
+                    className="w-24"
                     value={
                       field.value === undefined || field.value === null
-                        ? ''
+                        ? ""
                         : String(field.value)
                     }
                     onChange={(event) => field.onChange(event.target.value)}
@@ -400,7 +504,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Recommended to keep this high to avoid upstream throttling.'
+                    "Recommended to keep this high to avoid upstream throttling.",
                   )}
                 </FormDescription>
                 <FormMessage />
@@ -410,5 +514,5 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
         </SettingsForm>
       </Form>
     </SettingsSection>
-  )
+  );
 }

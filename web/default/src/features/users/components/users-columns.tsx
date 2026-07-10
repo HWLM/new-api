@@ -16,60 +16,100 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ColumnDef } from '@tanstack/react-table'
-import { Star } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
+import type { ColumnDef } from "@tanstack/react-table";
+import { Star } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
-import { BadgeCell, DataTableColumnHeader } from '@/components/data-table'
-import { GroupBadge } from '@/components/group-badge'
-import { LongText } from '@/components/long-text'
-import { StatusBadge } from '@/components/status-badge'
-import { TableId } from '@/components/table-id'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Progress } from '@/components/ui/progress'
+import { BadgeCell, DataTableColumnHeader } from "@/components/data-table";
+import { GroupBadge } from "@/components/group-badge";
+import { LongText } from "@/components/long-text";
+import { StatusBadge } from "@/components/status-badge";
+import { TableId } from "@/components/table-id";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { formatQuota, formatTimestamp } from '@/lib/format'
-import { cn } from '@/lib/utils'
+} from "@/components/ui/tooltip";
+import { formatQuota, formatTimestamp } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 import {
   USER_STATUS,
   USER_STATUSES,
   USER_ROLES,
   isUserDeleted,
-} from '../constants'
-import { type User } from '../types'
-import { DataTableRowActions } from './data-table-row-actions'
+} from "../constants";
+import { updateUser } from "../api";
+import type { User } from "../types";
+import { DataTableRowActions } from "./data-table-row-actions";
+import { useUsers } from "./users-provider";
 
 function getQuotaProgressColor(percentage: number): string {
-  if (percentage <= 10) return '[&_[data-slot=progress-indicator]]:bg-rose-500'
-  if (percentage <= 30) return '[&_[data-slot=progress-indicator]]:bg-amber-500'
-  return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
+  if (percentage <= 10) {
+    return "[&_[data-slot=progress-indicator]]:bg-rose-500";
+  }
+  if (percentage <= 30) {
+    return "[&_[data-slot=progress-indicator]]:bg-amber-500";
+  }
+  return "[&_[data-slot=progress-indicator]]:bg-emerald-500";
 }
 
 export function useUsersColumns(): ColumnDef<User>[] {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
+  const { triggerRefresh } = useUsers();
+  const [topupUpdating, setTopupUpdating] = useState<Record<number, boolean>>(
+    {}
+  );
+
+  const handleOnlineTopupChange = async (user: User, checked: boolean) => {
+    setTopupUpdating((prev) => ({ ...prev, [user.id]: true }));
+    try {
+      const result = await updateUser({
+        id: user.id,
+        username: user.username,
+        display_name: user.display_name || user.username,
+        group: user.group,
+        remark: user.remark || "",
+        inviter_username: user.inviter_username || "",
+        allow_online_topup: checked,
+      });
+
+      if (result.success) {
+        toast.success(t("User updated successfully"));
+        triggerRefresh();
+      } else {
+        toast.error(result.message || t("Failed to update user"));
+      }
+    } catch {
+      toast.error(t("An unexpected error occurred"));
+    } finally {
+      setTopupUpdating((prev) => ({ ...prev, [user.id]: false }));
+    }
+  };
+
   return [
     {
-      id: 'select',
+      id: "select",
       header: ({ table }) => (
         <Checkbox
           checked={table.getIsAllPageRowsSelected()}
           indeterminate={table.getIsSomePageRowsSelected()}
           onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label='Select all'
-          className='translate-y-[2px]'
+          aria-label="Select all"
+          className="translate-y-[2px]"
         />
       ),
       cell: ({ row }) => (
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label='Select row'
-          className='translate-y-[2px]'
+          aria-label="Select row"
+          className="translate-y-[2px]"
         />
       ),
       enableSorting: false,
@@ -77,106 +117,132 @@ export function useUsersColumns(): ColumnDef<User>[] {
       size: 40,
     },
     {
-      accessorKey: 'id',
-      header: t('ID'),
+      accessorKey: "id",
+      header: t("ID"),
       cell: ({ row }) => {
         return (
-          <TableId value={row.getValue('id') as number} className='w-[60px]' />
-        )
+          <TableId
+            value={row.getValue("id") as number}
+            className="w-[60px] text-sm"
+          />
+        );
       },
       size: 80,
-      meta: { mobileHidden: true },
+      meta: { mobileOrder: 10 },
     },
     {
-      accessorKey: 'username',
-      header: t('Username'),
+      accessorKey: "username",
+      header: t("Username"),
       cell: ({ row }) => {
-        const username = row.getValue('username') as string
-        const displayName = row.original.display_name
-        const remark = row.original.remark
-        const isVip = row.original.is_vip_customer
+        const username = row.getValue("username") as string;
+        const displayName = row.original.display_name;
+        const remark = row.original.remark;
+        const isVip = row.original.is_vip_customer;
 
         return (
-          <div className='flex min-w-[160px] flex-col gap-1'>
-            <div className='flex items-center gap-2'>
+          <div className="flex min-w-[160px] flex-col gap-1">
+            <div className="flex items-center gap-2">
               {isVip && (
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Star
-                        className='h-4 w-4 shrink-0 fill-amber-400 text-amber-400'
-                        aria-label={t('VIP Customer')}
+                        className="h-4 w-4 shrink-0 fill-amber-400 text-amber-400"
+                        aria-label={t("VIP Customer")}
                       />
                     }
                   />
                   <TooltipContent>
-                    <p className='text-xs'>{t('VIP Customer')}</p>
+                    <p className="text-xs">{t("VIP Customer")}</p>
                   </TooltipContent>
                 </Tooltip>
               )}
-              <LongText className='max-w-[140px] font-medium'>
+              <LongText className="max-w-[140px] font-medium">
                 {username}
               </LongText>
               {remark && (
                 <Tooltip>
                   <TooltipTrigger
-                    render={<StatusBadge variant='success' copyable={false} />}
+                    render={<StatusBadge variant="success" copyable={false} />}
                   >
-                    <LongText className='max-w-[80px]'>{remark}</LongText>
+                    <LongText className="max-w-[80px]">{remark}</LongText>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p className='text-xs'>{remark}</p>
+                    <p className="text-xs">{remark}</p>
                   </TooltipContent>
                 </Tooltip>
               )}
             </div>
             {displayName && displayName !== username && (
-              <LongText className='text-muted-foreground max-w-[180px] text-xs'>
+              <LongText className="text-muted-foreground max-w-[180px] text-xs">
                 {displayName}
               </LongText>
             )}
           </div>
-        )
+        );
       },
       enableHiding: false,
       size: 220,
       meta: { mobileTitle: true },
     },
     {
-      accessorKey: 'business_channel',
+      accessorKey: "business_channel",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Business Channel')} />
+        <DataTableColumnHeader column={column} title={t("Business Channel")} />
       ),
       cell: ({ row }) => {
-        const channel = row.original.business_channel
+        const channel = row.original.business_channel;
         if (!channel) {
-          return <span className='text-muted-foreground text-sm'>-</span>
+          return <span className="text-muted-foreground text-sm">-</span>;
         }
-        return (
-          <LongText className='max-w-[160px] text-sm'>{channel}</LongText>
-        )
+        return <LongText className="max-w-[160px] text-sm">{channel}</LongText>;
       },
       enableSorting: false,
-      meta: { label: t('Business Channel') },
+      meta: { label: t("Business Channel") },
     },
     {
-      accessorKey: 'status',
-      header: t('Status'),
+      accessorKey: "allow_online_topup",
+      header: t("Allow online top-up"),
       cell: ({ row }) => {
-        const user = row.original
-        const requestCount = user.request_count
+        const user = row.original;
+        return (
+          <Switch
+            size="sm"
+            checked={user.allow_online_topup === true}
+            disabled={topupUpdating[user.id] === true || isUserDeleted(user)}
+            onCheckedChange={(checked) =>
+              handleOnlineTopupChange(user, checked)
+            }
+            aria-label={t("Allow online top-up")}
+          />
+        );
+      },
+      filterFn: (row, id, value: string[]) => {
+        const v = String(row.getValue(id));
+        return value.includes(v);
+      },
+      enableSorting: false,
+      size: 130,
+      meta: { mobileHidden: true },
+    },
+    {
+      accessorKey: "status",
+      header: t("Status"),
+      cell: ({ row }) => {
+        const user = row.original;
+        const requestCount = user.request_count;
 
         const statusConfig = isUserDeleted(user)
           ? USER_STATUSES[USER_STATUS.DELETED]
-          : USER_STATUSES[user.status as keyof typeof USER_STATUSES]
+          : USER_STATUSES[user.status as keyof typeof USER_STATUSES];
 
         if (!statusConfig) {
-          return null
+          return null;
         }
 
         return (
           <Tooltip>
-            <TooltipTrigger render={<div className='-ml-1.5 cursor-help' />}>
+            <TooltipTrigger render={<div className="-ml-1.5 cursor-help" />}>
               <StatusBadge
                 label={t(statusConfig.labelKey)}
                 variant={statusConfig.variant}
@@ -184,164 +250,167 @@ export function useUsersColumns(): ColumnDef<User>[] {
               />
             </TooltipTrigger>
             <TooltipContent>
-              <p className='text-xs'>
-                {t('Requests:')} {requestCount.toLocaleString()}
+              <p className="text-xs">
+                {t("Requests:")} {requestCount.toLocaleString()}
               </p>
             </TooltipContent>
           </Tooltip>
-        )
+        );
       },
       filterFn: (row, id, value) => {
-        return value.includes(String(row.getValue(id)))
+        return value.includes(String(row.getValue(id)));
       },
       enableSorting: false,
       size: 120,
       meta: { mobileBadge: true },
     },
     {
-      id: 'quota',
-      accessorKey: 'quota',
-      header: t('Quota'),
+      id: "quota",
+      accessorKey: "quota",
+      header: t("Quota"),
       cell: ({ row }) => {
-        const user = row.original
-        const used = user.used_quota
-        const remaining = user.quota
-        const total = used + remaining
-        const percentage = total > 0 ? (remaining / total) * 100 : 0
+        const user = row.original;
+        const used = user.used_quota;
+        const remaining = user.quota;
+        const total = used + remaining;
+        const percentage = total > 0 ? (remaining / total) * 100 : 0;
 
         if (total === 0) {
           return (
             <StatusBadge
-              label={t('No Quota')}
-              variant='neutral'
+              label={t("No Quota")}
+              variant="neutral"
               copyable={false}
-              className='-ml-1.5'
+              className="-ml-1.5"
             />
-          )
+          );
         }
 
         return (
           <Tooltip>
             <TooltipTrigger
-              render={<div className='w-[150px] cursor-help space-y-1' />}
+              render={<div className="w-[150px] cursor-help space-y-1" />}
             >
-              <div className='flex justify-between text-xs'>
-                <span className='font-medium tabular-nums'>
+              <div className="flex justify-between text-xs">
+                <span className="font-medium tabular-nums">
                   {formatQuota(remaining)}
                 </span>
-                <span className='text-muted-foreground tabular-nums'>
+                <span className="text-muted-foreground tabular-nums">
                   {formatQuota(total)}
                 </span>
               </div>
               <Progress
                 value={percentage}
-                className={cn('h-1.5', getQuotaProgressColor(percentage))}
+                className={cn("h-1.5", getQuotaProgressColor(percentage))}
               />
             </TooltipTrigger>
             <TooltipContent>
-              <div className='space-y-1 text-xs'>
+              <div className="space-y-1 text-xs">
                 <div>
-                  {t('Used:')} {formatQuota(used)}
+                  {t("Used:")} {formatQuota(used)}
                 </div>
                 <div>
-                  {t('Remaining:')} {formatQuota(remaining)}
+                  {t("Remaining:")} {formatQuota(remaining)}
                 </div>
                 <div>
-                  {t('Total:')} {formatQuota(total)}
+                  {t("Total:")} {formatQuota(total)}
                 </div>
                 <div>
-                  {t('Percentage:')} {percentage.toFixed(1)}%
+                  {t("Percentage:")} {percentage.toFixed(1)}%
                 </div>
               </div>
             </TooltipContent>
           </Tooltip>
-        )
+        );
       },
       size: 170,
+      meta: { mobileOrder: 40 },
     },
     {
-      accessorKey: 'group',
-      header: t('Group'),
+      accessorKey: "group",
+      header: t("Group"),
       cell: ({ row }) => {
-        const group = row.getValue('group') as string
+        const group = row.getValue("group") as string;
         return (
           <BadgeCell>
             <GroupBadge group={group} />
           </BadgeCell>
-        )
+        );
       },
       filterFn: (row, id, value) => {
-        const group = String(row.getValue(id) || t('User Group')).toLowerCase()
-        const searchValue = String(value).toLowerCase()
-        return group.includes(searchValue)
+        const group = String(row.getValue(id) || t("User Group")).toLowerCase();
+        const searchValue = String(value).toLowerCase();
+        return group.includes(searchValue);
       },
       size: 140,
+      meta: { mobileOrder: 30 },
     },
     {
-      accessorKey: 'role',
-      header: t('Role'),
+      accessorKey: "role",
+      header: t("Role"),
       cell: ({ row }) => {
-        const roleValue = row.getValue('role') as number
-        const roleConfig = USER_ROLES[roleValue as keyof typeof USER_ROLES]
+        const roleValue = row.getValue("role") as number;
+        const roleConfig = USER_ROLES[roleValue as keyof typeof USER_ROLES];
 
         if (!roleConfig) {
-          return null
+          return null;
         }
 
         return (
-          <div className='flex items-center gap-x-2'>
+          <div className="flex items-center gap-x-2">
             {roleConfig.icon && (
-              <roleConfig.icon size={16} className='text-muted-foreground' />
+              <roleConfig.icon size={16} className="text-muted-foreground" />
             )}
-            <span className='text-sm'>{t(roleConfig.labelKey)}</span>
+            <span className="text-sm">{t(roleConfig.labelKey)}</span>
           </div>
-        )
+        );
       },
       filterFn: (row, id, value) => {
-        return value.includes(String(row.getValue(id)))
+        return value.includes(String(row.getValue(id)));
       },
       enableSorting: false,
       size: 120,
+      meta: { mobileOrder: 20 },
     },
     {
-      id: 'invite_info',
-      header: t('Invite Info'),
+      id: "invite_info",
+      header: t("Invite Info"),
       cell: ({ row }) => {
-        const user = row.original
-        const affCount = user.aff_count || 0
-        const affHistoryQuota = user.aff_history_quota || 0
-        const inviterId = user.inviter_id || 0
+        const user = row.original;
+        const affCount = user.aff_count || 0;
+        const affHistoryQuota = user.aff_history_quota || 0;
+        const inviterId = user.inviter_id || 0;
 
         return (
-          <div className='flex max-w-full min-w-0 flex-wrap items-center gap-1 overflow-hidden'>
+          <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1 overflow-hidden">
             <Tooltip>
               <TooltipTrigger
                 render={
                   <StatusBadge
-                    label={`${t('Invited')}: ${affCount}`}
-                    variant='neutral'
+                    label={`${t("Invited")}: ${affCount}`}
+                    variant="neutral"
                     copyable={false}
-                    className='cursor-help'
+                    className="cursor-help"
                   />
                 }
               />
               <TooltipContent>
-                <p className='text-xs'>{t('Number of users invited')}</p>
+                <p className="text-xs">{t("Number of users invited")}</p>
               </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger
                 render={
                   <StatusBadge
-                    label={`${t('Revenue')}: ${formatQuota(affHistoryQuota)}`}
-                    variant='neutral'
+                    label={`${t("Revenue")}: ${formatQuota(affHistoryQuota)}`}
+                    variant="neutral"
                     copyable={false}
-                    className='cursor-help'
+                    className="cursor-help"
                   />
                 }
               />
               <TooltipContent>
-                <p className='text-xs'>{t('Total invitation revenue')}</p>
+                <p className="text-xs">{t("Total invitation revenue")}</p>
               </TooltipContent>
             </Tooltip>
             {inviterId > 0 && (
@@ -349,83 +418,83 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 <TooltipTrigger
                   render={
                     <StatusBadge
-                      label={`${t('Inviter')}: ${user.inviter_username || `#${inviterId}`}`}
-                      variant='neutral'
+                      label={`${t("Inviter")}: ${user.inviter_username || `#${inviterId}`}`}
+                      variant="neutral"
                       copyable={false}
-                      className='max-w-[140px] cursor-help truncate'
+                      className="max-w-[140px] cursor-help truncate"
                     />
                   }
                 />
                 <TooltipContent>
-                  <p className='text-xs'>
+                  <p className="text-xs">
                     {user.inviter_username
-                      ? `${t('Inviter')}: ${user.inviter_username} (#${inviterId})`
-                      : `${t('Invited by user ID')} ${inviterId}`}
+                      ? `${t("Inviter")}: ${user.inviter_username} (#${inviterId})`
+                      : `${t("Invited by user ID")} ${inviterId}`}
                   </p>
                 </TooltipContent>
               </Tooltip>
             )}
             {inviterId === 0 && (
               <StatusBadge
-                label={t('No Inviter')}
-                variant='neutral'
+                label={t("No Inviter")}
+                variant="neutral"
                 copyable={false}
               />
             )}
           </div>
-        )
+        );
       },
       size: 240,
       enableSorting: false,
       meta: { mobileHidden: true },
     },
     {
-      accessorKey: 'created_at',
-      header: t('Created At'),
+      accessorKey: "created_at",
+      header: t("Created At"),
       cell: ({ row }) => {
-        const ts = row.getValue('created_at') as number | undefined
+        const ts = row.getValue("created_at") as number | undefined;
         return (
-          <span className='text-muted-foreground text-sm'>
-            {ts ? formatTimestamp(ts) : '-'}
+          <span className="text-muted-foreground text-sm">
+            {ts ? formatTimestamp(ts) : "-"}
           </span>
-        )
+        );
       },
       size: 180,
       meta: { mobileHidden: true },
     },
     {
-      accessorKey: 'last_login_at',
-      header: t('Last Login'),
+      accessorKey: "last_login_at",
+      header: t("Last Login"),
       cell: ({ row }) => {
-        const ts = row.getValue('last_login_at') as number | undefined
+        const ts = row.getValue("last_login_at") as number | undefined;
         return (
-          <span className='text-muted-foreground text-sm'>
-            {ts ? formatTimestamp(ts) : '-'}
+          <span className="text-muted-foreground text-sm">
+            {ts ? formatTimestamp(ts) : "-"}
           </span>
-        )
+        );
       },
       size: 180,
       meta: { mobileHidden: true },
     },
     {
-      // 隐藏列，仅用作 toolbar 重点客户筛选器的列锚点
-      id: 'is_vip_customer',
-      accessorKey: 'is_vip_customer',
-      header: '',
+      // Hidden anchor column for the toolbar VIP customer filter.
+      id: "is_vip_customer",
+      accessorKey: "is_vip_customer",
+      header: "",
       cell: () => null,
       filterFn: (row, id, value: string[]) => {
-        const v = String(row.getValue(id))
-        return value.includes(v)
+        const v = String(row.getValue(id));
+        return value.includes(v);
       },
       enableSorting: false,
       enableHiding: true,
-      meta: { label: t('VIP Customer') },
+      meta: { label: t("VIP Customer") },
     },
     {
-      id: 'actions',
-      header: () => t('Actions'),
+      id: "actions",
+      header: () => t("Actions"),
       cell: ({ row }) => <DataTableRowActions row={row} />,
-      meta: { pinned: 'right' as const },
+      meta: { pinned: "right" as const },
     },
-  ]
+  ];
 }

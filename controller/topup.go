@@ -23,12 +23,14 @@ import (
 
 func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
+	allowOnlineTopup := false
 
 	// 当前登录用户的充值分组比例，用于前端快捷金额按钮显示真实支付价
 	topupGroupRatio := 1.0
 	if userId := c.GetInt("id"); userId > 0 {
-		if group, err := model.GetUserGroup(userId, true); err == nil {
-			if ratio := common.GetTopupGroupRatio(group); ratio > 0 {
+		if user, err := model.GetUserById(userId, false); err == nil {
+			allowOnlineTopup = user.AllowOnlineTopup
+			if ratio := common.GetTopupGroupRatio(user.Group); ratio > 0 {
 				topupGroupRatio = ratio
 			}
 		}
@@ -36,7 +38,7 @@ func GetTopUpInfo(c *gin.Context) {
 
 	// 获取支付方式
 	payMethods := operation_setting.PayMethods
-	if !complianceConfirmed {
+	if !complianceConfirmed || !allowOnlineTopup {
 		payMethods = []map[string]string{}
 	}
 
@@ -106,11 +108,12 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"enable_online_topup":              isEpayTopUpEnabled(),
-		"enable_stripe_topup":              isStripeTopUpEnabled(),
-		"enable_creem_topup":               isCreemTopUpEnabled(),
-		"enable_waffo_topup":               enableWaffo,
-		"enable_waffo_pancake_topup":       enableWaffoPancake,
+		"allow_online_topup":               allowOnlineTopup,
+		"enable_online_topup":              allowOnlineTopup && isEpayTopUpEnabled(),
+		"enable_stripe_topup":              allowOnlineTopup && isStripeTopUpEnabled(),
+		"enable_creem_topup":               allowOnlineTopup && isCreemTopUpEnabled(),
+		"enable_waffo_topup":               allowOnlineTopup && enableWaffo,
+		"enable_waffo_pancake_topup":       allowOnlineTopup && enableWaffoPancake,
 		"enable_redemption":                complianceConfirmed,
 		"payment_compliance_confirmed":     complianceConfirmed,
 		"payment_compliance_terms_version": operation_setting.CurrentComplianceTermsVersion,
@@ -132,6 +135,19 @@ func GetTopUpInfo(c *gin.Context) {
 		"topup_group_ratio":       topupGroupRatio,
 	}
 	common.ApiSuccess(c, data)
+}
+
+func requireOnlineTopupAllowed(c *gin.Context) (*model.User, bool) {
+	user, err := model.GetUserById(c.GetInt("id"), false)
+	if err != nil || user == nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "用户不存在"})
+		return nil, false
+	}
+	if !user.AllowOnlineTopup {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "当前账号未允许在线充值"})
+		return nil, false
+	}
+	return user, true
 }
 
 type EpayRequest struct {
@@ -204,18 +220,17 @@ func RequestEpay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
 		return
 	}
+	user, ok := requireOnlineTopupAllowed(c)
+	if !ok {
+		return
+	}
 	if req.Amount < getMinTopup() {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
 		return
 	}
 
-	id := c.GetInt("id")
-	group, err := model.GetUserGroup(id, true)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
-		return
-	}
-	payMoney := getPayMoney(req.Amount, group)
+	id := user.Id
+	payMoney := getPayMoney(req.Amount, user.Group)
 	if payMoney < 0.01 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
@@ -430,17 +445,15 @@ func RequestAmount(c *gin.Context) {
 		return
 	}
 
+	user, ok := requireOnlineTopupAllowed(c)
+	if !ok {
+		return
+	}
 	if req.Amount < getMinTopup() {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
 		return
 	}
-	id := c.GetInt("id")
-	group, err := model.GetUserGroup(id, true)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
-		return
-	}
-	payMoney := getPayMoney(req.Amount, group)
+	payMoney := getPayMoney(req.Amount, user.Group)
 	if payMoney <= 0.01 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return

@@ -34,6 +34,9 @@ func RequestWaffoPancakeAmount(c *gin.Context) {
 		return
 	}
 
+	if _, ok := requireOnlineTopupAllowed(c); !ok {
+		return
+	}
 	id := c.GetInt("id")
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {
@@ -352,12 +355,11 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		return
 	}
 
-	id := c.GetInt("id")
-	user, err := model.GetUserById(id, false)
-	if err != nil || user == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "用户不存在"})
+	user, ok := requireOnlineTopupAllowed(c)
+	if !ok {
 		return
 	}
+	id := user.Id
 
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {

@@ -61,6 +61,7 @@ export async function searchUsers(
     role = '',
     status = '',
     is_vip = '',
+    allow_online_topup = '',
     created_at_start,
     created_at_end,
     p = 1,
@@ -72,8 +73,12 @@ export async function searchUsers(
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
   if (is_vip) queryParams.set('is_vip', is_vip)
-  if (created_at_start)
+  if (allow_online_topup) {
+    queryParams.set('allow_online_topup', allow_online_topup)
+  }
+  if (created_at_start) {
     queryParams.set('created_at_start', String(created_at_start))
+  }
   if (created_at_end) queryParams.set('created_at_end', String(created_at_end))
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
@@ -227,6 +232,20 @@ export async function batchMarkVipCustomer(
   isVip: boolean
 ): Promise<ApiResponse<{ affected: number }>> {
   const res = await api.post('/api/user/batch_vip', { ids, is_vip: isVip })
+  return res.data
+}
+
+/**
+ * Batch enable/disable online top-up for users (admin)
+ */
+export async function batchSetAllowOnlineTopup(
+  ids: number[],
+  allowOnlineTopup: boolean
+): Promise<ApiResponse<{ affected: number }>> {
+  const res = await api.post('/api/user/batch_online_topup', {
+    ids,
+    allow_online_topup: allowOnlineTopup,
+  })
   return res.data
 }
 

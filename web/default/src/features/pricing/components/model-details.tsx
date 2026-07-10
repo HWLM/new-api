@@ -986,12 +986,14 @@ function GroupPricingSection(props: {
     }
     return types;
   }, [props.model, t]);
-
   if (availableGroups.length === 0) {
     return (
       <section>
         <SectionTitle>{t("Pricing by Group")}</SectionTitle>
-        <AutoGroupChain groups={availableGroups} autoGroups={props.autoGroups} />
+        <AutoGroupChain
+          groups={availableGroups}
+          autoGroups={props.autoGroups}
+        />
         <p className="text-muted-foreground text-sm">
           {t(
             "This model is not available in any group, or no group pricing information is configured.",
@@ -1063,7 +1065,11 @@ function GroupPricingSection(props: {
     return (
       <section>
         <SectionTitle>{t("Pricing by Group")}</SectionTitle>
-        <AutoGroupChain groups={availableGroups} autoGroups={props.autoGroups} />
+        <AutoGroupChain
+          groups={availableGroups}
+          autoGroups={props.autoGroups}
+        />
+
         <div className="space-y-3">
           {availableGroups.map((group) => {
             const ratio = props.groupRatio[group] || 1;
@@ -1129,7 +1135,9 @@ function GroupPricingSection(props: {
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className={thClass}>{t("Group")}</TableHead>
-              {/* <TableHead className={thClass}>{t("Ratio")}</TableHead> */}
+              {!props.pricingDiscountColumnEnabled && (
+                <TableHead className={thClass}>{t("Ratio")}</TableHead>
+              )}
               {isTokenBased ? (
                 <>
                   <TableHead className={`${thClass} text-right`}>
@@ -1169,9 +1177,11 @@ function GroupPricingSection(props: {
                       <GroupBadge group={group} size="sm" />
                     </div>
                   </TableCell>
-                  {/* <TableCell className="text-muted-foreground py-2.5 font-mono">
-                    {ratio}x
-                  </TableCell> */}
+                  {!props.pricingDiscountColumnEnabled && (
+                    <TableCell className="text-muted-foreground py-2.5 font-mono">
+                      {ratio}x
+                    </TableCell>
+                  )}
                   {isTokenBased ? (
                     <>
                       <TableCell className="py-2.5 text-right font-mono">
@@ -1345,6 +1355,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
             )}
+
             <GroupPricingSection
               model={props.model}
               groupRatio={props.groupRatio}
@@ -1358,7 +1369,6 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               pricingDiscountColumnEnabled={props.pricingDiscountColumnEnabled}
             />
           </section>
-
           <ModelBackendDetailsSection
             model={props.model}
             visibleGroups={visibleGroups}

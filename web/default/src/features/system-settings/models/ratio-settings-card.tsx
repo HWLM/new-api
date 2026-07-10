@@ -125,6 +125,7 @@ const createGroupSchema = (t: Translate) =>
       predicateMessage: 'Expected a JSON array of group identifiers',
     }),
     DefaultUseAutoGroup: z.boolean(),
+    DisplayUserSelfGroup: z.boolean(),
     GroupSpecialUsableGroup: createJsonStringField(t),
   })
 
@@ -194,6 +195,7 @@ export function RatioSettingsCard({
     GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
     AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
     DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
+    DisplayUserSelfGroup: groupDefaults.DisplayUserSelfGroup,
     GroupSpecialUsableGroup: normalizeJsonString(
       groupDefaults.GroupSpecialUsableGroup
     ),
@@ -280,6 +282,7 @@ export function RatioSettingsCard({
       GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
       AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
       DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
+      DisplayUserSelfGroup: groupDefaults.DisplayUserSelfGroup,
       GroupSpecialUsableGroup: normalizeJsonString(
         groupDefaults.GroupSpecialUsableGroup
       ),
@@ -350,6 +353,7 @@ export function RatioSettingsCard({
         GroupGroupRatio: normalizeJsonString(values.GroupGroupRatio),
         AutoGroups: normalizeJsonString(values.AutoGroups),
         DefaultUseAutoGroup: values.DefaultUseAutoGroup,
+        DisplayUserSelfGroup: values.DisplayUserSelfGroup,
         GroupSpecialUsableGroup: normalizeJsonString(
           values.GroupSpecialUsableGroup
         ),

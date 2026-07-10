@@ -124,14 +124,12 @@ func RequestWaffoAmount(c *gin.Context) {
 		return
 	}
 
-	id := c.GetInt("id")
-	group, err := model.GetUserGroup(id, true)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
+	user, ok := requireOnlineTopupAllowed(c)
+	if !ok {
 		return
 	}
 
-	payMoney := getWaffoPayMoney(float64(req.Amount), group)
+	payMoney := getWaffoPayMoney(float64(req.Amount), user.Group)
 	if payMoney <= 0.01 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
@@ -158,12 +156,11 @@ func RequestWaffoPay(c *gin.Context) {
 		return
 	}
 
-	id := c.GetInt("id")
-	user, err := model.GetUserById(id, false)
-	if err != nil || user == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "用户不存在"})
+	user, ok := requireOnlineTopupAllowed(c)
+	if !ok {
 		return
 	}
+	id := user.Id
 
 	// 从服务端配置查找支付方式，客户端只传索引或旧字段
 	var resolvedPayMethodType, resolvedPayMethodName string
@@ -197,8 +194,7 @@ func RequestWaffoPay(c *gin.Context) {
 	}
 	// resolvedPayMethodType/Name 为空时，Waffo 自动选择支付方式
 
-	group, _ := model.GetUserGroup(id, true)
-	payMoney := getWaffoPayMoney(float64(req.Amount), group)
+	payMoney := getWaffoPayMoney(float64(req.Amount), user.Group)
 	if payMoney < 0.01 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return

@@ -25,6 +25,8 @@ import {
 } from './section-registry.tsx'
 
 const defaultModelSettings: ModelSettings = {
+  ImageResultObjectStoreEnabled: false,
+  ImageResultObjectStore: '{}',
   'global.pass_through_request_enabled': false,
   'global.thinking_model_blacklist': '[]',
   'global.chat_completions_to_responses_policy': '{}',
@@ -61,6 +63,7 @@ const defaultModelSettings: ModelSettings = {
   GroupGroupRatio: '',
   AutoGroups: '',
   DefaultUseAutoGroup: false,
+  DisplayUserSelfGroup: false,
   'group_ratio_setting.group_special_usable_group': '{}',
   RetryTimes: 0,
   ChannelDisableThreshold: '',
