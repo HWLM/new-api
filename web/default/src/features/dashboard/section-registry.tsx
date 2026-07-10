@@ -25,8 +25,9 @@ import { createSectionRegistry } from '@/features/system-settings/utils/section-
  * - 'all'        所有登录用户均可见（默认）
  * - 'admin'      仅管理员可见
  * - 'commonUser' 仅非管理员可见
+ * - 'hidden'     隐藏，任何人都不可见（保留代码但暂不上线的入口用这个档位）
  */
-type DashboardSectionVisibility = 'all' | 'admin' | 'commonUser'
+type DashboardSectionVisibility = 'all' | 'admin' | 'commonUser' | 'hidden'
 
 /**
  * Dashboard page section definitions
@@ -57,7 +58,8 @@ const DASHBOARD_SECTIONS = [
   {
     id: 'users',
     titleKey: 'User Analytics',
-    visibility: 'admin',
+    // 暂不对外展示，恢复时改回 'admin' 即可（代码和路由都保留）
+    visibility: 'hidden',
     build: () => null,
   },
   {
@@ -112,6 +114,8 @@ function isSectionVisibleTo(
   isAdmin: boolean
 ): boolean {
   switch (visibility) {
+    case 'hidden':
+      return false
     case 'admin':
       return isAdmin
     case 'commonUser':
