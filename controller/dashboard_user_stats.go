@@ -25,7 +25,7 @@ package controller
 //   GET /api/user_stats/cards            —— 顶部 12 张卡片（不受筛选影响）
 //   GET /api/user_stats/top_users        —— 用户消耗排行 top10
 //   GET /api/user_stats/recharge_trend   —— 充值折线图
-//   GET /api/user_stats/channel_pie      —— 渠道客户消耗占比 top10（按 users.business_channel 分组）
+//   GET /api/user_stats/channel_pie      —— 归属渠道消耗占比 top10（按邀请人 business_channel 分组，与明细「归属渠道」列一致）
 //
 // 关键单位约定：
 //   - quota（int64）单位为 QuotaPerUnit/USD：USD = quota / QuotaPerUnit
@@ -333,9 +333,12 @@ type chartFilter struct {
 	startTs   int64
 	endTs     int64
 	username  string
-	channels  []string // 渠道（business_channel）多选，前端逗号分隔传入
-	sales     []string // 销售（display_name）多选；筛选时同时要求 business_channel 非空
-	isVip     *bool
+	// 归属渠道：筛「邀请人（inviter）的 business_channel IN ?」，
+	// 与明细表格「归属渠道」列语义一致（非用户本人的 business_channel）。
+	channels []string
+	// 归属销售：筛「邀请人的 display_name IN ?」，前提是邀请人 business_channel 非空。
+	sales []string
+	isVip *bool
 	// 筛选后的 user_id 集合；nil = 无任何 user 维度过滤
 	userIds []int
 }
@@ -357,17 +360,18 @@ func splitCSV(raw string) []string {
 	return out
 }
 
-// parseChartFilter 解析公共筛选参数 + 把 username/channel/is_vip 转成 user_ids（一次性查 users 表）。
+// parseChartFilter 解析公共筛选参数 + 把 username/channel/sales/is_vip 转成 user_ids（一次性查 users 表）。
 //
 // 入参约定：
 //   - start_date / end_date：YYYY-MM-DD，闭区间。不传时默认近 7 天（含今天）。
 //   - username：模糊匹配
-//   - channel：business_channel 精确匹配
+//   - channel：归属渠道 = 邀请人 business_channel IN ?（与明细表格对齐）
+//   - sales：  归属销售 = 邀请人 display_name IN ?（要求邀请人 business_channel 非空）
 //   - is_vip：0/1（不传则不过滤）
 //
 // 返回的 chartFilter.userIds：
 //   - nil 表示「无 user 维度过滤」
-//   - 长度为 0 的切片表示「过滤命中 0 个用户」，调用方应直接返回空结果
+//   - 长度为 0 的切片表示「过滤明确命中 0 用户」，调用方应直接返回空结果
 func parseChartFilter(c *gin.Context) (*chartFilter, error) {
 	now := time.Now()
 	loc := now.Location()
@@ -407,18 +411,35 @@ func parseChartFilter(c *gin.Context) (*chartFilter, error) {
 		}
 	}
 
-	// 四个 user 维度的过滤：username / channels / sales / is_vip。任何一个非空就需要查 users 拿 ids
+	// 四个 user 维度的过滤：username / channels(归属渠道) / sales(归属销售) / is_vip。
+	// channels/sales 走 inviter 语义 —— 先查符合条件的 inviter ids，再用 inviter_id IN ? 反查客户 ids。
 	if f.username != "" || len(f.channels) > 0 || len(f.sales) > 0 || f.isVip != nil {
+		var inviterIds []int
+		needInviterFilter := len(f.channels) > 0 || len(f.sales) > 0
+		if needInviterFilter {
+			invTx := model.DB.Model(&model.User{}).Where("business_channel <> ''")
+			if len(f.channels) > 0 {
+				invTx = invTx.Where("business_channel IN ?", f.channels)
+			}
+			if len(f.sales) > 0 {
+				invTx = invTx.Where("display_name IN ?", f.sales)
+			}
+			if err := invTx.Pluck("id", &inviterIds).Error; err != nil {
+				return nil, err
+			}
+			if len(inviterIds) == 0 {
+				// 没有匹配的邀请人 → 命中 0 用户
+				f.userIds = []int{}
+				return f, nil
+			}
+		}
+
 		tx := model.DB.Model(&model.User{})
 		if f.username != "" {
 			tx = tx.Where("username LIKE ?", "%"+f.username+"%")
 		}
-		if len(f.channels) > 0 {
-			tx = tx.Where("business_channel IN ?", f.channels)
-		}
-		if len(f.sales) > 0 {
-			// 销售：业务规则要求 business_channel 非空 + display_name IN
-			tx = tx.Where("business_channel <> ''").Where("display_name IN ?", f.sales)
+		if needInviterFilter {
+			tx = tx.Where("inviter_id IN ?", inviterIds)
 		}
 		if f.isVip != nil {
 			tx = tx.Where("is_vip_customer = ?", *f.isVip)
@@ -765,13 +786,17 @@ type channelPieRow struct {
 	Percent     float64 `json:"percent"` // 占筛选范围总消耗的百分比
 }
 
-// GetUserStatsChannelPie 按 users.business_channel 分组的消耗占比 top10。
+// GetUserStatsChannelPie 按「归属渠道」（= 邀请人的 business_channel）分组的消耗占比 top10。
+//
+// 与明细表格「归属渠道」列对齐：客户本人的 business_channel 一般为空（销售才填），
+// 所以分组 key 取 users.inviter → inviter.business_channel。
 //
 // 数据流：
 //  1. aggregateUserConsumption(f) 得到 map[user_id]quota（含今天）
-//  2. 拉 users 的 id → business_channel 映射
-//  3. 内存里按 channel 聚合，空 channel 归到「未分类」
-//  4. 排序、取 top 10、算占比
+//  2. 拉这批 user 的 inviter_id
+//  3. 再拉 inviter 的 business_channel
+//  4. 内存里按 inviter.business_channel 聚合；无邀请人 / 邀请人 business_channel 为空 → 归到「未分类」
+//  5. 排序、取 top 10、算占比
 func GetUserStatsChannelPie(c *gin.Context) {
 	// channel 自身不作为本接口的过滤参数（输出就是按 channel 分组）
 	c.Request.URL.RawQuery = stripQueryParam(c.Request.URL.RawQuery, "channel")
@@ -794,36 +819,63 @@ func GetUserStatsChannelPie(c *gin.Context) {
 		return
 	}
 
-	// 拉 user_id → business_channel
+	// 拉 user_id → inviter_id
 	ids := make([]int, 0, len(perUser))
 	for id := range perUser {
 		ids = append(ids, id)
 	}
-	type row struct {
-		Id              int
-		BusinessChannel string
+	type userRow struct {
+		Id        int
+		InviterId int
 	}
-	var rows []row
+	var uRows []userRow
 	if err := model.DB.Model(&model.User{}).
-		Select("id, business_channel").
+		Select("id, inviter_id").
 		Where("id IN ?", ids).
-		Scan(&rows).Error; err != nil {
+		Scan(&uRows).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	channelOf := make(map[int]string, len(rows))
-	for _, r := range rows {
-		ch := strings.TrimSpace(r.BusinessChannel)
-		if ch == "" {
-			ch = "未分类"
+	inviterOf := make(map[int]int, len(uRows))
+	inviterIdSet := make(map[int]struct{})
+	for _, r := range uRows {
+		inviterOf[r.Id] = r.InviterId
+		if r.InviterId > 0 {
+			inviterIdSet[r.InviterId] = struct{}{}
 		}
-		channelOf[r.Id] = ch
 	}
 
-	// 按 channel 聚合
+	// 拉 inviter_id → business_channel
+	inviterChannelMap := make(map[int]string, len(inviterIdSet))
+	if len(inviterIdSet) > 0 {
+		invIds := make([]int, 0, len(inviterIdSet))
+		for id := range inviterIdSet {
+			invIds = append(invIds, id)
+		}
+		type invRow struct {
+			Id              int
+			BusinessChannel string
+		}
+		var invRows []invRow
+		if err := model.DB.Model(&model.User{}).
+			Select("id, business_channel").
+			Where("id IN ?", invIds).
+			Scan(&invRows).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, r := range invRows {
+			inviterChannelMap[r.Id] = strings.TrimSpace(r.BusinessChannel)
+		}
+	}
+
+	// 按「归属渠道 = 邀请人 business_channel」聚合
 	channelQuota := make(map[string]int64)
 	for uid, q := range perUser {
-		ch := channelOf[uid]
+		ch := ""
+		if invId := inviterOf[uid]; invId > 0 {
+			ch = inviterChannelMap[invId]
+		}
 		if ch == "" {
 			ch = "未分类"
 		}
