@@ -4,7 +4,7 @@ Copyright (C) 2023-2026 QuantumNous
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { TrendDialog } from '@/features/users/vip-stats/trend-dialog'
 import type {
@@ -66,13 +66,17 @@ function filterToTimeRange(filter: StatsFilter): {
 }
 
 export function NewUserStats() {
+  const queryClient = useQueryClient()
   const [filter, setFilter] = useState<StatsFilter>(() => buildDefaultFilter())
   const [trendTarget, setTrendTarget] = useState<DetailsRow | null>(null)
 
   // 对比相关 state
+  // 小时段默认：0 ~ 当前小时。比如 16:02 打开页面 → 0~16，避免把「今天还没走完的时段」拉进对比。
   const [compareEnabled, setCompareEnabled] = useState(false)
   const [compareStartHour, setCompareStartHour] = useState(0)
-  const [compareEndHour, setCompareEndHour] = useState(24)
+  const [compareEndHour, setCompareEndHour] = useState(
+    () => new Date().getHours()
+  )
 
   // 顶部筛选变化时自动关闭对比（避免基线对不上）
   useEffect(() => {
@@ -126,6 +130,13 @@ export function NewUserStats() {
   })
 
   const filterKey = useMemo(() => JSON.stringify(filter), [filter])
+
+  // 刷新按钮：把所有 ['user-stats', ...] 前缀的 query 一次性置为 stale 并重新拉取。
+  // 页面内 12 个 query 的 key 都以 'user-stats' 开头（cards/filter-options/groups/top-users/
+  // recharge-trend/channel-pie/consumption-trend/details*/promotion-*）。
+  const handleRefresh = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['user-stats'] })
+  }, [queryClient])
 
   const topUsersQuery = useQuery({
     queryKey: ['user-stats', 'top-users', filterKey],
@@ -189,6 +200,7 @@ export function NewUserStats() {
         value={filter}
         onChange={setFilter}
         options={filterOptionsQuery.data}
+        onRefresh={handleRefresh}
       />
 
       <CompareBar

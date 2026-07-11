@@ -5,6 +5,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -75,10 +76,12 @@ export function FilterBar({
   value,
   onChange,
   options,
+  onRefresh,
 }: {
   value: StatsFilter
   onChange: (next: StatsFilter) => void
   options: FilterOptions | undefined
+  onRefresh?: () => void
 }) {
   const { t } = useTranslation()
   const [activeRange, setActiveRange] = useState<QuickRange>('today')
@@ -226,6 +229,17 @@ export function FilterBar({
         <Button variant='outline' onClick={resetFilter}>
           {t('Reset')}
         </Button>
+        {onRefresh && (
+          <Button
+            variant='outline'
+            onClick={onRefresh}
+            title={t('Refresh')}
+            aria-label={t('Refresh')}
+          >
+            <RefreshCw className='mr-1 h-4 w-4' />
+            {t('Refresh')}
+          </Button>
+        )}
       </div>
     </div>
   )
