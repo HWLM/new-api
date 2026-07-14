@@ -92,7 +92,8 @@ func GetInviterCharts(c *gin.Context) {
 
 // GetInviterSummary 汇总表格（仅商务账号）
 //
-// Query: last_consumed_start, last_consumed_end, remaining_op, remaining_value, username
+// Query: last_consumed_start, last_consumed_end, remaining_op, remaining_value,
+// username, sort_by, sort_order
 func GetInviterSummary(c *gin.Context) {
 	if !requireBusinessAccount(c) {
 		return
@@ -107,6 +108,8 @@ func GetInviterSummary(c *gin.Context) {
 		RemainingOp:       c.Query("remaining_op"),
 		RemainingValue:    remainingValue,
 		UsernameKeyword:   c.Query("username"),
+		SortBy:            c.Query("sort_by"),
+		SortOrder:         c.Query("sort_order"),
 	}
 	rows, err := model.GetInviterSummary(myId, filter)
 	if err != nil {
@@ -118,7 +121,7 @@ func GetInviterSummary(c *gin.Context) {
 
 // GetInviterDaily 按天表格（仅商务账号）
 //
-// Query: start_timestamp, end_timestamp, username
+// Query: start_timestamp, end_timestamp, username, sort_by, sort_order
 func GetInviterDaily(c *gin.Context) {
 	if !requireBusinessAccount(c) {
 		return
@@ -130,6 +133,8 @@ func GetInviterDaily(c *gin.Context) {
 		StartTs:         startTs,
 		EndTs:           endTs,
 		UsernameKeyword: c.Query("username"),
+		SortBy:          c.Query("sort_by"),
+		SortOrder:       c.Query("sort_order"),
 	}
 	rows, err := model.GetInviterDaily(myId, filter)
 	if err != nil {

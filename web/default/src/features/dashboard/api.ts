@@ -120,6 +120,8 @@ export async function getInviterSummary(params: {
   remaining_op?: string;
   remaining_value?: number;
   username?: string;
+  sort_by?: string;
+  sort_order?: "asc" | "desc";
 }) {
   const res = await api.get<{ success: boolean; data: InviterSummaryRow[] }>(
     "/api/user/inviter_stats/summary",
@@ -132,6 +134,8 @@ export async function getInviterDaily(params: {
   start_timestamp?: number;
   end_timestamp?: number;
   username?: string;
+  sort_by?: string;
+  sort_order?: "asc" | "desc";
 }) {
   const res = await api.get<{ success: boolean; data: InviterDailyRow[] }>(
     "/api/user/inviter_stats/daily",

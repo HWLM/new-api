@@ -239,6 +239,12 @@ type InviterSummaryFilter struct {
 	RemainingOp       string // ">=" / "<=" / "=" / ""（不筛）
 	RemainingValue    int64
 	UsernameKeyword   string
+	// 排序字段，为空则按 total_consumed 倒序（默认行为）。
+	// 允许值：username / created_at / last_consumed_at / total_requests /
+	//   total_consumed / total_tokens / total_recharge_cny / current_remaining
+	SortBy string
+	// "asc" / "desc"，默认 "desc"
+	SortOrder string
 }
 
 // GetInviterSummary 返回汇总表格的所有行（不分页 — 一个登录用户通常邀请数有限）
@@ -348,10 +354,74 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 			CurrentRemaining: u.Quota,
 		})
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		return rows[i].TotalConsumed > rows[j].TotalConsumed
-	})
+	sortInviterSummaryRows(rows, f.SortBy, f.SortOrder)
 	return rows, nil
+}
+
+// sortInviterSummaryRows 根据 sortBy/sortOrder 对汇总行原地排序；未指定或 key 未识别时，
+// 保持默认口径（total_consumed DESC）。使用稳定排序，避免同值行在多次点击间乱跳。
+func sortInviterSummaryRows(rows []InviterSummaryRow, sortBy, sortOrder string) {
+	asc := sortOrder == "asc"
+	less := func(i, j int) bool { return rows[i].TotalConsumed > rows[j].TotalConsumed }
+	switch sortBy {
+	case "username":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].Username < rows[j].Username
+			}
+			return rows[i].Username > rows[j].Username
+		}
+	case "created_at":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].CreatedAt < rows[j].CreatedAt
+			}
+			return rows[i].CreatedAt > rows[j].CreatedAt
+		}
+	case "last_consumed_at":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].LastConsumedAt < rows[j].LastConsumedAt
+			}
+			return rows[i].LastConsumedAt > rows[j].LastConsumedAt
+		}
+	case "total_requests":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].TotalRequests < rows[j].TotalRequests
+			}
+			return rows[i].TotalRequests > rows[j].TotalRequests
+		}
+	case "total_consumed":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].TotalConsumed < rows[j].TotalConsumed
+			}
+			return rows[i].TotalConsumed > rows[j].TotalConsumed
+		}
+	case "total_tokens":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].TotalTokens < rows[j].TotalTokens
+			}
+			return rows[i].TotalTokens > rows[j].TotalTokens
+		}
+	case "total_recharge_cny":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].TotalRechargeCny < rows[j].TotalRechargeCny
+			}
+			return rows[i].TotalRechargeCny > rows[j].TotalRechargeCny
+		}
+	case "current_remaining":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].CurrentRemaining < rows[j].CurrentRemaining
+			}
+			return rows[i].CurrentRemaining > rows[j].CurrentRemaining
+		}
+	}
+	sort.SliceStable(rows, less)
 }
 
 // ----------------------------------------------------------------------------
@@ -371,6 +441,12 @@ type InviterDailyFilter struct {
 	StartTs         int64
 	EndTs           int64
 	UsernameKeyword string
+	// 排序字段，为空则按 (date DESC, total_consumed DESC)（默认行为）。
+	// 允许值：date / username / total_requests / total_consumed /
+	//   total_tokens / total_recharge_cny
+	SortBy string
+	// "asc" / "desc"，默认 "desc"
+	SortOrder string
 }
 
 // GetInviterDaily 按天展开：每个 (天, 用户) 一行。
@@ -487,11 +563,63 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 	for _, r := range bucket {
 		rows = append(rows, *r)
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
+	sortInviterDailyRows(rows, f.SortBy, f.SortOrder)
+	return rows, nil
+}
+
+// sortInviterDailyRows 根据 sortBy/sortOrder 对按天行原地排序；未指定或 key 未识别时，
+// 保持默认口径（date DESC，同日 total_consumed DESC）。
+func sortInviterDailyRows(rows []InviterDailyRow, sortBy, sortOrder string) {
+	asc := sortOrder == "asc"
+	less := func(i, j int) bool {
 		if rows[i].Date != rows[j].Date {
-			return rows[i].Date > rows[j].Date // 日期倒序
+			return rows[i].Date > rows[j].Date
 		}
 		return rows[i].TotalConsumed > rows[j].TotalConsumed
-	})
-	return rows, nil
+	}
+	switch sortBy {
+	case "date":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].Date < rows[j].Date
+			}
+			return rows[i].Date > rows[j].Date
+		}
+	case "username":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].Username < rows[j].Username
+			}
+			return rows[i].Username > rows[j].Username
+		}
+	case "total_requests":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].TotalRequests < rows[j].TotalRequests
+			}
+			return rows[i].TotalRequests > rows[j].TotalRequests
+		}
+	case "total_consumed":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].TotalConsumed < rows[j].TotalConsumed
+			}
+			return rows[i].TotalConsumed > rows[j].TotalConsumed
+		}
+	case "total_tokens":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].TotalTokens < rows[j].TotalTokens
+			}
+			return rows[i].TotalTokens > rows[j].TotalTokens
+		}
+	case "total_recharge_cny":
+		less = func(i, j int) bool {
+			if asc {
+				return rows[i].TotalRechargeCny < rows[j].TotalRechargeCny
+			}
+			return rows[i].TotalRechargeCny > rows[j].TotalRechargeCny
+		}
+	}
+	sort.SliceStable(rows, less)
 }

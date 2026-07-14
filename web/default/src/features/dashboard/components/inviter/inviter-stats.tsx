@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { VChart } from '@visactor/react-vchart'
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import dayjs from '@/lib/dayjs'
 import { formatCurrencyFromUSD } from '@/lib/currency'
@@ -382,6 +383,17 @@ function ModeSwitch(props: {
 }
 
 // ----------- 汇总视图 -----------
+type SummarySortKey =
+  | 'username'
+  | 'created_at'
+  | 'last_consumed_at'
+  | 'total_requests'
+  | 'total_consumed'
+  | 'total_recharge_cny'
+  | 'total_tokens'
+  | 'current_remaining'
+type SortOrder = 'asc' | 'desc'
+
 function SummaryView(props: {
   username: string
   onUsernameChange: (v: string) => void
@@ -394,6 +406,9 @@ function SummaryView(props: {
   const [lastConsumedEnd, setLastConsumedEnd] = useState<Date | undefined>()
   const [remainingOp, setRemainingOp] = useState<string>('>=')
   const [remainingValue, setRemainingValue] = useState<string>('')
+  // 表头排序：默认按 total_consumed 降序，与后端默认一致
+  const [sortBy, setSortBy] = useState<SummarySortKey>('total_consumed')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
 
   // 受 "查询" 按钮提交才生效的实际筛选条件
   const [appliedQuery, setAppliedQuery] = useState<{
@@ -411,8 +426,19 @@ function SummaryView(props: {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['inviter-stats', 'summary', appliedQuery],
-    queryFn: () => getInviterSummary(appliedQuery),
+    queryKey: [
+      'inviter-stats',
+      'summary',
+      appliedQuery,
+      sortBy,
+      sortOrder,
+    ],
+    queryFn: () =>
+      getInviterSummary({
+        ...appliedQuery,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      }),
     select: (res) => (res.success ? res.data : []),
     staleTime: 30_000,
   })
@@ -446,6 +472,26 @@ function SummaryView(props: {
       remaining_value: 0,
       username: '',
     })
+  }
+
+  const handleSort = (key: SummarySortKey) => {
+    if (sortBy === key) {
+      setSortOrder((o) => (o === 'desc' ? 'asc' : 'desc'))
+      return
+    }
+    setSortBy(key)
+    setSortOrder('desc')
+  }
+  const SortIcon = ({ col }: { col: SummarySortKey }) => {
+    if (sortBy !== col)
+      return (
+        <ArrowUpDown className='text-muted-foreground/40 ml-1 inline size-3.5' />
+      )
+    return sortOrder === 'desc' ? (
+      <ArrowDown className='ml-1 inline size-3.5' />
+    ) : (
+      <ArrowUp className='ml-1 inline size-3.5' />
+    )
   }
 
   return (
@@ -517,19 +563,61 @@ function SummaryView(props: {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{t('Invited User')}</TableHead>
-            <TableHead>{t('Created At')}</TableHead>
-            <TableHead>{t('Last Consumed Date')}</TableHead>
-            <TableHead className='text-center'>{t('Total Requests')}</TableHead>
-            <TableHead className='text-center'>
+            <TableHead
+              className='cursor-pointer select-none'
+              onClick={() => handleSort('username')}
+            >
+              {t('Invited User')}
+              <SortIcon col='username' />
+            </TableHead>
+            <TableHead
+              className='cursor-pointer select-none'
+              onClick={() => handleSort('created_at')}
+            >
+              {t('Created At')}
+              <SortIcon col='created_at' />
+            </TableHead>
+            <TableHead
+              className='cursor-pointer select-none'
+              onClick={() => handleSort('last_consumed_at')}
+            >
+              {t('Last Consumed Date')}
+              <SortIcon col='last_consumed_at' />
+            </TableHead>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('total_requests')}
+            >
+              {t('Total Requests')}
+              <SortIcon col='total_requests' />
+            </TableHead>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('total_consumed')}
+            >
               {t('Total Consumed ($)')}
+              <SortIcon col='total_consumed' />
             </TableHead>
-            <TableHead className='text-center'>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('total_recharge_cny')}
+            >
               {t('Total Recharge (¥)')}
+              <SortIcon col='total_recharge_cny' />
             </TableHead>
-            <TableHead className='text-center'>{t('Total Tokens')}</TableHead>
-            <TableHead className='text-center'>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('total_tokens')}
+            >
+              {t('Total Tokens')}
+              <SortIcon col='total_tokens' />
+            </TableHead>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('current_remaining')}
+            >
               {t('Current Balance ($)')}
+              <SortIcon col='current_remaining' />
             </TableHead>
             <TableHead className='text-center'>{t('Actions')}</TableHead>
           </TableRow>
@@ -601,6 +689,14 @@ function SummaryView(props: {
 }
 
 // ----------- 按天视图 -----------
+type DailySortKey =
+  | 'date'
+  | 'username'
+  | 'total_requests'
+  | 'total_consumed'
+  | 'total_recharge_cny'
+  | 'total_tokens'
+
 function DailyView(props: {
   username: string
   onUsernameChange: (v: string) => void
@@ -612,6 +708,9 @@ function DailyView(props: {
   const initToday = dayjs().startOf('day').toDate()
   const [dateStart, setDateStart] = useState<Date | undefined>(initToday)
   const [dateEnd, setDateEnd] = useState<Date | undefined>(new Date())
+  // 表头排序：默认按 date 降序，与后端默认一致
+  const [sortBy, setSortBy] = useState<DailySortKey>('date')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
 
   const [appliedQuery, setAppliedQuery] = useState<{
     start_timestamp: number
@@ -624,8 +723,19 @@ function DailyView(props: {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['inviter-stats', 'daily', appliedQuery],
-    queryFn: () => getInviterDaily(appliedQuery),
+    queryKey: [
+      'inviter-stats',
+      'daily',
+      appliedQuery,
+      sortBy,
+      sortOrder,
+    ],
+    queryFn: () =>
+      getInviterDaily({
+        ...appliedQuery,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      }),
     select: (res) => (res.success ? res.data : []),
     staleTime: 30_000,
   })
@@ -646,6 +756,26 @@ function DailyView(props: {
       end_timestamp: dayjs().unix(),
       username: '',
     })
+  }
+
+  const handleSort = (key: DailySortKey) => {
+    if (sortBy === key) {
+      setSortOrder((o) => (o === 'desc' ? 'asc' : 'desc'))
+      return
+    }
+    setSortBy(key)
+    setSortOrder('desc')
+  }
+  const SortIcon = ({ col }: { col: DailySortKey }) => {
+    if (sortBy !== col)
+      return (
+        <ArrowUpDown className='text-muted-foreground/40 ml-1 inline size-3.5' />
+      )
+    return sortOrder === 'desc' ? (
+      <ArrowDown className='ml-1 inline size-3.5' />
+    ) : (
+      <ArrowUp className='ml-1 inline size-3.5' />
+    )
   }
 
   return (
@@ -688,16 +818,48 @@ function DailyView(props: {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{t('Date')}</TableHead>
-            <TableHead>{t('Invited User')}</TableHead>
-            <TableHead className='text-center'>{t('Total Requests')}</TableHead>
-            <TableHead className='text-center'>
+            <TableHead
+              className='cursor-pointer select-none'
+              onClick={() => handleSort('date')}
+            >
+              {t('Date')}
+              <SortIcon col='date' />
+            </TableHead>
+            <TableHead
+              className='cursor-pointer select-none'
+              onClick={() => handleSort('username')}
+            >
+              {t('Invited User')}
+              <SortIcon col='username' />
+            </TableHead>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('total_requests')}
+            >
+              {t('Total Requests')}
+              <SortIcon col='total_requests' />
+            </TableHead>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('total_consumed')}
+            >
               {t('Total Consumed ($)')}
+              <SortIcon col='total_consumed' />
             </TableHead>
-            <TableHead className='text-center'>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('total_recharge_cny')}
+            >
               {t('Total Recharge (¥)')}
+              <SortIcon col='total_recharge_cny' />
             </TableHead>
-            <TableHead className='text-center'>{t('Total Tokens')}</TableHead>
+            <TableHead
+              className='cursor-pointer select-none text-center'
+              onClick={() => handleSort('total_tokens')}
+            >
+              {t('Total Tokens')}
+              <SortIcon col='total_tokens' />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
