@@ -468,6 +468,7 @@ type GroupPricingTableProps = {
 
 type VisibleGroupsCellProps = {
   groups: string[] | null
+  disabled?: boolean
   onAssociate: () => void
 }
 
@@ -481,6 +482,7 @@ function VisibleGroupsCell(props: VisibleGroupsCellProps) {
       variant='outline'
       size='sm'
       onClick={props.onAssociate}
+      disabled={props.disabled}
     >
       <Link2 className='mr-1.5 h-4 w-4' />
       {t('Associate')}
@@ -866,6 +868,7 @@ function GroupPricingTable({
                 cell: (row) => (
                   <VisibleGroupsCell
                     groups={row.visibleGroups}
+                    disabled={row.selectable}
                     onAssociate={() => openAssociationDialog(row)}
                   />
                 ),
