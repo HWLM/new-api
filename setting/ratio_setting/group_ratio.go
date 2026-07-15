@@ -25,6 +25,8 @@ var defaultGroupGroupRatio = map[string]map[string]float64{
 
 var groupGroupRatioMap = types.NewRWMap[string, map[string]float64]()
 
+var userGroupVisibleGroupsMap = types.NewRWMap[string, []string]()
+
 var defaultGroupSpecialUsableGroup = map[string]map[string]string{
 	"vip": {
 		"append_1":   "vip_special_group_1",
@@ -36,6 +38,7 @@ type GroupRatioSetting struct {
 	GroupRatio              *types.RWMap[string, float64]            `json:"group_ratio"`
 	GroupGroupRatio         *types.RWMap[string, map[string]float64] `json:"group_group_ratio"`
 	GroupSpecialUsableGroup *types.RWMap[string, map[string]string]  `json:"group_special_usable_group"`
+	UserGroupVisibleGroups  *types.RWMap[string, []string]           `json:"user_group_visible_groups"`
 }
 
 var groupRatioSetting GroupRatioSetting
@@ -51,6 +54,7 @@ func init() {
 		GroupSpecialUsableGroup: groupSpecialUsableGroup,
 		GroupRatio:              groupRatioMap,
 		GroupGroupRatio:         groupGroupRatioMap,
+		UserGroupVisibleGroups:  userGroupVisibleGroupsMap,
 	}
 
 	config.GlobalConfig.Register("group_ratio_setting", &groupRatioSetting)
@@ -61,7 +65,41 @@ func GetGroupRatioSetting() *GroupRatioSetting {
 		groupRatioSetting.GroupSpecialUsableGroup = types.NewRWMap[string, map[string]string]()
 		groupRatioSetting.GroupSpecialUsableGroup.AddAll(defaultGroupSpecialUsableGroup)
 	}
+	if groupRatioSetting.UserGroupVisibleGroups == nil {
+		groupRatioSetting.UserGroupVisibleGroups = types.NewRWMap[string, []string]()
+	}
 	return &groupRatioSetting
+}
+
+func UserGroupVisibleGroups2JSONString() string {
+	return userGroupVisibleGroupsMap.MarshalJSONString()
+}
+
+func UpdateUserGroupVisibleGroupsByJSONString(jsonStr string) error {
+	return types.LoadFromJsonString(userGroupVisibleGroupsMap, jsonStr)
+}
+
+func CheckUserGroupVisibleGroups(jsonStr string) error {
+	visibleGroups := make(map[string][]string)
+	if err := common.Unmarshal([]byte(jsonStr), &visibleGroups); err != nil {
+		return err
+	}
+	for userGroup, groups := range visibleGroups {
+		if userGroup == "" {
+			return errors.New("user group name must not be empty")
+		}
+		seen := make(map[string]struct{}, len(groups))
+		for _, group := range groups {
+			if group == "" {
+				return errors.New("visible group name must not be empty: " + userGroup)
+			}
+			if _, ok := seen[group]; ok {
+				return errors.New("duplicate visible group: " + group)
+			}
+			seen[group] = struct{}{}
+		}
+	}
+	return nil
 }
 
 func GetGroupRatioCopy() map[string]float64 {

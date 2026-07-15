@@ -65,6 +65,7 @@ const defaultModelSettings: ModelSettings = {
   DefaultUseAutoGroup: false,
   DisplayUserSelfGroup: false,
   'group_ratio_setting.group_special_usable_group': '{}',
+  'group_ratio_setting.user_group_visible_groups': '{}',
   RetryTimes: 0,
   ChannelDisableThreshold: '',
   AutomaticDisableChannelEnabled: false,

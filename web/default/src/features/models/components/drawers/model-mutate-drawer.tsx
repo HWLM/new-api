@@ -165,6 +165,7 @@ export function ModelMutateDrawer({
   const modelSettings = useMemo(() => {
     if (!systemOptionsData?.data) return null
     const defaultModelSettings: ModelSettings = {
+      ImageResultObjectStoreEnabled: false,
       ImageResultObjectStore: '{}',
       'global.pass_through_request_enabled': false,
       'global.thinking_model_blacklist': '[]',
@@ -202,6 +203,7 @@ export function ModelMutateDrawer({
       DefaultUseAutoGroup: false,
       CreateCacheRatio: '',
       'group_ratio_setting.group_special_usable_group': '{}',
+      'group_ratio_setting.user_group_visible_groups': '{}',
       'grok.violation_deduction_enabled': false,
       'grok.violation_deduction_amount': 0,
       RetryTimes: 0,

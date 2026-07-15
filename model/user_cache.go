@@ -16,6 +16,7 @@ import (
 // UserBase struct remains the same as it represents the cached data structure
 type UserBase struct {
 	Id       int    `json:"id"`
+	Role     int    `json:"role"`
 	Group    string `json:"group"`
 	Email    string `json:"email"`
 	Quota    int    `json:"quota"`
@@ -25,6 +26,7 @@ type UserBase struct {
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {
+	c.Set("role", user.Role)
 	common.SetContextKey(c, constant.ContextKeyUserGroup, user.Group)
 	common.SetContextKey(c, constant.ContextKeyUserQuota, user.Quota)
 	common.SetContextKey(c, constant.ContextKeyUserStatus, user.Status)
@@ -85,6 +87,9 @@ func updateUserCache(user User) error {
 	if err := updateUserGroupCache(user.Id, user.Group); err != nil {
 		return err
 	}
+	if err := updateUserRoleCache(user.Id, user.Role); err != nil {
+		return err
+	}
 	if err := updateUserEmailCache(user.Id, user.Email); err != nil {
 		return err
 	}
@@ -128,6 +133,7 @@ func GetUserCache(userId int) (userCache *UserBase, err error) {
 	// Create cache object from user data
 	userCache = &UserBase{
 		Id:       user.Id,
+		Role:     user.Role,
 		Group:    user.Group,
 		Quota:    user.Quota,
 		Status:   user.Status,
@@ -143,11 +149,14 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 	if !common.RedisEnabled {
 		return nil, fmt.Errorf("redis is not enabled")
 	}
-	var userCache UserBase
+	userCache := UserBase{Role: -1}
 	// Try getting from Redis first
 	err := common.RedisHGetObj(getUserCacheKey(userId), &userCache)
 	if err != nil {
 		return nil, err
+	}
+	if userCache.Role == -1 {
+		return nil, fmt.Errorf("cached user role is missing")
 	}
 	return &userCache, nil
 }
@@ -229,6 +238,13 @@ func updateUserGroupCache(userId int, group string) error {
 		return nil
 	}
 	return common.RedisHSetField(getUserCacheKey(userId), "Group", group)
+}
+
+func updateUserRoleCache(userId int, role int) error {
+	if !common.RedisEnabled {
+		return nil
+	}
+	return common.RedisHSetField(getUserCacheKey(userId), "Role", fmt.Sprintf("%d", role))
 }
 
 func UpdateUserGroupCache(userId int, group string) error {

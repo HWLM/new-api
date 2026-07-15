@@ -71,17 +71,20 @@ type GroupFormValues = {
   DefaultUseAutoGroup: boolean
   DisplayUserSelfGroup: boolean
   GroupSpecialUsableGroup: string
+  UserGroupVisibleGroups: string
 }
 
 type GroupRatioFormProps = {
   form: UseFormReturn<GroupFormValues>
   onSave: (values: GroupFormValues) => Promise<void>
+  onSaveVisibleGroups: (value: string) => Promise<boolean>
   isSaving: boolean
 }
 
 export const GroupRatioForm = memo(function GroupRatioForm({
   form,
   onSave,
+  onSaveVisibleGroups,
   isSaving,
 }: GroupRatioFormProps) {
   const { t } = useTranslation()
@@ -171,9 +174,11 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               groupGroupRatio={form.watch('GroupGroupRatio')}
               autoGroups={form.watch('AutoGroups')}
               groupSpecialUsableGroup={form.watch('GroupSpecialUsableGroup')}
+              userGroupVisibleGroups={form.watch('UserGroupVisibleGroups')}
               onChange={(field, value) =>
                 handleFieldChange(field as keyof GroupFormValues, value)
               }
+              onSaveVisibleGroups={onSaveVisibleGroups}
             />
 
             <GroupSpecialUsableRulesEditor
@@ -308,6 +313,25 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                       'to override billing when a user in one group uses a token of another group.'
                     )}
                   </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='UserGroupVisibleGroups'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Visible group associations')}</FormLabel>
+                  <FormControl>
+                    <Textarea rows={8} {...field} />
+                  </FormControl>
+                    <FormDescription>
+                      {t(
+                        'JSON map of user groups to the selectable groups they can see. Unconfigured user groups cannot see any groups.'
+                      )}
+                    </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

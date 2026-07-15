@@ -31,7 +31,7 @@ func validateAndNormalizeTokenGroups(c *gin.Context, token *model.Token) error {
 		common.ApiError(c, err)
 		return err
 	}
-	usableGroups := service.GetUserUsableGroups(userGroup)
+	usableGroups := service.GetUserUsableGroups(userGroup, c.GetInt("role"))
 	for _, g := range groups {
 		if _, ok := usableGroups[g]; !ok {
 			common.ApiErrorI18n(c, i18n.MsgTokenGroupUnauthorized, map[string]any{"Group": g})
@@ -356,7 +356,7 @@ func UpdateToken(c *gin.Context) {
 	}
 	if err := validateAndNormalizeTokenGroups(c, &token); err != nil {
 		return
-	}          
+	}
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)

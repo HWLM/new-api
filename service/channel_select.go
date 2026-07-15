@@ -39,7 +39,7 @@ func resolveTokenGroupList(ctx *gin.Context, tokenGroup string, userGroup string
 	seen := make(map[string]struct{}, len(raw))
 	for _, g := range raw {
 		if g == "auto" {
-			for _, ag := range GetUserAutoGroup(userGroup) {
+			for _, ag := range GetUserAutoGroup(userGroup, ctx.GetInt("role")) {
 				if _, ok := seen[ag]; ok {
 					continue
 				}
