@@ -69,6 +69,78 @@ func GetUserUsableGroups(userGroup string, userRole int) map[string]string {
 	return groups
 }
 
+func ResolveTokenGroupsForUser(userGroup string, tokenGroups []string, userRole int) ([]string, bool) {
+	if userRole >= common.RoleRootUser {
+		return tokenGroups, true
+	}
+
+	usesUserGroup := false
+	for _, group := range tokenGroups {
+		if group == userGroup {
+			usesUserGroup = true
+			break
+		}
+	}
+	if !usesUserGroup {
+		return tokenGroups, true
+	}
+
+	visibleGroups, configured := ratio_setting.GetGroupRatioSetting().UserGroupVisibleGroups.Get(userGroup)
+	if !configured || len(visibleGroups) == 0 {
+		return nil, false
+	}
+	usableGroups := getConfiguredUsableGroups(userGroup, userRole)
+	for _, group := range visibleGroups {
+		if _, ok := usableGroups[group]; !ok || (!ratio_setting.ContainsGroupRatio(group) && group != "auto") {
+			return nil, false
+		}
+	}
+	visibleGroupSet := make(map[string]struct{}, len(visibleGroups))
+	for _, group := range visibleGroups {
+		visibleGroupSet[group] = struct{}{}
+	}
+	orderedVisibleGroups := make([]string, 0, len(visibleGroups))
+	orderedVisibleGroupSet := make(map[string]struct{}, len(visibleGroups))
+	for _, group := range setting.GetAutoGroups() {
+		if _, visible := visibleGroupSet[group]; !visible {
+			continue
+		}
+		if _, exists := orderedVisibleGroupSet[group]; exists {
+			continue
+		}
+		orderedVisibleGroupSet[group] = struct{}{}
+		orderedVisibleGroups = append(orderedVisibleGroups, group)
+	}
+	for _, group := range visibleGroups {
+		if _, exists := orderedVisibleGroupSet[group]; exists {
+			continue
+		}
+		orderedVisibleGroupSet[group] = struct{}{}
+		orderedVisibleGroups = append(orderedVisibleGroups, group)
+	}
+
+	resolvedGroups := make([]string, 0, len(tokenGroups)+len(orderedVisibleGroups)-1)
+	seen := make(map[string]struct{}, cap(resolvedGroups))
+	for _, group := range tokenGroups {
+		if group == userGroup {
+			for _, visibleGroup := range orderedVisibleGroups {
+				if _, exists := seen[visibleGroup]; exists {
+					continue
+				}
+				seen[visibleGroup] = struct{}{}
+				resolvedGroups = append(resolvedGroups, visibleGroup)
+			}
+			continue
+		}
+		if _, exists := seen[group]; exists {
+			continue
+		}
+		seen[group] = struct{}{}
+		resolvedGroups = append(resolvedGroups, group)
+	}
+	return resolvedGroups, true
+}
+
 func GroupInUserUsableGroups(userGroup, groupName string, userRole int) bool {
 	_, ok := GetUserUsableGroups(userGroup, userRole)[groupName]
 	return ok

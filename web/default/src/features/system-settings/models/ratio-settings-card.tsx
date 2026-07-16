@@ -408,25 +408,25 @@ export function RatioSettingsCard({
   )
 
   const saveVisibleGroupAssociations = useCallback(
-    async (value: string): Promise<boolean> => {
-      const normalized = normalizeJsonString(value)
-      if (
-        normalized ===
+    async (visibleGroups: string): Promise<boolean> => {
+      const normalizedVisibleGroups = normalizeJsonString(visibleGroups)
+      const visibleGroupsChanged =
+        normalizedVisibleGroups !==
         groupNormalizedDefaults.current.UserGroupVisibleGroups
-      ) {
+      if (!visibleGroupsChanged) {
         return true
       }
 
       try {
         const result = await updateOption.mutateAsync({
           key: 'group_ratio_setting.user_group_visible_groups',
-          value: normalized,
+          value: normalizedVisibleGroups,
         })
         if (!result.success) return false
 
         groupNormalizedDefaults.current = {
           ...groupNormalizedDefaults.current,
-          UserGroupVisibleGroups: normalized,
+          UserGroupVisibleGroups: normalizedVisibleGroups,
         }
         return true
       } catch {
