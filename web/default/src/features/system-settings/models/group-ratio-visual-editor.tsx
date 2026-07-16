@@ -86,7 +86,7 @@ type GroupRatioVisualEditorProps = {
   groupSpecialUsableGroup: string
   userGroupVisibleGroups: string
   onChange: (field: string, value: string) => void
-  onSaveVisibleGroups: (value: string) => Promise<boolean>
+  onSaveVisibleGroups: (visibleGroups: string) => Promise<boolean>
 }
 
 type GroupPricingRow = {
@@ -99,9 +99,12 @@ type GroupPricingRow = {
   visibleGroups: string[] | null
 }
 
+type GroupPricingType = 'user' | 'model'
+
 type RegistryEntry = {
   name: string
   ratio: number
+  type: GroupPricingType
 }
 
 const sectionCardClassName =
@@ -252,6 +255,7 @@ type GroupNameSelectProps = {
   placeholder: string
   onValueChange: (value: string) => void
   className?: string
+  disabled?: boolean
 }
 
 function GroupNameSelect(props: GroupNameSelectProps) {
@@ -261,10 +265,16 @@ function GroupNameSelect(props: GroupNameSelectProps) {
     }
     return props.options
   }, [props.options, props.value])
+  const items = useMemo(
+    () => options.map((name) => ({ label: name, value: name })),
+    [options]
+  )
 
   return (
     <Select
+      items={items}
       value={props.value === '' ? null : props.value}
+      disabled={props.disabled}
       onValueChange={(v) => {
         if (typeof v === 'string' && v !== '') props.onValueChange(v)
       }}
@@ -304,6 +314,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
     const usableMap = parseUsableMap(userUsableGroups)
     const topupMap = parseRatioMap(topupGroupRatio)
     const visibleMap = parseVisibleGroupMap(userGroupVisibleGroups)
+    const modelGroupNames = new Set(Object.keys(usableMap))
     const names = new Set([
       ...Object.keys(ratioMap),
       ...Object.keys(usableMap),
@@ -313,6 +324,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
     return [...names].map((name) => ({
       name,
       ratio: normalizeRatio(ratioMap[name]),
+      type: modelGroupNames.has(name) ? 'model' : 'user',
     }))
   }, [groupRatio, userUsableGroups, topupGroupRatio, userGroupVisibleGroups])
 
@@ -376,6 +388,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
       <GroupOverrideRules
         registry={registry}
         groupGroupRatio={groupGroupRatio}
+        userGroupVisibleGroups={userGroupVisibleGroups}
         onChange={onChange}
       />
 
@@ -462,9 +475,11 @@ type GroupPricingTableProps = {
   topupGroupRatio: string
   userGroupVisibleGroups: string
   onChange: (field: string, value: string) => void
-  onSaveVisibleGroups: (value: string) => Promise<boolean>
+  onSaveVisibleGroups: (visibleGroups: string) => Promise<boolean>
   onShowDetail: (name: string) => void
 }
+
+type GroupPricingFilter = 'all' | GroupPricingType
 
 type VisibleGroupsCellProps = {
   groups: string[] | null
@@ -554,6 +569,14 @@ function GroupPricingTable({
   const [associationDraft, setAssociationDraft] = useState<string[]>([])
   const [associationSearch, setAssociationSearch] = useState('')
   const [isSavingAssociation, setIsSavingAssociation] = useState(false)
+  const [groupFilter, setGroupFilter] = useState<GroupPricingFilter>('all')
+
+  let groupFilterLabel = t('All Groups')
+  if (groupFilter === 'user') {
+    groupFilterLabel = t('User group')
+  } else if (groupFilter === 'model') {
+    groupFilterLabel = t('Model Group')
+  }
 
   const associationRow = useMemo(
     () => rows.find((row) => row._id === associationRowId) ?? null,
@@ -579,6 +602,16 @@ function GroupPricingTable({
       group.toLowerCase().includes(search)
     )
   }, [selectableGroupNames, associationSearch])
+
+  const filteredRows = useMemo(() => {
+    if (groupFilter === 'user') {
+      return rows.filter((row) => !row.selectable)
+    }
+    if (groupFilter === 'model') {
+      return rows.filter((row) => row.selectable)
+    }
+    return rows
+  }, [groupFilter, rows])
 
   const openAssociationDialog = useCallback((row: GroupPricingRow) => {
     setAssociationRowId(row._id)
@@ -610,7 +643,12 @@ function GroupPricingTable({
         userGroupVisibleGroups
       )
     })
-  }, [groupRatio, userUsableGroups, topupGroupRatio, userGroupVisibleGroups])
+  }, [
+    groupRatio,
+    userUsableGroups,
+    topupGroupRatio,
+    userGroupVisibleGroups,
+  ])
 
   const emitRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
@@ -662,19 +700,19 @@ function GroupPricingTable({
   const saveAssociation = useCallback(async () => {
     if (!associationRow) return
 
-    const nextRows = rows.map((row) =>
-      row._id === associationRow._id
-        ? { ...row, visibleGroups: associationDraft }
-        : row
-    )
+    const nextRows = rows.map((row) => {
+      if (row._id !== associationRow._id) return row
+      return {
+        ...row,
+        visibleGroups: associationDraft,
+      }
+    })
     const serialized = serializeGroupPricingRows(nextRows)
     emitRows(nextRows)
 
     setIsSavingAssociation(true)
     try {
-      const saved = await onSaveVisibleGroups(
-        serialized.UserGroupVisibleGroups
-      )
+      const saved = await onSaveVisibleGroups(serialized.UserGroupVisibleGroups)
       if (saved) closeAssociationDialog()
     } finally {
       setIsSavingAssociation(false)
@@ -705,6 +743,7 @@ function GroupPricingTable({
       index += 1
       name = `group_${index}`
     }
+    setGroupFilter('all')
     emitRows([
       ...rows,
       {
@@ -761,19 +800,48 @@ function GroupPricingTable({
               )}
             </CardDescription>
           </div>
-          <Button onClick={addRow} size='sm' className='sm:self-start'>
-            <Plus className='mr-2 h-4 w-4' />
-            {t('Add group')}
-          </Button>
+          <div className='flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center'>
+            <Select
+              value={groupFilter}
+              onValueChange={(value) => {
+                if (
+                  value === 'all' ||
+                  value === 'user' ||
+                  value === 'model'
+                ) {
+                  setGroupFilter(value)
+                }
+              }}
+            >
+              <SelectTrigger className='w-full sm:w-40'>
+                <SelectValue>{groupFilterLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='all'>{t('All Groups')}</SelectItem>
+                  <SelectItem value='user'>{t('User group')}</SelectItem>
+                  <SelectItem value='model'>{t('Model Group')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Button onClick={addRow} size='sm'>
+              <Plus className='mr-2 h-4 w-4' />
+              {t('Add group')}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className='space-y-3'>
           <StaticDataTable
-            data={rows}
+            data={filteredRows}
             getRowKey={(row) => row._id}
             emptyClassName='text-muted-foreground h-20 text-sm'
-            emptyContent={t('No groups yet. Add a group to get started.')}
+            emptyContent={
+              groupFilter === 'all'
+                ? t('No groups yet. Add a group to get started.')
+                : t('No group found.')
+            }
             columns={[
               {
                 id: 'group',
@@ -1006,12 +1074,14 @@ type GroupOverride = {
 type GroupOverrideRulesProps = {
   registry: RegistryEntry[]
   groupGroupRatio: string
+  userGroupVisibleGroups: string
   onChange: (field: string, value: string) => void
 }
 
 function GroupOverrideRules({
   registry,
   groupGroupRatio,
+  userGroupVisibleGroups,
   onChange,
 }: GroupOverrideRulesProps) {
   const { t } = useTranslation()
@@ -1028,6 +1098,36 @@ function GroupOverrideRules({
     () => registry.map((entry) => entry.name),
     [registry]
   )
+
+  const userGroupNames = useMemo(
+    () =>
+      registry
+        .filter((entry) => entry.type === 'user')
+        .map((entry) => entry.name),
+    [registry]
+  )
+
+  const modelGroupNames = useMemo(
+    () =>
+      new Set(
+        registry
+          .filter((entry) => entry.type === 'model')
+          .map((entry) => entry.name)
+      ),
+    [registry]
+  )
+
+  const visibleGroupMap = useMemo(
+    () => parseVisibleGroupMap(userGroupVisibleGroups),
+    [userGroupVisibleGroups]
+  )
+
+  const billingGroupNames = useMemo(() => {
+    if (!overrideUserGroup) return []
+    return (visibleGroupMap[overrideUserGroup] ?? []).filter((group) =>
+      modelGroupNames.has(group)
+    )
+  }, [modelGroupNames, overrideUserGroup, visibleGroupMap])
 
   const baseRatioByName = useMemo(() => {
     const map = new Map<string, number>()
@@ -1304,7 +1404,7 @@ function GroupOverrideRules({
             <Label>{t('User group name')}</Label>
             <GroupNameSelect
               className='w-full'
-              options={registryNames}
+              options={userGroupNames}
               value={userGroupInput}
               placeholder={t('Select a group')}
               onValueChange={setUserGroupInput}
@@ -1319,7 +1419,7 @@ function GroupOverrideRules({
         onSave={handleOverrideSave}
         editData={overrideEditData}
         userGroup={overrideUserGroup}
-        groupOptions={registryNames}
+        groupOptions={billingGroupNames}
         baseRatioByName={baseRatioByName}
       />
     </Card>

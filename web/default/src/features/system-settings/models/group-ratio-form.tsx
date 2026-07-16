@@ -77,7 +77,7 @@ type GroupFormValues = {
 type GroupRatioFormProps = {
   form: UseFormReturn<GroupFormValues>
   onSave: (values: GroupFormValues) => Promise<void>
-  onSaveVisibleGroups: (value: string) => Promise<boolean>
+  onSaveVisibleGroups: (visibleGroups: string) => Promise<boolean>
   isSaving: boolean
 }
 

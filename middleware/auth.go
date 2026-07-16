@@ -419,6 +419,7 @@ func TokenAuth() func(c *gin.Context) {
 
 		userGroup := userCache.Group
 		tokenGroups := token.GetGroups()
+		resolvedTokenGroups := tokenGroups
 		if len(tokenGroups) > 0 {
 			usableGroups := service.GetUserUsableGroups(userGroup, userCache.Role)
 			for _, g := range tokenGroups {
@@ -426,20 +427,36 @@ func TokenAuth() func(c *gin.Context) {
 					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorGroupAccessDenied))
 					return
 				}
-				if !ratio_setting.ContainsGroupRatio(g) && g != "auto" {
+				if g != userGroup && !ratio_setting.ContainsGroupRatio(g) && g != "auto" {
 					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("分组 %s 已被弃用", g))
+					return
+				}
+			}
+			var resolved bool
+			resolvedTokenGroups, resolved = service.ResolveTokenGroupsForUser(userGroup, tokenGroups, userCache.Role)
+			if !resolved {
+				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorGroupAccessDenied))
+				return
+			}
+			for _, g := range resolvedTokenGroups {
+				if _, ok := usableGroups[g]; !ok || (!ratio_setting.ContainsGroupRatio(g) && g != "auto") {
+					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorGroupAccessDenied))
 					return
 				}
 			}
 			// 取列表中第一个分组作为本次请求的 usingGroup（用于 ratio/日志计算）。
 			// 实际渠道路由会按完整列表迭代（写入 ContextKeyTokenGroupList）。
-			userGroup = tokenGroups[0]
+			userGroup = resolvedTokenGroups[0]
 		}
 		common.SetContextKey(c, constant.ContextKeyUsingGroup, userGroup)
 
 		err = SetupContextForToken(c, token, parts...)
 		if err != nil {
 			return
+		}
+		if len(resolvedTokenGroups) > 0 {
+			common.SetContextKey(c, constant.ContextKeyTokenGroup, strings.Join(resolvedTokenGroups, ","))
+			common.SetContextKey(c, constant.ContextKeyTokenGroupList, resolvedTokenGroups)
 		}
 		c.Next()
 	}
