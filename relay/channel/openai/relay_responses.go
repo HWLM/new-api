@@ -130,6 +130,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	})
 
+	// 兜底：SSE event: error / response.failed 头识别到的上游终止事件，
+	// 避免 completion/prompt 的 estimation 兜底导致错误扣费。
+	if apiErr := helper.UpstreamStreamErrorToAPIError(info.StreamStatus); apiErr != nil {
+		return nil, apiErr
+	}
+
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
 		tempStr := responseTextBuilder.String()

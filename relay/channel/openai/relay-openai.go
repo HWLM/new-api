@@ -143,6 +143,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	})
 
+	// 上游 SSE 明确以错误事件（event: error / response.failed / response.error）
+	// 终止：豁免本地 token 估算兜底，直接返回错误，让 controller 层退还预扣并
+	// 跳过 RecordConsumeLog。event 帧本身已由 dataHandler 转发给客户端。
+	if apiErr := helper.UpstreamStreamErrorToAPIError(info.StreamStatus); apiErr != nil {
+		return nil, apiErr
+	}
+
 	// 对音频模型，从倒数第二个stream data中提取usage信息
 	if isAudioModel && secondLastStreamData != "" {
 		var streamResp struct {

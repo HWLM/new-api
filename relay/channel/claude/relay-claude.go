@@ -889,6 +889,11 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		return nil, err
 	}
 
+	// 兜底：SSE event: error 等上游错误终止事件识别到时，豁免 estimation 兜底扣费。
+	if apiErr := helper.UpstreamStreamErrorToAPIError(info.StreamStatus); apiErr != nil {
+		return nil, apiErr
+	}
+
 	HandleStreamFinalResponse(c, info, claudeInfo)
 	return claudeInfo.Usage, nil
 }

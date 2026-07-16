@@ -142,6 +142,7 @@ func TestStreamStatus_IsNormalEnd(t *testing.T) {
 		{StreamEndReasonScannerErr, false},
 		{StreamEndReasonPanic, false},
 		{StreamEndReasonPingFail, false},
+		{StreamEndReasonUpstreamError, false},
 		{StreamEndReasonNone, false},
 	}
 	for _, tt := range tests {
@@ -179,4 +180,45 @@ func TestStreamStatus_Summary_NilSafe(t *testing.T) {
 	t.Parallel()
 	var s *StreamStatus
 	assert.Equal(t, "StreamStatus<nil>", s.Summary())
+}
+
+func TestStreamStatus_HasUpstreamError(t *testing.T) {
+	t.Parallel()
+
+	// nil safe
+	var nilStatus *StreamStatus
+	assert.False(t, nilStatus.HasUpstreamError())
+
+	// 未设置端因：false
+	s := NewStreamStatus()
+	assert.False(t, s.HasUpstreamError())
+
+	// 端因是 Done / EOF：false（即使有软错误累计）
+	s = NewStreamStatus()
+	s.RecordError("soft")
+	s.SetEndReason(StreamEndReasonEOF, nil)
+	assert.False(t, s.HasUpstreamError(), "EOF 结束即使有软错误也不算 upstream error")
+
+	// 端因是 UpstreamError：true
+	s = NewStreamStatus()
+	s.SetEndReason(StreamEndReasonUpstreamError, fmt.Errorf("boom"))
+	assert.True(t, s.HasUpstreamError())
+}
+
+func TestStreamStatus_FirstErrorMessage(t *testing.T) {
+	t.Parallel()
+
+	// nil safe
+	var nilStatus *StreamStatus
+	assert.Equal(t, "", nilStatus.FirstErrorMessage())
+
+	// 无错误
+	s := NewStreamStatus()
+	assert.Equal(t, "", s.FirstErrorMessage())
+
+	// 多条错误：返回第一条
+	s = NewStreamStatus()
+	s.RecordError("first error")
+	s.RecordError("second error")
+	assert.Equal(t, "first error", s.FirstErrorMessage())
 }

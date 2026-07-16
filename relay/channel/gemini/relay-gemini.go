@@ -1380,6 +1380,11 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 	})
 
+	// 兜底：SSE event: error 等上游错误终止事件识别到时，豁免 estimation 兜底扣费。
+	if apiErr := helper.UpstreamStreamErrorToAPIError(info.StreamStatus); apiErr != nil {
+		return nil, apiErr
+	}
+
 	if imageCount != 0 {
 		if usage.CompletionTokens == 0 {
 			usage.CompletionTokens = imageCount * 1400

@@ -571,3 +571,121 @@ func TestStreamScannerHandler_StreamStatus_ReplacesPreInitialized(t *testing.T) 
 	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
 	assert.Equal(t, 0, info.StreamStatus.TotalErrorCount())
 }
+
+// ---------- SSE 上游错误事件识别 ----------
+
+// TestStreamScannerHandler_UpstreamErrorEventAfterData 覆盖典型场景：
+// 上游先流出若干正常 data 帧，之后追加一个 `event: error` + `data: {...}`
+// 错误终止事件，再关连接（无 [DONE]）。
+// 断言：
+//   - 端因固定为 StreamEndReasonUpstreamError（不是 EOF），HasUpstreamError=true
+//   - 从 payload 的 error.message 中提取的消息被 RecordError 记录
+//   - error 事件的 data 载荷依然被 dataHandler 消费（保留对下游客户端的可观测性）
+func TestStreamScannerHandler_UpstreamErrorEventAfterData(t *testing.T) {
+	t.Parallel()
+
+	body := "data: {\"id\":1,\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n" +
+		"\n" +
+		"event: error\n" +
+		"data: {\"error\":{\"type\":\"upstream_error\",\"message\":\"boom mid stream\"}}\n" +
+		"\n"
+
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+
+	var received []string
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		received = append(received, data)
+	})
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonUpstreamError, info.StreamStatus.EndReason,
+		"end reason 必须固定为 UpstreamError，防止上层结算路径把它当正常结束扣估算费")
+	assert.True(t, info.StreamStatus.HasUpstreamError())
+	assert.False(t, info.StreamStatus.IsNormalEnd())
+
+	// message 从 payload 里提取
+	assert.Equal(t, "boom mid stream", info.StreamStatus.FirstErrorMessage())
+
+	// 两条 data 都应该转发给 dataHandler（正常 delta + 错误 payload）
+	require.Len(t, received, 2)
+	assert.Contains(t, received[0], `"content":"hi"`)
+	assert.Contains(t, received[1], `"boom mid stream"`)
+}
+
+// TestStreamScannerHandler_UpstreamErrorEventResponseFailed 覆盖 OpenAI Responses
+// API 的严格终止事件 `event: response.failed`。
+func TestStreamScannerHandler_UpstreamErrorEventResponseFailed(t *testing.T) {
+	t.Parallel()
+
+	body := "event: response.failed\n" +
+		"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"safety\",\"message\":\"blocked by policy\"}}}\n" +
+		"\n"
+
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonUpstreamError, info.StreamStatus.EndReason)
+	assert.Equal(t, "blocked by policy", info.StreamStatus.FirstErrorMessage())
+}
+
+// TestStreamScannerHandler_UpstreamErrorEventResponseError 覆盖 `event: response.error` 变体。
+func TestStreamScannerHandler_UpstreamErrorEventResponseError(t *testing.T) {
+	t.Parallel()
+
+	body := "event: response.error\n" +
+		"data: {\"error\":{\"message\":\"boom\"}}\n" +
+		"\n"
+
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonUpstreamError, info.StreamStatus.EndReason)
+}
+
+// TestStreamScannerHandler_UnknownEventIgnored 白名单外的 event 类型
+// （message / ping / response.output_text.delta 等）保持原有丢弃行为，
+// 不能被误升级为 UpstreamError，否则会误伤所有正常流。
+func TestStreamScannerHandler_UnknownEventIgnored(t *testing.T) {
+	t.Parallel()
+
+	body := "event: message\n" +
+		"data: {\"content\":\"still normal\"}\n" +
+		"\n" +
+		"event: ping\n" +
+		"\n" +
+		"data: [DONE]\n"
+
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason,
+		"未知 event 类型不能触发 UpstreamError，正常流应保持 Done 结束")
+	assert.False(t, info.StreamStatus.HasUpstreamError())
+}
+
+// TestStreamScannerHandler_UpstreamErrorEventEndsPendingOnBlankLine
+// SSE 规范里空行是 event 边界。若一个 `event: error` 头后接的是空行而不是
+// data 行（罕见但合法），pending 状态应被空行重置，端因保持 EOF/DONE，
+// 避免把后续无关的 data 帧误标为 upstream error。
+func TestStreamScannerHandler_UpstreamErrorEventBlankLineResetsPending(t *testing.T) {
+	t.Parallel()
+
+	// event: error 后直接是空行（重置 pending），然后一个正常 data。
+	body := "event: error\n" +
+		"\n" +
+		"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n" +
+		"data: [DONE]\n"
+
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason,
+		"event: error 后跟空行（无 data）不能污染后续正常帧的端因")
+	assert.False(t, info.StreamStatus.HasUpstreamError())
+}

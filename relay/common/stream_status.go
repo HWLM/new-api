@@ -19,6 +19,11 @@ const (
 	StreamEndReasonEOF         StreamEndReason = "eof"
 	StreamEndReasonPanic       StreamEndReason = "panic"
 	StreamEndReasonPingFail    StreamEndReason = "ping_fail"
+	// StreamEndReasonUpstreamError 表示流内识别到上游 SSE 错误事件
+	// （event: error / event: response.failed / event: response.error），
+	// 此时上游已经开始流式响应但中途明确终止在错误状态。
+	// 与 EOF 不同，这类结束不应触发本地 token 估算兜底计费。
+	StreamEndReasonUpstreamError StreamEndReason = "upstream_error"
 )
 
 const maxStreamErrorEntries = 20
@@ -29,9 +34,9 @@ type StreamErrorEntry struct {
 }
 
 type StreamStatus struct {
-	EndReason  StreamEndReason
-	EndError   error
-	endOnce    sync.Once
+	EndReason StreamEndReason
+	EndError  error
+	endOnce   sync.Once
 
 	mu         sync.Mutex
 	Errors     []StreamErrorEntry
@@ -92,6 +97,31 @@ func (s *StreamStatus) IsNormalEnd() bool {
 	return s.EndReason == StreamEndReasonDone ||
 		s.EndReason == StreamEndReasonEOF ||
 		s.EndReason == StreamEndReasonHandlerStop
+}
+
+// HasUpstreamError 表示流内识别到上游 SSE 错误事件（event: error / response.failed 等）。
+// 与 HasErrors() 语义不同：HasErrors 只是软错误累计计数，可能在流仍然正常结束时也非零；
+// HasUpstreamError 只在端因判定为 StreamEndReasonUpstreamError 时为 true，
+// 用于结算路径判断是否豁免本地 token 估算兜底扣费。
+func (s *StreamStatus) HasUpstreamError() bool {
+	if s == nil {
+		return false
+	}
+	return s.EndReason == StreamEndReasonUpstreamError
+}
+
+// FirstErrorMessage 返回 StreamStatus 中第一条软错误 message；
+// 无错误时返回空串。供 handler 层构造对客错误响应时复用。
+func (s *StreamStatus) FirstErrorMessage() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.Errors) == 0 {
+		return ""
+	}
+	return s.Errors[0].Message
 }
 
 func (s *StreamStatus) Summary() string {

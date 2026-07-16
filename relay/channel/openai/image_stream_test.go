@@ -134,9 +134,10 @@ func TestOpenaiImageHandlersReturnJSONError(t *testing.T) {
 	})
 }
 
-// TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent verifies that an error
-// event inside the SSE stream is recorded as a soft error while the payload is
-// still forwarded to the client.
+// TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent verifies that an
+// upstream SSE error event (event: error) is surfaced as a *types.NewAPIError
+// so the caller can refund the pre-consumed quota and skip billing, while the
+// error payload is still forwarded to the client for observability.
 func TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent(t *testing.T) {
 	oldMode := gin.Mode()
 	gin.SetMode(gin.TestMode)
@@ -158,16 +159,19 @@ func TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent(t *testing.T) {
 	c, recorder, resp, info := newImageTestContext(t, body, "text/event-stream", true)
 
 	usage, err := OpenaiImageStreamHandler(c, info, resp)
-	require.Nil(t, err)
-	require.NotNil(t, usage)
+	// event: error 被识别为上游错误终止事件后：
+	// - 返回非空 *NewAPIError，让 controller 层触发 Refund，避免估算扣费
+	// - usage 必须为 nil，因为我们没有可信的用量
+	require.Nil(t, usage)
+	require.NotNil(t, err)
+	require.Equal(t, http.StatusBadGateway, err.StatusCode)
+
 	require.NotNil(t, info.StreamStatus)
-	require.Equal(t, relaycommon.StreamEndReasonEOF, info.StreamStatus.EndReason)
-	require.True(t, info.StreamStatus.HasErrors())
-	require.Equal(t, 1, info.StreamStatus.TotalErrorCount())
-	require.Contains(t, info.StreamStatus.Errors[0].Message, "INTERNAL_ERROR")
-	// The scanner strips the upstream "event: error" line; the event name is
-	// rebuilt from the JSON "type" field (upstream_error). The error message
-	// is still forwarded in the data: payload (stream ID 77).
+	require.Equal(t, relaycommon.StreamEndReasonUpstreamError, info.StreamStatus.EndReason)
+	require.True(t, info.StreamStatus.HasUpstreamError())
+	require.Contains(t, info.StreamStatus.FirstErrorMessage(), "INTERNAL_ERROR")
+	// error 事件的 data 载荷仍然被 dataHandler 转发给客户端（保留错误可观测性），
+	// 图片 handler 从 payload 的 "type" 字段重建 SSE event 名（upstream_error）。
 	require.Contains(t, recorder.Body.String(), `event: upstream_error`)
 	require.Contains(t, recorder.Body.String(), `stream ID 77`)
 }
