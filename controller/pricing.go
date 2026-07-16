@@ -43,19 +43,21 @@ func GetPricing(c *gin.Context) {
 		groupRatio[s] = f
 	}
 	var group string
+	userRole := common.RoleGuestUser
 	topupGroupRatio := 1.0
 	if exists {
 		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
 			group = user.Group
+			userRole = user.Role
 			if ratio := common.GetTopupGroupRatio(group); ratio > 0 {
 				topupGroupRatio = ratio
 			}
 		}
 	}
 
-	usableGroup = service.GetUserUsableGroups(group)
-	displayUsableGroup = service.GetUserUsableGroupsForDisplay(group)
+	usableGroup = service.GetUserUsableGroups(group, userRole)
+	displayUsableGroup = service.GetUserUsableGroupsForDisplay(group, userRole)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	// check groupRatio contains displayUsableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
@@ -79,7 +81,7 @@ func GetPricing(c *gin.Context) {
 		"group_ratio":                     groupRatio,
 		"usable_group":                    displayUsableGroup,
 		"supported_endpoint":              model.GetSupportedEndpointMap(),
-		"auto_groups":                     service.GetUserAutoGroup(group),
+		"auto_groups":                     service.GetUserAutoGroup(group, userRole),
 		"topup_group_ratio":               topupGroupRatio,
 		"pricing_discount_column_enabled": common.PricingDiscountColumnEnabled,
 		"pricing_version":                 "a42d372ccf0b5dd13ecf71203521f9d2",

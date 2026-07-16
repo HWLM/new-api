@@ -58,18 +58,18 @@ function formatJsonValidationError(
     )
   }
 
-  const parts = [
-    error.line && error.column
-      ? t('JSON is invalid at line {{line}}, column {{column}}.', {
-          line: error.line,
-          column: error.column,
-        })
-      : error.position !== undefined
-        ? t('JSON is invalid at position {{position}}.', {
-            position: error.position,
-          })
-        : t('JSON is invalid. Please check the syntax.'),
-  ]
+  let message = t('JSON is invalid. Please check the syntax.')
+  if (error.line && error.column) {
+    message = t('JSON is invalid at line {{line}}, column {{column}}.', {
+      line: error.line,
+      column: error.column,
+    })
+  } else if (error.position !== undefined) {
+    message = t('JSON is invalid at position {{position}}.', {
+      position: error.position,
+    })
+  }
+  const parts = [message]
 
   if (error.missingCommaLine) {
     parts.push(
@@ -127,6 +127,18 @@ const createGroupSchema = (t: Translate) =>
     DefaultUseAutoGroup: z.boolean(),
     DisplayUserSelfGroup: z.boolean(),
     GroupSpecialUsableGroup: createJsonStringField(t),
+    UserGroupVisibleGroups: createJsonStringField(t, {
+      predicate: (parsed) =>
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        !Array.isArray(parsed) &&
+        Object.values(parsed).every(
+          (groups) =>
+            Array.isArray(groups) &&
+            groups.every((group) => typeof group === 'string')
+        ),
+      predicateMessage: 'Expected a JSON map of user groups to visible groups',
+    }),
   })
 
 type ModelFormValues = z.infer<ReturnType<typeof createModelSchema>>
@@ -199,6 +211,9 @@ export function RatioSettingsCard({
     GroupSpecialUsableGroup: normalizeJsonString(
       groupDefaults.GroupSpecialUsableGroup
     ),
+    UserGroupVisibleGroups: normalizeJsonString(
+      groupDefaults.UserGroupVisibleGroups
+    ),
   })
   const modelSchema = useMemo(() => createModelSchema(t), [t])
   const groupSchema = useMemo(() => createGroupSchema(t), [t])
@@ -235,6 +250,9 @@ export function RatioSettingsCard({
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
+      ),
+      UserGroupVisibleGroups: formatJsonForTextarea(
+        groupDefaults.UserGroupVisibleGroups
       ),
     },
   })
@@ -286,6 +304,9 @@ export function RatioSettingsCard({
       GroupSpecialUsableGroup: normalizeJsonString(
         groupDefaults.GroupSpecialUsableGroup
       ),
+      UserGroupVisibleGroups: normalizeJsonString(
+        groupDefaults.UserGroupVisibleGroups
+      ),
     }
 
     groupForm.reset({
@@ -297,6 +318,9 @@ export function RatioSettingsCard({
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
+      ),
+      UserGroupVisibleGroups: formatJsonForTextarea(
+        groupDefaults.UserGroupVisibleGroups
       ),
     })
   }, [groupDefaults, groupForm])
@@ -357,12 +381,16 @@ export function RatioSettingsCard({
         GroupSpecialUsableGroup: normalizeJsonString(
           values.GroupSpecialUsableGroup
         ),
+        UserGroupVisibleGroups: normalizeJsonString(
+          values.UserGroupVisibleGroups
+        ),
       }
 
       // Map form field names to API keys (most are 1:1, except GroupSpecialUsableGroup)
       const apiKeyMap: Record<string, string> = {
         GroupSpecialUsableGroup:
           'group_ratio_setting.group_special_usable_group',
+        UserGroupVisibleGroups: 'group_ratio_setting.user_group_visible_groups',
       }
 
       const updates = (
@@ -374,6 +402,35 @@ export function RatioSettingsCard({
       for (const key of updates) {
         const apiKey = apiKeyMap[key] || key
         await updateOption.mutateAsync({ key: apiKey, value: normalized[key] })
+      }
+    },
+    [updateOption]
+  )
+
+  const saveVisibleGroupAssociations = useCallback(
+    async (value: string): Promise<boolean> => {
+      const normalized = normalizeJsonString(value)
+      if (
+        normalized ===
+        groupNormalizedDefaults.current.UserGroupVisibleGroups
+      ) {
+        return true
+      }
+
+      try {
+        const result = await updateOption.mutateAsync({
+          key: 'group_ratio_setting.user_group_visible_groups',
+          value: normalized,
+        })
+        if (!result.success) return false
+
+        groupNormalizedDefaults.current = {
+          ...groupNormalizedDefaults.current,
+          UserGroupVisibleGroups: normalized,
+        }
+        return true
+      } catch {
+        return false
       }
     },
     [updateOption]
@@ -421,6 +478,7 @@ export function RatioSettingsCard({
         <GroupRatioForm
           form={groupForm}
           onSave={saveGroupRatios}
+          onSaveVisibleGroups={saveVisibleGroupAssociations}
           isSaving={updateOption.isPending}
         />
       )

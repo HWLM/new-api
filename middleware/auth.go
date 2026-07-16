@@ -420,10 +420,10 @@ func TokenAuth() func(c *gin.Context) {
 		userGroup := userCache.Group
 		tokenGroups := token.GetGroups()
 		if len(tokenGroups) > 0 {
-			usableGroups := service.GetUserUsableGroups(userGroup)
+			usableGroups := service.GetUserUsableGroups(userGroup, userCache.Role)
 			for _, g := range tokenGroups {
 				if _, ok := usableGroups[g]; !ok {
-					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", g))
+					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorGroupAccessDenied))
 					return
 				}
 				if !ratio_setting.ContainsGroupRatio(g) && g != "auto" {

@@ -21,6 +21,7 @@ import {
   ChevronDown,
   GripVertical,
   Info,
+  Link2,
   Plus,
   Trash2,
 } from 'lucide-react'
@@ -34,6 +35,7 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -67,6 +69,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '@/components/ui/hover-card'
 
 import { safeJsonParse } from '../utils/json-parser'
 
@@ -77,7 +84,9 @@ type GroupRatioVisualEditorProps = {
   groupGroupRatio: string
   autoGroups: string
   groupSpecialUsableGroup: string
+  userGroupVisibleGroups: string
   onChange: (field: string, value: string) => void
+  onSaveVisibleGroups: (value: string) => Promise<boolean>
 }
 
 type GroupPricingRow = {
@@ -87,6 +96,7 @@ type GroupPricingRow = {
   topupRatio: string
   selectable: boolean
   description: string
+  visibleGroups: string[] | null
 }
 
 type RegistryEntry = {
@@ -132,18 +142,29 @@ function parseNestedRatioMap(
   })
 }
 
+function parseVisibleGroupMap(value: string): Record<string, string[]> {
+  return safeJsonParse<Record<string, string[]>>(value, {
+    fallback: {},
+    silent: true,
+  })
+}
+
 function buildGroupPricingRows(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  userGroupVisibleGroups: string
 ): GroupPricingRow[] {
   const ratioMap = parseRatioMap(groupRatio)
   const usableMap = parseUsableMap(userUsableGroups)
   const topupMap = parseRatioMap(topupGroupRatio)
+  const visibleMap = parseVisibleGroupMap(userGroupVisibleGroups)
+  const selectableNames = new Set(Object.keys(usableMap))
   const names = new Set([
     ...Object.keys(ratioMap),
     ...Object.keys(usableMap),
     ...Object.keys(topupMap),
+    ...Object.keys(visibleMap),
   ])
 
   return [...names].map((name) => ({
@@ -153,6 +174,9 @@ function buildGroupPricingRows(
     topupRatio: Object.hasOwn(topupMap, name) ? String(topupMap[name]) : '',
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
+    visibleGroups: Object.hasOwn(visibleMap, name)
+      ? visibleMap[name].filter((group) => selectableNames.has(group))
+      : null,
   }))
 }
 
@@ -160,6 +184,7 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
   const groupRatio: Record<string, number> = {}
   const userUsableGroups: Record<string, string> = {}
   const topupGroupRatio: Record<string, number> = {}
+  const userGroupVisibleGroups: Record<string, string[]> = {}
 
   for (const row of rows) {
     const name = row.name.trim()
@@ -172,12 +197,16 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     if (topup !== '' && Number.isFinite(Number(topup))) {
       topupGroupRatio[name] = Number(topup)
     }
+    if (row.visibleGroups !== null) {
+      userGroupVisibleGroups[name] = [...new Set(row.visibleGroups)]
+    }
   }
 
   return {
     GroupRatio: JSON.stringify(groupRatio, null, 2),
     UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
     TopupGroupRatio: JSON.stringify(topupGroupRatio, null, 2),
+    UserGroupVisibleGroups: JSON.stringify(userGroupVisibleGroups, null, 2),
   }
 }
 
@@ -187,18 +216,23 @@ function groupPricingSignature(rows: GroupPricingRow[]): string {
     groupRatio: parseRatioMap(serialized.GroupRatio),
     userUsableGroups: parseUsableMap(serialized.UserUsableGroups),
     topupGroupRatio: parseRatioMap(serialized.TopupGroupRatio),
+    userGroupVisibleGroups: parseVisibleGroupMap(
+      serialized.UserGroupVisibleGroups
+    ),
   })
 }
 
 function sourceGroupPricingSignature(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  userGroupVisibleGroups: string
 ): string {
   return JSON.stringify({
     groupRatio: parseRatioMap(groupRatio),
     userUsableGroups: parseUsableMap(userUsableGroups),
     topupGroupRatio: parseRatioMap(topupGroupRatio),
+    userGroupVisibleGroups: parseVisibleGroupMap(userGroupVisibleGroups),
   })
 }
 
@@ -258,7 +292,9 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   groupGroupRatio,
   autoGroups,
   groupSpecialUsableGroup,
+  userGroupVisibleGroups,
   onChange,
+  onSaveVisibleGroups,
 }: GroupRatioVisualEditorProps) {
   const { t } = useTranslation()
   const [detailGroup, setDetailGroup] = useState<string | null>(null)
@@ -267,16 +303,18 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
     const ratioMap = parseRatioMap(groupRatio)
     const usableMap = parseUsableMap(userUsableGroups)
     const topupMap = parseRatioMap(topupGroupRatio)
+    const visibleMap = parseVisibleGroupMap(userGroupVisibleGroups)
     const names = new Set([
       ...Object.keys(ratioMap),
       ...Object.keys(usableMap),
       ...Object.keys(topupMap),
+      ...Object.keys(visibleMap),
     ])
     return [...names].map((name) => ({
       name,
       ratio: normalizeRatio(ratioMap[name]),
     }))
-  }, [groupRatio, userUsableGroups, topupGroupRatio])
+  }, [groupRatio, userUsableGroups, topupGroupRatio, userGroupVisibleGroups])
 
   const registryNames = useMemo(
     () => registry.map((entry) => entry.name),
@@ -329,7 +367,9 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         groupRatio={groupRatio}
         userUsableGroups={userUsableGroups}
         topupGroupRatio={topupGroupRatio}
+        userGroupVisibleGroups={userGroupVisibleGroups}
         onChange={onChange}
+        onSaveVisibleGroups={onSaveVisibleGroups}
         onShowDetail={setDetailGroup}
       />
 
@@ -420,27 +460,144 @@ type GroupPricingTableProps = {
   groupRatio: string
   userUsableGroups: string
   topupGroupRatio: string
+  userGroupVisibleGroups: string
   onChange: (field: string, value: string) => void
+  onSaveVisibleGroups: (value: string) => Promise<boolean>
   onShowDetail: (name: string) => void
+}
+
+type VisibleGroupsCellProps = {
+  groups: string[] | null
+  disabled?: boolean
+  onAssociate: () => void
+}
+
+function VisibleGroupsCell(props: VisibleGroupsCellProps) {
+  const { t } = useTranslation()
+  const visibleGroups = props.groups?.slice(0, 2) ?? []
+  const hiddenCount = (props.groups?.length ?? 0) - visibleGroups.length
+  const associateButton = (
+    <Button
+      type='button'
+      variant='outline'
+      size='sm'
+      onClick={props.onAssociate}
+      disabled={props.disabled}
+    >
+      <Link2 className='mr-1.5 h-4 w-4' />
+      {t('Associate')}
+    </Button>
+  )
+
+  if (props.groups === null) {
+    return associateButton
+  }
+
+  return (
+    <div className='flex min-w-0 items-center gap-2'>
+      {props.groups.length === 0 ? (
+        <span className='text-muted-foreground truncate text-sm'>
+          {t('No visible groups')}
+        </span>
+      ) : (
+        <HoverCard>
+          <HoverCardTrigger
+            delay={150}
+            closeDelay={100}
+            render={
+              <div className='flex min-w-0 cursor-default items-center gap-1.5'>
+                {visibleGroups.map((group) => (
+                  <GroupBadge key={group} group={group} />
+                ))}
+                {hiddenCount > 0 && (
+                  <span className='bg-muted text-muted-foreground inline-flex h-5 shrink-0 items-center rounded px-1.5 text-xs font-medium'>
+                    +{hiddenCount}
+                  </span>
+                )}
+              </div>
+            }
+          />
+          <HoverCardContent align='start' className='w-72'>
+            <p className='mb-2 text-xs font-medium'>{t('Visible groups')}</p>
+            <div className='flex flex-wrap gap-1.5'>
+              {props.groups.map((group) => (
+                <GroupBadge key={group} group={group} />
+              ))}
+            </div>
+          </HoverCardContent>
+        </HoverCard>
+      )}
+      <div className='ml-auto shrink-0'>{associateButton}</div>
+    </div>
+  )
 }
 
 function GroupPricingTable({
   groupRatio,
   userUsableGroups,
   topupGroupRatio,
+  userGroupVisibleGroups,
   onChange,
+  onSaveVisibleGroups,
   onShowDetail,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<GroupPricingRow[]>(() =>
-    buildGroupPricingRows(groupRatio, userUsableGroups, topupGroupRatio)
+    buildGroupPricingRows(
+      groupRatio,
+      userUsableGroups,
+      topupGroupRatio,
+      userGroupVisibleGroups
+    )
   )
+  const [associationRowId, setAssociationRowId] = useState<string | null>(null)
+  const [associationDraft, setAssociationDraft] = useState<string[]>([])
+  const [associationSearch, setAssociationSearch] = useState('')
+  const [isSavingAssociation, setIsSavingAssociation] = useState(false)
+
+  const associationRow = useMemo(
+    () => rows.find((row) => row._id === associationRowId) ?? null,
+    [rows, associationRowId]
+  )
+
+  const selectableGroupNames = useMemo(
+    () => [
+      ...new Set(
+        rows
+          .filter((row) => row.selectable)
+          .map((row) => row.name.trim())
+          .filter(Boolean)
+      ),
+    ],
+    [rows]
+  )
+
+  const filteredSelectableGroupNames = useMemo(() => {
+    const search = associationSearch.trim().toLowerCase()
+    if (!search) return selectableGroupNames
+    return selectableGroupNames.filter((group) =>
+      group.toLowerCase().includes(search)
+    )
+  }, [selectableGroupNames, associationSearch])
+
+  const openAssociationDialog = useCallback((row: GroupPricingRow) => {
+    setAssociationRowId(row._id)
+    setAssociationDraft(row.visibleGroups ?? [])
+    setAssociationSearch('')
+  }, [])
+
+  const closeAssociationDialog = useCallback(() => {
+    setAssociationRowId(null)
+    setAssociationDraft([])
+    setAssociationSearch('')
+  }, [])
 
   useEffect(() => {
     const incomingSignature = sourceGroupPricingSignature(
       groupRatio,
       userUsableGroups,
-      topupGroupRatio
+      topupGroupRatio,
+      userGroupVisibleGroups
     )
     setRows((currentRows) => {
       if (groupPricingSignature(currentRows) === incomingSignature) {
@@ -449,10 +606,11 @@ function GroupPricingTable({
       return buildGroupPricingRows(
         groupRatio,
         userUsableGroups,
-        topupGroupRatio
+        topupGroupRatio,
+        userGroupVisibleGroups
       )
     })
-  }, [groupRatio, userUsableGroups, topupGroupRatio])
+  }, [groupRatio, userUsableGroups, topupGroupRatio, userGroupVisibleGroups])
 
   const emitRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
@@ -461,6 +619,7 @@ function GroupPricingTable({
       onChange('GroupRatio', serialized.GroupRatio)
       onChange('UserUsableGroups', serialized.UserUsableGroups)
       onChange('TopupGroupRatio', serialized.TopupGroupRatio)
+      onChange('UserGroupVisibleGroups', serialized.UserGroupVisibleGroups)
     },
     [onChange]
   )
@@ -469,14 +628,74 @@ function GroupPricingTable({
     (
       id: string,
       field: Exclude<keyof GroupPricingRow, '_id'>,
-      value: string | number | boolean
+      value: string | number | boolean | string[] | null
     ) => {
-      emitRows(
-        rows.map((row) => (row._id === id ? { ...row, [field]: value } : row))
-      )
+      const currentRow = rows.find((row) => row._id === id)
+      if (!currentRow) return
+
+      const previousName = currentRow.name.trim()
+      const nextName = field === 'name' ? String(value).trim() : previousName
+      const removeTarget = field === 'selectable' && value === false
+
+      const nextRows = rows.map((row) => {
+        let visibleGroups = row.visibleGroups
+        if (visibleGroups !== null && previousName) {
+          if (removeTarget) {
+            visibleGroups = visibleGroups.filter(
+              (group) => group !== previousName
+            )
+          } else if (field === 'name' && previousName !== nextName) {
+            visibleGroups = visibleGroups.map((group) =>
+              group === previousName ? nextName : group
+            )
+          }
+        }
+        return row._id === id
+          ? { ...row, [field]: value, visibleGroups }
+          : { ...row, visibleGroups }
+      })
+      emitRows(nextRows)
     },
     [emitRows, rows]
   )
+
+  const saveAssociation = useCallback(async () => {
+    if (!associationRow) return
+
+    const nextRows = rows.map((row) =>
+      row._id === associationRow._id
+        ? { ...row, visibleGroups: associationDraft }
+        : row
+    )
+    const serialized = serializeGroupPricingRows(nextRows)
+    emitRows(nextRows)
+
+    setIsSavingAssociation(true)
+    try {
+      const saved = await onSaveVisibleGroups(
+        serialized.UserGroupVisibleGroups
+      )
+      if (saved) closeAssociationDialog()
+    } finally {
+      setIsSavingAssociation(false)
+    }
+  }, [
+    associationDraft,
+    associationRow,
+    closeAssociationDialog,
+    emitRows,
+    onSaveVisibleGroups,
+    rows,
+  ])
+
+  const toggleAssociation = useCallback((group: string, checked: boolean) => {
+    setAssociationDraft((current) => {
+      if (checked) {
+        return current.includes(group) ? current : [...current, group]
+      }
+      return current.filter((item) => item !== group)
+    })
+  }, [])
 
   const addRow = useCallback(() => {
     const existingNames = new Set(rows.map((row) => row.name))
@@ -495,13 +714,25 @@ function GroupPricingTable({
         topupRatio: '',
         selectable: true,
         description: '',
+        visibleGroups: null,
       },
     ])
   }, [emitRows, rows])
 
   const removeRow = useCallback(
     (id: string) => {
-      emitRows(rows.filter((row) => row._id !== id))
+      const removedName = rows.find((row) => row._id === id)?.name.trim()
+      emitRows(
+        rows
+          .filter((row) => row._id !== id)
+          .map((row) => ({
+            ...row,
+            visibleGroups:
+              row.visibleGroups === null || !removedName
+                ? row.visibleGroups
+                : row.visibleGroups.filter((group) => group !== removedName),
+          }))
+      )
     },
     [emitRows, rows]
   )
@@ -631,6 +862,18 @@ function GroupPricingTable({
                   ),
               },
               {
+                id: 'visible-groups',
+                header: t('Visible groups'),
+                className: 'min-w-72',
+                cell: (row) => (
+                  <VisibleGroupsCell
+                    groups={row.visibleGroups}
+                    disabled={row.selectable}
+                    onAssociate={() => openAssociationDialog(row)}
+                  />
+                ),
+              },
+              {
                 id: 'actions',
                 header: t('Actions'),
                 className: 'text-right',
@@ -659,6 +902,88 @@ function GroupPricingTable({
               },
             ]}
           />
+
+          <Dialog
+            open={associationRow !== null}
+            onOpenChange={(open) => {
+              if (!open && !isSavingAssociation) closeAssociationDialog()
+            }}
+            title={t('Associate visible groups')}
+            description={t(
+              'Select the user-visible groups that users in this pricing group can access.'
+            )}
+            contentClassName='sm:max-w-lg'
+            footer={
+              <>
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={closeAssociationDialog}
+                  disabled={isSavingAssociation}
+                >
+                  {t('Cancel')}
+                </Button>
+                <Button
+                  type='button'
+                  onClick={saveAssociation}
+                  disabled={isSavingAssociation}
+                >
+                  {isSavingAssociation ? t('Saving...') : t('Save')}
+                </Button>
+              </>
+            }
+          >
+            <div className='space-y-3'>
+              <Input
+                value={associationSearch}
+                onChange={(event) => setAssociationSearch(event.target.value)}
+                placeholder={t('Search visible groups')}
+                aria-label={t('Search visible groups')}
+              />
+              <div className='flex gap-2'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setAssociationDraft(selectableGroupNames)}
+                >
+                  {t('Select all')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => setAssociationDraft([])}
+                >
+                  {t('Clear')}
+                </Button>
+              </div>
+              <div className='max-h-72 overflow-y-auto rounded-md border p-2'>
+                {filteredSelectableGroupNames.length === 0 ? (
+                  <p className='text-muted-foreground px-2 py-6 text-center text-sm'>
+                    {t('No visible groups available')}
+                  </p>
+                ) : (
+                  <div className='space-y-1'>
+                    {filteredSelectableGroupNames.map((group) => (
+                      <label
+                        key={group}
+                        className='hover:bg-muted/60 flex cursor-pointer items-center gap-3 rounded-md px-2 py-2'
+                      >
+                        <Checkbox
+                          checked={associationDraft.includes(group)}
+                          onCheckedChange={(checked) =>
+                            toggleAssociation(group, checked === true)
+                          }
+                        />
+                        <GroupBadge group={group} />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </Dialog>
 
           {duplicateNames.length > 0 && (
             <p className='text-destructive text-sm'>
