@@ -177,6 +177,7 @@ export interface InviterStatCards {
 
 export interface InviterChartUserSpend {
   username: string
+  display_name: string
   quota: number
 }
 
@@ -194,6 +195,7 @@ export interface InviterCharts {
 export interface InviterSummaryRow {
   user_id: number
   username: string
+  display_name: string
   created_at: number
   last_consumed_at: number // 0 = never
   total_requests: number
@@ -206,6 +208,7 @@ export interface InviterSummaryRow {
 export interface InviterDailyRow {
   date: string // YYYY-MM-DD
   username: string
+  display_name: string
   total_requests: number
   total_consumed: number
   total_tokens: number

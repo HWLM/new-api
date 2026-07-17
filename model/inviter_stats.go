@@ -89,8 +89,9 @@ func GetInviterStatCards(myUserId int) (*InviterStatCards, error) {
 
 // InviterChartUserSpend Top10 用户消耗排行的单行
 type InviterChartUserSpend struct {
-	Username string `json:"username"`
-	Quota    int64  `json:"quota"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Quota       int64  `json:"quota"`
 }
 
 // InviterChartDayPoint 时间趋势单点（按天）
@@ -113,12 +114,13 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 	}
 
 	type idName struct {
-		Id       int
-		Username string
+		Id          int
+		Username    string
+		DisplayName string
 	}
 	var users []idName
 	if err := DB.Model(&User{}).
-		Select("id, username").
+		Select("id, username, display_name").
 		Where("inviter_id = ?", myUserId).
 		Find(&users).Error; err != nil {
 		return nil, err
@@ -126,10 +128,14 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 	if len(users) == 0 {
 		return resp, nil
 	}
-	usernameById := make(map[int]string, len(users))
+	type userBrief struct {
+		Username    string
+		DisplayName string
+	}
+	briefById := make(map[int]userBrief, len(users))
 	ids := make([]int, 0, len(users))
 	for _, u := range users {
-		usernameById[u.Id] = u.Username
+		briefById[u.Id] = userBrief{Username: u.Username, DisplayName: u.DisplayName}
 		ids = append(ids, u.Id)
 	}
 
@@ -157,9 +163,11 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 		return nil, err
 	}
 	for _, p := range perUser {
+		b := briefById[p.UserId]
 		resp.TopUsers = append(resp.TopUsers, InviterChartUserSpend{
-			Username: usernameById[p.UserId],
-			Quota:    p.Total,
+			Username:    b.Username,
+			DisplayName: b.DisplayName,
+			Quota:       p.Total,
 		})
 	}
 
@@ -224,6 +232,7 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 type InviterSummaryRow struct {
 	UserId           int     `json:"user_id"`
 	Username         string  `json:"username"`
+	DisplayName      string  `json:"display_name"`
 	CreatedAt        int64   `json:"created_at"`
 	LastConsumedAt   int64   `json:"last_consumed_at"` // 0 表示从未消费
 	TotalRequests    int64   `json:"total_requests"`   // 累计请求次数
@@ -251,15 +260,16 @@ type InviterSummaryFilter struct {
 // 汇总数据按 TotalConsumed 倒序
 func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRow, error) {
 	type userRow struct {
-		Id        int
-		Username  string
-		CreatedAt int64
-		Quota     int64
-		UsedQuota int64
+		Id          int
+		Username    string
+		DisplayName string
+		CreatedAt   int64
+		Quota       int64
+		UsedQuota   int64
 	}
 	var users []userRow
 	tx := DB.Model(&User{}).
-		Select("id, username, created_at, quota, used_quota").
+		Select("id, username, display_name, created_at, quota, used_quota").
 		Where("inviter_id = ?", myUserId)
 	if f.UsernameKeyword != "" {
 		tx = tx.Where("username LIKE ?", "%"+f.UsernameKeyword+"%")
@@ -345,6 +355,7 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 		rows = append(rows, InviterSummaryRow{
 			UserId:           u.Id,
 			Username:         u.Username,
+			DisplayName:      u.DisplayName,
 			CreatedAt:        u.CreatedAt,
 			LastConsumedAt:   a.LastConsumedAt,
 			TotalRequests:    a.RequestCount,
@@ -431,6 +442,7 @@ func sortInviterSummaryRows(rows []InviterSummaryRow, sortBy, sortOrder string) 
 type InviterDailyRow struct {
 	Date             string  `json:"date"` // YYYY-MM-DD
 	Username         string  `json:"username"`
+	DisplayName      string  `json:"display_name"`
 	TotalRequests    int64   `json:"total_requests"` // 当天该用户的请求次数
 	TotalConsumed    int64   `json:"total_consumed"` // 当天 quota
 	TotalTokens      int64   `json:"total_tokens"`
@@ -455,12 +467,13 @@ type InviterDailyFilter struct {
 //   - 返回所有行，前端分页
 func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, error) {
 	type idName struct {
-		Id       int
-		Username string
+		Id          int
+		Username    string
+		DisplayName string
 	}
 	var users []idName
 	tx := DB.Model(&User{}).
-		Select("id, username").
+		Select("id, username, display_name").
 		Where("inviter_id = ?", myUserId)
 	if f.UsernameKeyword != "" {
 		tx = tx.Where("username LIKE ?", "%"+f.UsernameKeyword+"%")
@@ -471,10 +484,14 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 	if len(users) == 0 {
 		return []InviterDailyRow{}, nil
 	}
-	usernameById := map[int]string{}
+	type userBrief struct {
+		Username    string
+		DisplayName string
+	}
+	briefById := map[int]userBrief{}
 	ids := make([]int, 0, len(users))
 	for _, u := range users {
-		usernameById[u.Id] = u.Username
+		briefById[u.Id] = userBrief{Username: u.Username, DisplayName: u.DisplayName}
 		ids = append(ids, u.Id)
 	}
 
@@ -510,9 +527,11 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 		key := bucketKey{Date: date, UserId: r.UserId}
 		row, ok := bucket[key]
 		if !ok {
+			b := briefById[r.UserId]
 			row = &InviterDailyRow{
-				Date:     date,
-				Username: usernameById[r.UserId],
+				Date:        date,
+				Username:    b.Username,
+				DisplayName: b.DisplayName,
 			}
 			bucket[key] = row
 		}
@@ -550,9 +569,11 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 		key := bucketKey{Date: date, UserId: r.UserId}
 		row, ok := bucket[key]
 		if !ok {
+			b := briefById[r.UserId]
 			row = &InviterDailyRow{
-				Date:     date,
-				Username: usernameById[r.UserId],
+				Date:        date,
+				Username:    b.Username,
+				DisplayName: b.DisplayName,
 			}
 			bucket[key] = row
 		}

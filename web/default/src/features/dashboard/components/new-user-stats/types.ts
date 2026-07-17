@@ -30,6 +30,7 @@ export type UserStatsCards = {
 export type TopUserRow = {
   user_id: number
   username: string
+  display_name: string
   consumed_usd: number
 }
 

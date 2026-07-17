@@ -510,6 +510,7 @@ func GetUserStatsFilterOptions(c *gin.Context) {
 type topUserRow struct {
 	UserId      int     `json:"user_id"`
 	Username    string  `json:"username"`
+	DisplayName string  `json:"display_name"`
 	ConsumedUsd float64 `json:"consumed_usd"`
 }
 
@@ -541,7 +542,7 @@ func GetUserStatsTopUsers(c *gin.Context) {
 	if len(rows) > 10 {
 		rows = rows[:10]
 	}
-	// 拿 username
+	// 拿 username / display_name
 	if len(rows) > 0 {
 		ids := make([]int, 0, len(rows))
 		for _, r := range rows {
@@ -549,7 +550,10 @@ func GetUserStatsTopUsers(c *gin.Context) {
 		}
 		nameMap, _ := batchGetUsernames(ids)
 		for i := range rows {
-			rows[i].Username = nameMap[rows[i].UserId]
+			if p, ok := nameMap[rows[i].UserId]; ok {
+				rows[i].Username = p.Username
+				rows[i].DisplayName = p.DisplayName
+			}
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": rows})
@@ -619,24 +623,30 @@ func aggregateUserConsumption(f *chartFilter) (map[int]int64, error) {
 	return result, nil
 }
 
-func batchGetUsernames(userIds []int) (map[int]string, error) {
-	res := make(map[int]string, len(userIds))
+type userProfileBrief struct {
+	Username    string
+	DisplayName string
+}
+
+func batchGetUsernames(userIds []int) (map[int]userProfileBrief, error) {
+	res := make(map[int]userProfileBrief, len(userIds))
 	if len(userIds) == 0 {
 		return res, nil
 	}
 	type row struct {
-		Id       int
-		Username string
+		Id          int
+		Username    string
+		DisplayName string
 	}
 	var rows []row
 	if err := model.DB.Model(&model.User{}).
-		Select("id, username").
+		Select("id, username, display_name").
 		Where("id IN ?", userIds).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, r := range rows {
-		res[r.Id] = r.Username
+		res[r.Id] = userProfileBrief{Username: r.Username, DisplayName: r.DisplayName}
 	}
 	return res, nil
 }

@@ -66,10 +66,15 @@ export function ChartTopUsers({
 
   // 构造 spec_user_rank 风格的 spec
   const spec = useMemo(() => {
-    const values = (data ?? []).map((r) => ({
-      User: r.username || `#${r.user_id}`,
-      Usage: r.consumed_usd,
-    }))
+    const values = (data ?? []).map((r) => {
+      const uname = r.username || `#${r.user_id}`
+      const dname = (r.display_name || '').trim()
+      const label = dname && dname !== r.username ? `${uname}(${dname})` : uname
+      return {
+        User: label,
+        Usage: r.consumed_usd,
+      }
+    })
     const colorMap: Record<string, string> = {}
     values.forEach((v, i) => {
       colorMap[v.User] = USER_COLOR_FALLBACKS[i % USER_COLOR_FALLBACKS.length]

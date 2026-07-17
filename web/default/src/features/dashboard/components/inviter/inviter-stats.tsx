@@ -256,10 +256,17 @@ function ChartCard(props: {
         data: [
           {
             id: 'top',
-            values: props.data.top_users.map((u) => ({
-              user: u.username,
-              quota: Number(quotaToUsd(u.quota).toFixed(2)),
-            })),
+            values: props.data.top_users.map((u) => {
+              const dname = (u.display_name || '').trim()
+              const label =
+                dname && dname !== u.username
+                  ? `${u.username}(${dname})`
+                  : u.username
+              return {
+                user: label,
+                quota: Number(quotaToUsd(u.quota).toFixed(2)),
+              }
+            }),
           },
         ],
         xField: 'quota',
@@ -570,6 +577,7 @@ function SummaryView(props: {
               {t('Invited User')}
               <SortIcon col='username' />
             </TableHead>
+            <TableHead>{t('Display Name')}</TableHead>
             <TableHead
               className='cursor-pointer select-none'
               onClick={() => handleSort('created_at')}
@@ -627,6 +635,9 @@ function SummaryView(props: {
             <TableRow key={r.user_id}>
               <TableCell className='font-medium'>{r.username}</TableCell>
               <TableCell className='text-sm'>
+                {r.display_name || '-'}
+              </TableCell>
+              <TableCell className='text-sm'>
                 {r.created_at
                   ? dayjs.unix(r.created_at).format('YYYY-MM-DD HH:mm')
                   : '-'}
@@ -665,7 +676,7 @@ function SummaryView(props: {
           {!isLoading && (data ?? []).length === 0 && (
             <TableRow>
               <TableCell
-                colSpan={9}
+                colSpan={10}
                 className='text-muted-foreground text-center'
               >
                 {t('No data')}
@@ -675,7 +686,7 @@ function SummaryView(props: {
           {isLoading && (
             <TableRow>
               <TableCell
-                colSpan={9}
+                colSpan={10}
                 className='text-muted-foreground text-center'
               >
                 {t('Loading...')}
@@ -832,6 +843,7 @@ function DailyView(props: {
               {t('Invited User')}
               <SortIcon col='username' />
             </TableHead>
+            <TableHead>{t('Display Name')}</TableHead>
             <TableHead
               className='cursor-pointer select-none text-center'
               onClick={() => handleSort('total_requests')}
@@ -867,6 +879,9 @@ function DailyView(props: {
             <TableRow key={`${r.date}-${r.username}-${i}`}>
               <TableCell>{r.date}</TableCell>
               <TableCell className='font-medium'>{r.username}</TableCell>
+              <TableCell className='text-sm'>
+                {r.display_name || '-'}
+              </TableCell>
               <TableCell className='text-center tabular-nums'>
                 {r.total_requests.toLocaleString()}
               </TableCell>
@@ -884,7 +899,7 @@ function DailyView(props: {
           {!isLoading && (data ?? []).length === 0 && (
             <TableRow>
               <TableCell
-                colSpan={6}
+                colSpan={7}
                 className='text-muted-foreground text-center'
               >
                 {t('No data')}
@@ -894,7 +909,7 @@ function DailyView(props: {
           {isLoading && (
             <TableRow>
               <TableCell
-                colSpan={6}
+                colSpan={7}
                 className='text-muted-foreground text-center'
               >
                 {t('Loading...')}
