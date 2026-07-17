@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
@@ -65,17 +68,24 @@ func ExtractUpstreamErrorMessage(dataPayload string) string {
 // UpstreamStreamErrorToAPIError 若 StreamStatus 端因判定为 UpstreamError，
 // 返回对应的 *types.NewAPIError（对客固定 502 upstream_error）；否则返回 nil。
 //
+// 副作用：命中时在 gin.Context 上记录 ContextKeyRefundReason=upstream_stream_error，
+// 供 controller.processChannelError 写入 logs.other.refund_reason 字段，
+// 便于 sub2api 侧对账脚本反查 newApi 是否真的退了费。
+//
 // 所有复用 helper.StreamScannerHandler 的 stream handler，应在函数尾部
 // 「本地估算 usage / HandleFinalResponse / return 空错误」之前，先调用此函数：
 // 命中时直接把该错误返回给调用方，触发 controller 层的 Refund 逻辑，
 // 避免估算的 prompt token 被写入 logs 表并从用户额度扣除。
-func UpstreamStreamErrorToAPIError(status *relaycommon.StreamStatus) *types.NewAPIError {
+func UpstreamStreamErrorToAPIError(c *gin.Context, status *relaycommon.StreamStatus) *types.NewAPIError {
 	if status == nil || !status.HasUpstreamError() {
 		return nil
 	}
 	msg := status.FirstErrorMessage()
 	if msg == "" {
 		msg = unknownUpstreamStreamErrorFallback
+	}
+	if c != nil {
+		common.SetContextKey(c, constant.ContextKeyRefundReason, constant.RefundReasonUpstreamStreamError)
 	}
 	return types.NewOpenAIError(
 		fmt.Errorf("upstream stream terminated with error: %s", msg),

@@ -890,7 +890,14 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 	}
 
 	// 兜底：SSE event: error 等上游错误终止事件识别到时，豁免 estimation 兜底扣费。
-	if apiErr := helper.UpstreamStreamErrorToAPIError(info.StreamStatus); apiErr != nil {
+	if apiErr := helper.UpstreamStreamErrorToAPIError(c, info.StreamStatus); apiErr != nil {
+		return nil, apiErr
+	}
+
+	// 客户端在收到任何上游数据前就断开：豁免 estimation 兜底，触发退费。
+	// 注意：Claude 的 HandleStreamFinalResponse 在 PromptTokens=0 时会无条件用
+	// info.GetEstimatePromptTokens() 补充，这里必须在其之前拦住。
+	if apiErr := helper.ClientAbortedBeforeAnyDataAPIError(c, info); apiErr != nil {
 		return nil, apiErr
 	}
 

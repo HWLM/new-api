@@ -73,10 +73,15 @@ const (
 	ErrorCodeBadResponseStatusCode  ErrorCode = "bad_response_status_code"
 	ErrorCodeBadResponse            ErrorCode = "bad_response"
 	ErrorCodeBadResponseBody        ErrorCode = "bad_response_body"
-	ErrorCodeEmptyResponse          ErrorCode = "empty_response"
-	ErrorCodeAwsInvokeError         ErrorCode = "aws_invoke_error"
-	ErrorCodeModelNotFound          ErrorCode = "model_not_found"
-	ErrorCodePromptBlocked          ErrorCode = "prompt_blocked"
+	// ErrorCodeClientAbortedNoData 表示客户端在收到任何上游数据前就断开连接。
+	// 此时应豁免本地 token 估算兜底扣费，触发预扣退还，避免用户被错误计费。
+	// 具体识别条件见 relay/helper/client_abort.go 中的
+	// ClientAbortedBeforeAnyDataAPIError。
+	ErrorCodeClientAbortedNoData ErrorCode = "client_aborted_no_data"
+	ErrorCodeEmptyResponse       ErrorCode = "empty_response"
+	ErrorCodeAwsInvokeError      ErrorCode = "aws_invoke_error"
+	ErrorCodeModelNotFound       ErrorCode = "model_not_found"
+	ErrorCodePromptBlocked       ErrorCode = "prompt_blocked"
 
 	// sql error
 	ErrorCodeQueryDataError  ErrorCode = "query_data_error"

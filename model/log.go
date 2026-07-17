@@ -122,6 +122,57 @@ func createLog(log *Log) error {
 	return LOG_DB.Create(log).Error
 }
 
+// RefundStatusRow 是 LookupRefundStatusByRequestIDs 返回的最小字段集合，
+// 只暴露对账所需字段，避免把 prompt 内容 / username / ip 等敏感字段带出。
+// Other 会保留原始 JSON 字符串；调用方用 gjson 提取 refund_reason 或其他字段。
+type RefundStatusRow struct {
+	RequestID string `gorm:"column:request_id"`
+	Type      int    `gorm:"column:type"`
+	Quota     int    `gorm:"column:quota"`
+	Other     string `gorm:"column:other"`
+}
+
+// LookupRefundStatusByRequestIDs 批量查询 logs 表，用于下游服务（sub2api）
+// 对账判定「newApi 是否已计费/已退费」。
+//
+// 语义：
+//   - 对每个 request_id 取「创建时间最早」的一行（历史约定：正常一次请求只
+//     写一条日志；重试/边界场景可能多条，取最早的作为主判定，避免旧退费日志
+//     被后写入的错误日志覆盖）。
+//   - 只返回 request_id 匹配的行；未匹配的 request_id 由 controller 层
+//     显式填 Found=false。
+//
+// 该函数不加限流；调用方（controller）自己控制批大小。
+func LookupRefundStatusByRequestIDs(ctx context.Context, requestIDs []string) ([]RefundStatusRow, error) {
+	if len(requestIDs) == 0 {
+		return nil, nil
+	}
+	// 只 SELECT 对账所需的最少字段，避免把 prompt / ip / username 等敏感数据带出。
+	// ORDER BY id ASC 表达「取最早写入的一条」，配合分组语义在应用层去重。
+	var rows []RefundStatusRow
+	err := LOG_DB.WithContext(ctx).
+		Table("logs").
+		Select("request_id, type, quota, other").
+		Where("request_id IN ?", requestIDs).
+		Order("id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("lookup refund status by request_ids (n=%d): %w", len(requestIDs), err)
+	}
+
+	// 同一 request_id 若存在多条，只保留最早的一条（前面 ORDER BY id ASC）。
+	seen := make(map[string]struct{}, len(rows))
+	deduped := make([]RefundStatusRow, 0, len(rows))
+	for _, r := range rows {
+		if _, ok := seen[r.RequestID]; ok {
+			continue
+		}
+		seen[r.RequestID] = struct{}{}
+		deduped = append(deduped, r)
+	}
+	return deduped, nil
+}
+
 func clickHouseLogOrder(prefix string) string {
 	return prefix + "created_at desc, " + prefix + "request_id desc"
 }

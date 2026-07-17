@@ -146,7 +146,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// 上游 SSE 明确以错误事件（event: error / response.failed / response.error）
 	// 终止：豁免本地 token 估算兜底，直接返回错误，让 controller 层退还预扣并
 	// 跳过 RecordConsumeLog。event 帧本身已由 dataHandler 转发给客户端。
-	if apiErr := helper.UpstreamStreamErrorToAPIError(info.StreamStatus); apiErr != nil {
+	if apiErr := helper.UpstreamStreamErrorToAPIError(c, info.StreamStatus); apiErr != nil {
+		return nil, apiErr
+	}
+
+	// 客户端在收到任何上游数据前就断开：豁免 estimation 兜底，触发退费。
+	// 避免以本地估算 prompt tokens 从用户额度扣费，同时给对账留 refund_reason。
+	if apiErr := helper.ClientAbortedBeforeAnyDataAPIError(c, info); apiErr != nil {
 		return nil, apiErr
 	}
 

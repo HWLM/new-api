@@ -166,7 +166,12 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 
 	// 兜底：SSE event: error / response.failed 头识别到的上游终止事件。
 	// 图片流量小、单次成本高，即使命中也不做本地兜底 usage 估算，直接返回错误。
-	if apiErr := helper.UpstreamStreamErrorToAPIError(info.StreamStatus); apiErr != nil {
+	if apiErr := helper.UpstreamStreamErrorToAPIError(c, info.StreamStatus); apiErr != nil {
+		return nil, apiErr
+	}
+
+	// 客户端在收到任何上游数据前就断开：豁免兜底，触发退费。
+	if apiErr := helper.ClientAbortedBeforeAnyDataAPIError(c, info); apiErr != nil {
 		return nil, apiErr
 	}
 

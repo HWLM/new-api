@@ -135,7 +135,13 @@ func baiduStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		}
 	})
 	// 兜底：SSE event: error 等上游错误终止事件识别到时，豁免 estimation 兜底扣费。
-	if apiErr := helper.UpstreamStreamErrorToAPIError(info.StreamStatus); apiErr != nil {
+	if apiErr := helper.UpstreamStreamErrorToAPIError(c, info.StreamStatus); apiErr != nil {
+		service.CloseResponseBodyGracefully(resp)
+		return apiErr, nil
+	}
+
+	// 客户端在收到任何上游数据前就断开：豁免 estimation 兜底，触发退费。
+	if apiErr := helper.ClientAbortedBeforeAnyDataAPIError(c, info); apiErr != nil {
 		service.CloseResponseBodyGracefully(resp)
 		return apiErr, nil
 	}

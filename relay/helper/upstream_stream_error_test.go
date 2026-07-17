@@ -1,14 +1,25 @@
 package helper
 
 import (
+	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func newTestGinContext() *gin.Context {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	return c
+}
 
 func TestIsUpstreamErrorEventType(t *testing.T) {
 	t.Parallel()
@@ -63,29 +74,35 @@ func TestExtractUpstreamErrorMessage(t *testing.T) {
 func TestUpstreamStreamErrorToAPIError_NilAndNormal(t *testing.T) {
 	t.Parallel()
 
+	c := newTestGinContext()
+
 	// nil 输入 → nil
-	assert.Nil(t, UpstreamStreamErrorToAPIError(nil))
+	assert.Nil(t, UpstreamStreamErrorToAPIError(c, nil))
 
 	// 正常结束 → nil
 	s := relaycommon.NewStreamStatus()
 	s.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-	assert.Nil(t, UpstreamStreamErrorToAPIError(s))
+	assert.Nil(t, UpstreamStreamErrorToAPIError(c, s))
 
 	// EOF 结束（即使有软错误）→ nil，避免把普通网络抖动误升级为上游错误
 	s = relaycommon.NewStreamStatus()
 	s.RecordError("some soft error")
 	s.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
-	assert.Nil(t, UpstreamStreamErrorToAPIError(s))
+	assert.Nil(t, UpstreamStreamErrorToAPIError(c, s))
+
+	// 未命中路径不应写 refund_reason
+	assert.Equal(t, "", common.GetContextKeyString(c, constant.ContextKeyRefundReason))
 }
 
 func TestUpstreamStreamErrorToAPIError_UpstreamErrorEnd(t *testing.T) {
 	t.Parallel()
 
+	c := newTestGinContext()
 	s := relaycommon.NewStreamStatus()
 	s.RecordError("upstream boom")
 	s.SetEndReason(relaycommon.StreamEndReasonUpstreamError, nil)
 
-	apiErr := UpstreamStreamErrorToAPIError(s)
+	apiErr := UpstreamStreamErrorToAPIError(c, s)
 	require.NotNil(t, apiErr, "端因是 UpstreamError 时必须返回非空错误")
 
 	// 返回的应该是 StatusBadGateway，让上层 controller 走 Refund 路径
@@ -94,16 +111,21 @@ func TestUpstreamStreamErrorToAPIError_UpstreamErrorEnd(t *testing.T) {
 
 	// 错误消息中包含从 StreamStatus 提取的 payload message
 	assert.Contains(t, apiErr.Error(), "upstream boom")
+
+	// 命中路径必须把 refund_reason 写入 gin.Context，供 processChannelError 读取
+	assert.Equal(t, constant.RefundReasonUpstreamStreamError,
+		common.GetContextKeyString(c, constant.ContextKeyRefundReason))
 }
 
 func TestUpstreamStreamErrorToAPIError_FallbackMessageWhenEmpty(t *testing.T) {
 	t.Parallel()
 
+	c := newTestGinContext()
 	// 端因是 UpstreamError 但没记录任何错误消息 → 用 fallback 而不是空串
 	s := relaycommon.NewStreamStatus()
 	s.SetEndReason(relaycommon.StreamEndReasonUpstreamError, nil)
 
-	apiErr := UpstreamStreamErrorToAPIError(s)
+	apiErr := UpstreamStreamErrorToAPIError(c, s)
 	require.NotNil(t, apiErr)
 	assert.Contains(t, apiErr.Error(), unknownUpstreamStreamErrorFallback)
 	// 明确不会 panic 也不会输出空错误
@@ -111,4 +133,15 @@ func TestUpstreamStreamErrorToAPIError_FallbackMessageWhenEmpty(t *testing.T) {
 	// 返回的类型是 NewAPIError
 	var typed *types.NewAPIError
 	assert.ErrorAs(t, apiErr, &typed)
+}
+
+func TestUpstreamStreamErrorToAPIError_NilContextIsSafe(t *testing.T) {
+	t.Parallel()
+
+	// nil gin.Context 时不能 panic：内部使用 SetContextKey 有 nil 保护，
+	// 但也应显式验证一下 —— handler 传入 nil c 时至少要能返回 apiErr。
+	s := relaycommon.NewStreamStatus()
+	s.SetEndReason(relaycommon.StreamEndReasonUpstreamError, nil)
+
+	assert.NotNil(t, UpstreamStreamErrorToAPIError(nil, s))
 }

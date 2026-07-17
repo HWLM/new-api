@@ -399,6 +399,12 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
 		other["admin_info"] = adminInfo
+		if refundReason := common.GetContextKeyString(c, constant.ContextKeyRefundReason); refundReason != "" {
+			// refund_reason 由 relay handler 层在决定「豁免计费 + 退还预扣」时写入。
+			// sub2api 对账脚本会读这个字段来判定「已在 newApi 侧退费」，从而在其
+			// usage_logs 上打 downstream_refunded=true 的标记。
+			other["refund_reason"] = refundReason
+		}
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
 			startTime = time.Now()

@@ -73,4 +73,20 @@ const (
 	// fallback in authHelper (finishAdminAudit) skips its record to avoid
 	// duplicate entries.
 	ContextKeyAuditLogged ContextKey = "audit_logged"
+
+	// ContextKeyRefundReason 记录本次请求触发预扣退还的原因（字符串枚举），
+	// 由 relay handler 层在决定「豁免计费」时写入。会被 processChannelError
+	// 写入 logs 表的 other.refund_reason 字段，供跨系统对账（例如 sub2api 侧
+	// 反查、判定「sub2api 已扣但 newApi 已退」）识别。
+	//
+	// 现有取值：
+	//   - "upstream_stream_error"     上游 SSE 明确以错误事件终止（event: error 等）
+	//   - "client_aborted_no_data"    客户端在收到任何上游数据前就断开
+	ContextKeyRefundReason ContextKey = "refund_reason"
+)
+
+// Refund reason 枚举值（与 ContextKeyRefundReason 配套）。
+const (
+	RefundReasonUpstreamStreamError = "upstream_stream_error"
+	RefundReasonClientAbortedNoData = "client_aborted_no_data"
 )
