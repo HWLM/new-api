@@ -1340,6 +1340,8 @@ func ChannelTypeName(t int) string {
 		return "Doubao Video"
 	case constant.ChannelTypeSora:
 		return "Sora"
+	case constant.ChannelTypeSDRealMax:
+		return "SD Real Max"
 	case constant.ChannelTypeReplicate:
 		return "Replicate"
 	case constant.ChannelTypeCodex:

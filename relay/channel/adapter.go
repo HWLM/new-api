@@ -81,3 +81,7 @@ type TaskAdaptor interface {
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
+
+type SeedanceV3VideoConverter interface {
+	ConvertToSeedanceV3Video(originTask *model.Task) ([]byte, error)
+}

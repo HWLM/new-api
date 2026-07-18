@@ -274,6 +274,7 @@ const SENSITIVE_FORM_FIELDS = [
   'vertex_key_type',
   'aws_key_type',
   'azure_responses_version',
+  'asset_base_url',
   'force_format',
   'thinking_to_content',
   'proxy',
@@ -2634,6 +2635,35 @@ export function ChannelMutateDrawer({
                                     <FormDescription>
                                       {t(
                                         'Custom API base URL. For official channels, New API has built-in addresses. Only fill this for third-party proxy sites or special endpoints. Do not add /v1 or trailing slash.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+
+                            {/* SD Real Max (type 81): optional asset endpoint override */}
+                            {currentType === 81 && (
+                              <FormField
+                                control={form.control}
+                                name='asset_base_url'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Asset Base URL')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        placeholder={t(
+                                          'e.g., https://asset.wetoken.ai'
+                                        )}
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Optional. Base URL for /v3/open/CreateAsset and /v3/open/GetAsset. Empty means fall back to the main Base URL (reseller scenario).'
                                       )}
                                     </FormDescription>
                                     <FormMessage />
