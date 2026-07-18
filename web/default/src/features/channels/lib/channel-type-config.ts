@@ -144,6 +144,24 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Models exposed by this channel',
     },
   },
+  81: {
+    id: 81,
+    name: CHANNEL_TYPES[81],
+    icon: 'doubao',
+    defaultBaseUrl: 'https://model.service-inference.ai',
+    supportedModels: [
+      'dreamina-seedance-2-0-hc',
+      'doubao-seedance-2-0-filter-off',
+      'doubao-seedance-2-0',
+      'doubao-seedance-2-0-fast',
+    ],
+    hints: {
+      baseUrl: 'Default: https://model.service-inference.ai',
+      key: 'Bearer API Key',
+      models:
+        'dreamina-seedance-2-0-hc, doubao-seedance-2-0-filter-off, doubao-seedance-2-0, doubao-seedance-2-0-fast',
+    },
+  },
 }
 
 /**

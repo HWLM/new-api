@@ -8,6 +8,26 @@ import (
 )
 
 func SetVideoRouter(router *gin.Engine) {
+	seedanceV3Router := router.Group("/api/v3/contents/generations")
+	seedanceV3Router.Use(middleware.RouteTag("relay"))
+	seedanceV3Router.Use(middleware.SeedanceV3RequestConvert(), middleware.TokenAuth(), middleware.Distribute())
+	{
+		seedanceV3Router.POST("/tasks", controller.RelayTask)
+		seedanceV3Router.GET("/tasks/:task_id", controller.RelayTaskFetch)
+	}
+
+	// wetoken 海外版本 sd2.0 素材接口：
+	//   POST /v3/open/CreateAsset  上传素材，返回 asset://<id>
+	//   POST /v3/open/GetAsset     查询素材状态
+	// 中间件按 body 里的 model 选渠道，controller 直接透传给上游（AssetBaseUrl 未配置时用主 base URL）。
+	seedanceV3AssetRouter := router.Group("/v3/open")
+	seedanceV3AssetRouter.Use(middleware.RouteTag("relay"))
+	seedanceV3AssetRouter.Use(middleware.SeedanceV3AssetRequestConvert(), middleware.TokenAuth(), middleware.Distribute())
+	{
+		seedanceV3AssetRouter.POST("/CreateAsset", controller.RelaySeedanceV3Asset)
+		seedanceV3AssetRouter.POST("/GetAsset", controller.RelaySeedanceV3Asset)
+	}
+
 	// Video proxy: accepts either session auth (dashboard) or token auth (API clients)
 	videoProxyRouter := router.Group("/v1")
 	videoProxyRouter.Use(middleware.RouteTag("relay"))

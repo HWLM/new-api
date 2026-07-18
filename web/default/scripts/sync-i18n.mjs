@@ -80,6 +80,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'QuantumNous',
   'Quota:',
   'Replicate',
+  'SD Real Max',
   'SiliconFlow',
   'Stripe',
   'Submodel',

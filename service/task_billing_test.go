@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"os"
 	"testing"
@@ -717,4 +718,140 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+// ===========================================================================
+// TaskPollingRatiosAdjuster tests — settleTaskBillingOnComplete 新分支
+// ===========================================================================
+
+// mockRatiosAdjuster 同时实现 TaskPollingAdaptor + TaskPollingRatiosAdjuster。
+// 用来验证：结算前会调用 AdjustBillingRatiosOnComplete，用返回的 map 覆盖
+// BillingContext.OtherRatios 并持久化到 DB。
+type mockRatiosAdjuster struct {
+	mockAdaptor
+	newRatios map[string]float64
+}
+
+func (m *mockRatiosAdjuster) AdjustBillingRatiosOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) map[string]float64 {
+	return m.newRatios
+}
+
+// TestSettle_RatiosAdjuster_OverridesAndPersists 覆盖典型正向路径：
+// adjuster 返回新 ratios → BillingContext.OtherRatios 被替换 → 写回 DB。
+// AdjustBillingOnComplete 返回 0 & TotalTokens=0 → settle 走完覆盖分支后
+// 不再重算 quota（只验证 ratios 覆盖本身）。
+func TestSettle_RatiosAdjuster_OverridesAndPersists(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 40, 40, 40
+	seedUser(t, userID, 10000)
+	seedToken(t, tokenID, userID, "sk-ratios-adj", 10000)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, 5000, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{
+		"video_input":       1.0,
+		"duration_estimate": 3.0,
+	}
+	// task 必须先 Insert 才能被 UpdatePrivateData 写回
+	require.NoError(t, task.Insert())
+
+	adaptor := &mockRatiosAdjuster{
+		newRatios: map[string]float64{"video_input": 51.0 / 46.0},
+	}
+	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
+
+	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+
+	// 内存中的 OtherRatios 被替换
+	assert.Equal(t, map[string]float64{"video_input": 51.0 / 46.0}, task.PrivateData.BillingContext.OtherRatios)
+
+	// DB 中也已持久化
+	var reloaded model.Task
+	require.NoError(t, model.DB.Where("id = ?", task.ID).First(&reloaded).Error)
+	require.NotNil(t, reloaded.PrivateData.BillingContext)
+	assert.InDelta(t, 51.0/46.0, reloaded.PrivateData.BillingContext.OtherRatios["video_input"], 1e-6)
+	assert.NotContains(t, reloaded.PrivateData.BillingContext.OtherRatios, "duration_estimate", "duration_estimate 应被替换掉")
+}
+
+// TestSettle_RatiosAdjuster_FiltersInvalidValues 验证覆盖时会过滤 ≤0/NaN/±Inf。
+// 沿用 PriceData.AddOtherRatio 的过滤规则，避免负价或 NaN 传到结算。
+func TestSettle_RatiosAdjuster_FiltersInvalidValues(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 41, 41, 41
+	seedUser(t, userID, 10000)
+	seedToken(t, tokenID, userID, "sk-ratios-filter", 10000)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, 5000, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"video_input": 1.0}
+	require.NoError(t, task.Insert())
+
+	nan := math.NaN()
+	posInf := math.Inf(1)
+	negInf := math.Inf(-1)
+	adaptor := &mockRatiosAdjuster{
+		newRatios: map[string]float64{
+			"video_input": 1.2,
+			"nan_key":     nan,
+			"pos_inf":     posInf,
+			"neg_inf":     negInf,
+			"zero":        0,
+			"negative":    -1.5,
+		},
+	}
+	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
+
+	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+
+	// 只剩 video_input=1.2，其它非法值全被过滤
+	assert.Equal(t, map[string]float64{"video_input": 1.2}, task.PrivateData.BillingContext.OtherRatios)
+}
+
+// TestSettle_RatiosAdjuster_NilReturnKeepsOriginal 验证 adjuster 返回 nil 时
+// 不覆盖 OtherRatios（沿用冻结值）。
+func TestSettle_RatiosAdjuster_NilReturnKeepsOriginal(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 42, 42, 42
+	seedUser(t, userID, 10000)
+	seedToken(t, tokenID, userID, "sk-ratios-nil", 10000)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, 5000, tokenID, BillingSourceWallet, 0)
+	original := map[string]float64{"video_input": 0.6087}
+	task.PrivateData.BillingContext.OtherRatios = original
+	require.NoError(t, task.Insert())
+
+	adaptor := &mockRatiosAdjuster{newRatios: nil}
+	settleTaskBillingOnComplete(ctx, adaptor, task, &relaycommon.TaskInfo{})
+
+	assert.Equal(t, original, task.PrivateData.BillingContext.OtherRatios)
+}
+
+// TestSettle_NoAdjusterInterface_SkipsRatiosBranch 验证不实现 TaskPollingRatiosAdjuster
+// 的 adapter 完全走原路径（老 adapter 兼容）。
+func TestSettle_NoAdjusterInterface_SkipsRatiosBranch(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 43, 43, 43
+	seedUser(t, userID, 10000)
+	seedToken(t, tokenID, userID, "sk-noiface", 10000)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, 5000, tokenID, BillingSourceWallet, 0)
+	original := map[string]float64{"video_input": 0.5}
+	task.PrivateData.BillingContext.OtherRatios = original
+	require.NoError(t, task.Insert())
+
+	adaptor := &mockAdaptor{adjustReturn: 0}
+	settleTaskBillingOnComplete(ctx, adaptor, task, &relaycommon.TaskInfo{})
+
+	// OtherRatios 原样保留（没有覆盖分支）
+	assert.Equal(t, original, task.PrivateData.BillingContext.OtherRatios)
 }

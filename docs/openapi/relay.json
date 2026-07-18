@@ -28,6 +28,9 @@
       "name": "视频生成"
     },
     {
+      "name": "视频生成/Seedance V3兼容格式"
+    },
+    {
       "name": "视频生成/Sora兼容格式"
     },
     {
@@ -534,6 +537,369 @@
               }
             },
             "headers": {}
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v3/open/CreateAsset": {
+      "post": {
+        "summary": "创建 Seedance V3 素材",
+        "description": "将公网媒体注册到模型对应的素材库，并统一返回素材 ID。素材 model 必须与后续视频生成请求一致。",
+        "operationId": "createSeedanceV3Asset",
+        "tags": [
+          "视频生成/Seedance V3兼容格式"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeedanceV3CreateAssetRequest"
+              },
+              "example": {
+                "model": "doubao-seedance-2-0-filter-off",
+                "url": "https://example.com/first-frame.jpg",
+                "name": "first-frame.jpg",
+                "AssetType": "Image"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "素材创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedanceV3CreateAssetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数或模型无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v3/open/GetAsset": {
+      "post": {
+        "summary": "查询 Seedance V3 素材",
+        "description": "查询素材状态。Doubao 素材必须等待 Status 为 Active 后再用于视频生成。",
+        "operationId": "getSeedanceV3Asset",
+        "tags": [
+          "视频生成/Seedance V3兼容格式"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeedanceV3GetAssetRequest"
+              },
+              "example": {
+                "model": "doubao-seedance-2-0-filter-off",
+                "Id": "asset-20260705003737-njxmg"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "素材详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedanceV3Asset"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数或模型无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v3/contents/generations/tasks": {
+      "post": {
+        "summary": "创建 Seedance V3 视频任务",
+        "deprecated": false,
+        "description": "统一创建 Seedance 2.0 异步视频任务。支持 dreamina-seedance-2-0-hc、doubao-seedance-2-0-filter-off、doubao-seedance-2-0 和 doubao-seedance-2-0-fast。响应使用本站任务 ID，不暴露上游 ID。HC 模型会自动上传公网图片；Doubao 模型仅在媒体项 contains_face=true 时自动创建素材、等待 Active 并替换为 asset:// 引用。",
+        "operationId": "createSeedanceV3VideoTask",
+        "tags": [
+          "视频生成/Seedance V3兼容格式"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeedanceV3VideoRequest"
+              },
+              "examples": {
+                "text_to_video": {
+                  "summary": "文生视频",
+                  "value": {
+                    "model": "dreamina-seedance-2-0-hc",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "一只猫在阳光明媚的草地上奔跑"
+                      }
+                    ],
+                    "resolution": "720p",
+                    "ratio": "16:9",
+                    "duration": 5,
+                    "watermark": false
+                  }
+                },
+                "image_to_video": {
+                  "summary": "图生视频",
+                  "value": {
+                    "model": "dreamina-seedance-2-0-hc",
+                    "content": [
+                      {
+                        "type": "image_url",
+                        "image_url": {
+                          "url": "https://example.com/input.jpg"
+                        },
+                        "role": "reference_image"
+                      },
+                      {
+                        "type": "text",
+                        "text": "让图中的猫动起来，在草地上奔跑"
+                      }
+                    ],
+                    "resolution": "720p",
+                    "ratio": "16:9",
+                    "duration": 5,
+                    "watermark": false
+                  }
+                },
+                "video_to_video": {
+                  "summary": "视频生视频",
+                  "value": {
+                    "model": "dreamina-seedance-2-0-hc",
+                    "content": [
+                      {
+                        "type": "video_url",
+                        "video_url": {
+                          "url": "https://example.com/input.mp4"
+                        },
+                        "role": "reference_video"
+                      },
+                      {
+                        "type": "text",
+                        "text": "延续这段视频并增加更多动感"
+                      }
+                    ],
+                    "resolution": "720p",
+                    "ratio": "16:9",
+                    "duration": 5,
+                    "watermark": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功创建视频任务",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedanceV3VideoTask"
+                },
+                "example": {
+                  "id": "task_2b7f10d34b6449ada4e53d76e31a5290",
+                  "model": "dreamina-seedance-2-0-hc",
+                  "status": "queued",
+                  "content": {},
+                  "created_at": 1784217600
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数或 content 结构错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "API Key 缺失或无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "请求频率过高",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务内部错误、上游素材上传失败或任务创建失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v3/contents/generations/tasks/{task_id}": {
+      "get": {
+        "summary": "查询 Seedance V3 视频任务",
+        "deprecated": false,
+        "description": "根据本站返回的任务 ID 查询视频生成状态。建议每 10 秒轮询一次。任务成功后从 `content.video_url` 获取视频地址；下载地址可能具有时效性，应及时保存。",
+        "operationId": "getSeedanceV3VideoTask",
+        "tags": [
+          "视频生成/Seedance V3兼容格式"
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "创建任务时返回的本站任务 ID",
+            "required": true,
+            "example": "task_2b7f10d34b6449ada4e53d76e31a5290",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取任务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedanceV3VideoTask"
+                },
+                "examples": {
+                  "running": {
+                    "summary": "生成中",
+                    "value": {
+                      "id": "task_2b7f10d34b6449ada4e53d76e31a5290",
+                      "model": "dreamina-seedance-2-0-hc",
+                      "status": "running",
+                      "content": {},
+                      "created_at": 1784217600
+                    }
+                  },
+                  "succeeded": {
+                    "summary": "生成成功",
+                    "value": {
+                      "id": "task_2b7f10d34b6449ada4e53d76e31a5290",
+                      "model": "dreamina-seedance-2-0-hc",
+                      "status": "succeeded",
+                      "content": {
+                        "video_url": "https://example.com/generated-video.mp4"
+                      },
+                      "usage": {
+                        "completion_tokens": 40594,
+                        "total_tokens": 40594
+                      },
+                      "created_at": 1784217600,
+                      "updated_at": 1784218200
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "API Key 缺失或无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "任务不存在或不属于当前用户",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "查询频率过高",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务内部错误或上游任务查询失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4164,6 +4530,399 @@
             }
           }
         }
+      },
+      "SeedanceV3CreateAssetRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "dreamina-seedance-2-0-hc",
+              "doubao-seedance-2-0-filter-off",
+              "doubao-seedance-2-0",
+              "doubao-seedance-2-0-fast"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "公网可访问的素材 URL"
+          },
+          "name": {
+            "type": "string",
+            "description": "素材名称，建议包含扩展名"
+          },
+          "AssetType": {
+            "type": "string",
+            "enum": [
+              "Image",
+              "Video",
+              "Audio"
+            ],
+            "default": "Image"
+          }
+        },
+        "required": [
+          "model",
+          "url",
+          "name"
+        ]
+      },
+      "SeedanceV3CreateAssetResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "asset-20260705003737-njxmg"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "SeedanceV3GetAssetRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "dreamina-seedance-2-0-hc",
+              "doubao-seedance-2-0-filter-off",
+              "doubao-seedance-2-0",
+              "doubao-seedance-2-0-fast"
+            ]
+          },
+          "Id": {
+            "type": "string",
+            "example": "asset-20260705003737-njxmg"
+          }
+        },
+        "required": [
+          "model",
+          "Id"
+        ]
+      },
+      "SeedanceV3Asset": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string"
+          },
+          "Status": {
+            "type": "string",
+            "enum": [
+              "Processing",
+              "Active",
+              "Failed"
+            ]
+          },
+          "AssetType": {
+            "type": "string"
+          },
+          "Name": {
+            "type": "string"
+          },
+          "URL": {
+            "type": "string"
+          },
+          "GroupId": {
+            "type": "string"
+          },
+          "CreateTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "UpdateTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "Id",
+          "Status"
+        ]
+      },
+      "SeedanceV3MediaURL": {
+        "type": "object",
+        "description": "图片、视频或音频地址",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "公网 HTTP(S) URL 或 asset:// 素材引用；Doubao 模型的图片和音频也可使用 Base64",
+            "example": "https://example.com/input.jpg"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "SeedanceV3ContentItem": {
+        "type": "object",
+        "description": "视频生成输入项",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image_url",
+              "video_url",
+              "audio_url"
+            ],
+            "description": "输入类型"
+          },
+          "text": {
+            "type": "string",
+            "description": "文本提示词，仅用于 text 类型",
+            "example": "一只猫在草地上奔跑"
+          },
+          "image_url": {
+            "$ref": "#/components/schemas/SeedanceV3MediaURL"
+          },
+          "video_url": {
+            "$ref": "#/components/schemas/SeedanceV3MediaURL"
+          },
+          "audio_url": {
+            "$ref": "#/components/schemas/SeedanceV3MediaURL"
+          },
+          "role": {
+            "type": "string",
+            "description": "媒体角色",
+            "enum": [
+              "first_frame",
+              "last_frame",
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ]
+          },
+          "contains_face": {
+            "type": "boolean",
+            "description": "网关扩展字段。为 true 时自动上传公网图片并替换为 asset:// 引用；该字段不会传给上游",
+            "default": false
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "SeedanceV3VideoRequest": {
+        "type": "object",
+        "description": "Seedance V3 兼容视频生成请求",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "视频生成模型",
+            "enum": [
+              "dreamina-seedance-2-0-hc",
+              "doubao-seedance-2-0-filter-off",
+              "doubao-seedance-2-0",
+              "doubao-seedance-2-0-fast"
+            ],
+            "example": "dreamina-seedance-2-0-hc"
+          },
+          "content": {
+            "type": "array",
+            "description": "输入内容数组，支持文本、图片和视频",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/SeedanceV3ContentItem"
+            }
+          },
+          "resolution": {
+            "type": "string",
+            "description": "输出分辨率，默认 480p",
+            "enum": [
+              "480p",
+              "720p",
+              "1080p",
+              "4K"
+            ],
+            "default": "480p"
+          },
+          "ratio": {
+            "type": "string",
+            "description": "输出画面比例，默认 16:9",
+            "enum": [
+              "21:9",
+              "16:9",
+              "9:16",
+              "3:4",
+              "1:1",
+              "4:3",
+              "adaptive"
+            ],
+            "default": "16:9"
+          },
+          "duration": {
+            "description": "视频时长。HC 支持 4-15 秒；Doubao 还支持 -1 由模型决定",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 4,
+                "maximum": 15
+              },
+              {
+                "type": "integer",
+                "enum": [
+                  -1
+                ]
+              }
+            ],
+            "default": 5,
+            "example": 5
+          },
+          "watermark": {
+            "type": "boolean",
+            "description": "是否添加水印",
+            "default": false
+          },
+          "generate_audio": {
+            "type": "boolean",
+            "description": "是否生成音频",
+            "default": false
+          },
+          "tools": {
+            "type": "array",
+            "description": "Doubao 工具列表",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "example": "web_search"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "service_tier": {
+            "type": "string",
+            "description": "Doubao 服务等级，透传上游"
+          },
+          "draft": {
+            "type": "boolean",
+            "description": "Doubao 草稿模式，透传上游"
+          },
+          "frames": {
+            "type": "integer",
+            "description": "Doubao 输出帧数，透传上游"
+          },
+          "camera_fixed": {
+            "type": "boolean",
+            "description": "Doubao 固定镜头参数，透传上游"
+          }
+        },
+        "required": [
+          "model",
+          "content"
+        ]
+      },
+      "SeedanceV3VideoTask": {
+        "type": "object",
+        "description": "Seedance V3 视频任务",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "本站生成的公开任务 ID",
+            "example": "task_2b7f10d34b6449ada4e53d76e31a5290"
+          },
+          "model": {
+            "type": "string",
+            "description": "视频生成模型",
+            "example": "dreamina-seedance-2-0-hc"
+          },
+          "status": {
+            "type": "string",
+            "description": "任务状态",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "expired"
+            ]
+          },
+          "content": {
+            "type": "object",
+            "description": "生成结果，任务成功后包含 video_url",
+            "properties": {
+              "video_url": {
+                "type": "string",
+                "description": "具有时效性的视频下载地址",
+                "example": "https://example.com/generated-video.mp4"
+              }
+            }
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "生成视频时长（秒）"
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "成功后的视频下载地址列表"
+          },
+          "usage": {
+            "type": "object",
+            "description": "上游返回的用量信息；任务未完成或上游未返回用量时可能省略",
+            "properties": {
+              "completion_tokens": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "视频生成消耗的输出 Token"
+              },
+              "total_tokens": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "本次任务消耗的总 Token"
+              }
+            }
+          },
+          "error": {
+            "type": "object",
+            "nullable": true,
+            "description": "任务失败信息",
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "错误码"
+              },
+              "message": {
+                "type": "string",
+                "description": "错误信息"
+              }
+            }
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "任务创建时间，Unix 秒级时间戳"
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "任务最近更新时间，Unix 秒级时间戳"
+          },
+          "completed_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "任务完成时间，Unix 秒级时间戳"
+          },
+          "last_frame_url": {
+            "type": "string",
+            "description": "视频最后一帧地址（可选）"
+          }
+        },
+        "required": [
+          "id",
+          "model",
+          "status"
+        ]
       },
       "VideoRequest": {
         "type": "object",

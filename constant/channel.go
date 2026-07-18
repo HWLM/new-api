@@ -56,7 +56,8 @@ const (
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
 	ChannelTypeAdvancedCustom = 58
-	ChannelTypeDummy          // this one is only for count, do not add any channel after this
+	ChannelTypeSDRealMax      = 81
+	ChannelTypeDummy          = 82 // this one is only for count, do not add any channel after this
 
 )
 
@@ -120,6 +121,29 @@ var ChannelBaseURLs = []string{
 	"https://api.replicate.com",                 //56
 	"https://chatgpt.com",                       //57
 	"",                                          //58
+	"",                                          //59
+	"",                                          //60
+	"",                                          //61
+	"",                                          //62
+	"",                                          //63
+	"",                                          //64
+	"",                                          //65
+	"",                                          //66
+	"",                                          //67
+	"",                                          //68
+	"",                                          //69
+	"",                                          //70
+	"",                                          //71
+	"",                                          //72
+	"",                                          //73
+	"",                                          //74
+	"",                                          //75
+	"",                                          //76
+	"",                                          //77
+	"",                                          //78
+	"",                                          //79
+	"",                                          //80
+	"https://model.service-inference.ai",        //81
 }
 
 var ChannelTypeNames = map[int]string{
@@ -178,6 +202,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeCodex:          "ChatGPT Subscription (Codex)",
 	ChannelTypeAdvancedCustom: "Advanced Custom",
+	ChannelTypeSDRealMax:      "SD Real Max",
 }
 
 func GetChannelTypeName(channelType int) string {

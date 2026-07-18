@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -31,6 +32,18 @@ type TaskPollingAdaptor interface {
 	// AdjustBillingOnComplete 在任务到达终态（成功/失败）时由轮询循环调用。
 	// 返回正数触发差额结算（补扣/退还），返回 0 保持预扣费金额不变。
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
+}
+
+// TaskPollingRatiosAdjuster 是 TaskPollingAdaptor 的可选扩展接口。
+// 当 adapter 实现该方法时，settleTaskBillingOnComplete 会在走 token 重算之前，
+// 用返回的 map 全量替换 task.PrivateData.BillingContext.OtherRatios。随后
+// RecalculateTaskQuotaByTokens 会用替换后的 ratios 精算最终 quota。
+//
+// 返回 nil = 不覆盖（沿用冻结的 OtherRatios）；返回 map（可空）= 全量替换。
+// 典型用途：把预扣阶段基于「请求参数」的估算倍率，替换成基于「上游返回实际参数」
+// 的精确倍率，同时剥掉只在预扣阶段起作用的 key（如 duration_estimate）。
+type TaskPollingRatiosAdjuster interface {
+	AdjustBillingRatiosOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) map[string]float64
 }
 
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
@@ -452,6 +465,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
 		"task_id": task.GetUpstreamTaskID(),
 		"action":  task.Action,
+		"model":   task.Properties.OriginModelName,
 	}, proxy)
 	if err != nil {
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
@@ -626,25 +640,51 @@ func truncateBase64(s string) string {
 }
 
 // settleTaskBillingOnComplete 任务完成时的统一计费调整。
-// 优先级：1. adaptor.AdjustBillingOnComplete 返回正数 → 使用 adaptor 计算的额度
-//
-//  2. taskResult.TotalTokens > 0 → 按 token 重算
-//  3. 都不满足 → 保持预扣额度不变
+// 优先级：
+//  0. 按次计费的任务不做差额结算
+//  1. 若 adapter 实现 TaskPollingRatiosAdjuster 且返回非 nil，用返回的 map 全量替换
+//     BillingContext.OtherRatios（写回 DB），随后走 token 重算
+//  2. adaptor.AdjustBillingOnComplete 返回正数 → 使用 adaptor 计算的额度
+//  3. taskResult.TotalTokens > 0 → 按 token 重算
+//  4. 都不满足 → 保持预扣额度不变
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
 	// 0. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
 		return
 	}
-	// 1. 优先让 adaptor 决定最终额度
+	// 1. adapter 可选覆盖 OtherRatios（用上游返回的实际参数重算倍率）
+	if adjuster, ok := adaptor.(TaskPollingRatiosAdjuster); ok {
+		if newRatios := adjuster.AdjustBillingRatiosOnComplete(task, taskResult); newRatios != nil {
+			if bc := task.PrivateData.BillingContext; bc != nil {
+				filtered := make(map[string]float64, len(newRatios))
+				for k, v := range newRatios {
+					// 沿用 PriceData.AddOtherRatio 的过滤规则：拒绝 ≤0/NaN/±Inf
+					if v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) {
+						filtered[k] = v
+					}
+				}
+				oldRatios := bc.OtherRatios
+				bc.OtherRatios = filtered
+				if err := task.UpdatePrivateData(); err != nil {
+					logger.LogWarn(ctx, fmt.Sprintf("持久化 OtherRatios 失败 task %s: %v", task.TaskID, err))
+				}
+				logger.LogInfo(ctx, fmt.Sprintf(
+					"任务 %s 结算前调整 OtherRatios: %v -> %v",
+					task.TaskID, oldRatios, filtered,
+				))
+			}
+		}
+	}
+	// 2. 优先让 adaptor 决定最终额度
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
 		RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
 		return
 	}
-	// 2. 回退到 token 重算
+	// 3. 回退到 token 重算（读取步骤 1 覆盖后的 OtherRatios）
 	if taskResult.TotalTokens > 0 {
 		RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
 		return
 	}
-	// 3. 无调整，保持预扣额度
+	// 4. 无调整，保持预扣额度
 }
