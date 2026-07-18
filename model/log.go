@@ -81,6 +81,9 @@ type Log struct {
 	RequestId         string  `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string  `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
 	Other             string  `json:"other"`
+	// AccountId 由 sub2api 侧对账任务回填：sub2api usage_logs.account_id。
+	// 未同步 / 非 sub2api 渠道 / 上游未选到号 时为 0。
+	AccountId int64 `json:"account_id" gorm:"default:0;index:idx_logs_account_id"`
 	// RechargeInputAmount 记录管理员在前端「调整额度」页面实际填写的金额（人民币 ¥）。
 	// 仅在 action=add_quota + mode=add 时写入；其他场景为 NULL。
 	RechargeInputAmount *float64 `json:"recharge_input_amount,omitempty" gorm:"default:NULL"`
@@ -171,6 +174,112 @@ func LookupRefundStatusByRequestIDs(ctx context.Context, requestIDs []string) ([
 		deduped = append(deduped, r)
 	}
 	return deduped, nil
+}
+
+// LogAccountIDPatch 描述一条待回填的 (request_id → account_id) 映射。
+// 由 sub2api 侧的 push_account_to_newapi 任务批量投递。
+type LogAccountIDPatch struct {
+	RequestID string
+	AccountID int64
+}
+
+// patchLogAccountIDsChunkSize 单条 UPDATE 语句最多带多少个 request_id。
+// 每条命中 3 个占位符（CASE WHEN request_id THEN account_id + IN(request_id)），
+// 200 → 600 占位符，在 SQLite/MySQL/PostgreSQL 参数上限内保守。
+const patchLogAccountIDsChunkSize = 200
+
+// PatchLogAccountIDs 批量回填 logs 表的 account_id 字段。
+//
+// 语义：
+//   - 只更新已存在的 request_id；未找到的通过 notFound 返回给调用方。
+//   - 同一 request_id 若在 logs 中有多条，全部改为同一个 account_id（幂等）。
+//   - ClickHouse 日志库不支持在线 UPDATE，直接返回错误，调用方（sub2api）
+//     应把这类部署跳过。
+//
+// 单次调用最多不超过 sub2api 端约定的批大小；内部再按 patchLogAccountIDsChunkSize
+// 分批执行以避免单条 SQL 参数过多。
+func PatchLogAccountIDs(ctx context.Context, patches []LogAccountIDPatch) (matched, notFound []string, err error) {
+	if len(patches) == 0 {
+		return nil, nil, nil
+	}
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		return nil, nil, errors.New("clickhouse log db does not support account_id patch")
+	}
+
+	dedup := make(map[string]int64, len(patches))
+	for _, p := range patches {
+		rid := strings.TrimSpace(p.RequestID)
+		if rid == "" {
+			continue
+		}
+		dedup[rid] = p.AccountID
+	}
+	if len(dedup) == 0 {
+		return nil, nil, nil
+	}
+
+	ids := make([]string, 0, len(dedup))
+	for rid := range dedup {
+		ids = append(ids, rid)
+	}
+
+	type existingRow struct {
+		RequestID string `gorm:"column:request_id"`
+	}
+	var existing []existingRow
+	if err := LOG_DB.WithContext(ctx).
+		Table("logs").
+		Select("DISTINCT request_id").
+		Where("request_id IN ?", ids).
+		Scan(&existing).Error; err != nil {
+		return nil, nil, fmt.Errorf("lookup existing logs for account patch: %w", err)
+	}
+	existSet := make(map[string]struct{}, len(existing))
+	for _, e := range existing {
+		existSet[e.RequestID] = struct{}{}
+	}
+
+	matched = make([]string, 0, len(existSet))
+	for rid := range dedup {
+		if _, ok := existSet[rid]; ok {
+			matched = append(matched, rid)
+		} else {
+			notFound = append(notFound, rid)
+		}
+	}
+	if len(matched) == 0 {
+		return matched, notFound, nil
+	}
+
+	for offset := 0; offset < len(matched); offset += patchLogAccountIDsChunkSize {
+		end := offset + patchLogAccountIDsChunkSize
+		if end > len(matched) {
+			end = len(matched)
+		}
+		chunk := matched[offset:end]
+
+		var b strings.Builder
+		args := make([]any, 0, len(chunk)*3)
+		b.WriteString("UPDATE logs SET account_id = CASE request_id ")
+		for _, rid := range chunk {
+			b.WriteString("WHEN ? THEN ? ")
+			args = append(args, rid, dedup[rid])
+		}
+		b.WriteString("END WHERE request_id IN (")
+		for i, rid := range chunk {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			b.WriteString("?")
+			args = append(args, rid)
+		}
+		b.WriteString(")")
+
+		if err := LOG_DB.WithContext(ctx).Exec(b.String(), args...).Error; err != nil {
+			return nil, nil, fmt.Errorf("update logs account_id (chunk offset=%d n=%d): %w", offset, len(chunk), err)
+		}
+	}
+	return matched, notFound, nil
 }
 
 func clickHouseLogOrder(prefix string) string {

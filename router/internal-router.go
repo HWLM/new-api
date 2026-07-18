@@ -25,6 +25,12 @@ func SetInternalRouter(router *gin.Engine) {
 			// Body: {"request_ids": ["...", "..."]}
 			// 返回每个 request_id 对应的 log_type / quota / refund_reason，供下游做退费对账。
 			logsGroup.POST("/refund-status", controller.GetInternalRefundStatus)
+
+			// POST /internal/logs/patch-account
+			// Body: {"items": [{"request_id": "...", "account_id": 123}, ...]}
+			// 由 sub2api 的 push_account_to_newapi 任务批量回填 logs.account_id。
+			// 只做写入（UPDATE），不涉及任何计费/额度变动。ClickHouse 日志库不支持。
+			logsGroup.POST("/patch-account", controller.PatchInternalLogAccountIDs)
 		}
 	}
 }
