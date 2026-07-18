@@ -60,6 +60,7 @@ export const userSchema = z.object({
   last_login_at: z.number().optional(),
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
+  settlement_currency: z.string().optional(),
   is_vip_customer: z.boolean().optional(),
   business_channel: z.string().optional(),
   allow_online_topup: z.boolean().optional(),
@@ -124,6 +125,8 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
+  /** 结算方式：'CNY' = 按人民币，'USD' = 按美元 */
+  settlement_currency?: string
   allow_online_topup?: boolean
   /** 邀请人用户名；空串表示清除邀请人。后端反查 → inviter_id */
   inviter_username?: string

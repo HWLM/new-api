@@ -401,6 +401,45 @@ export function UsersMutateDrawer({
                     </FormItem>
                   )}
                 />
+
+                {!isUpdate && (
+                  <FormField
+                    control={form.control}
+                    name='settlement_currency'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Settlement Currency')}</FormLabel>
+                        <Select
+                          items={[
+                            { value: 'CNY', label: t('Settle in CNY') },
+                            { value: 'USD', label: t('Settle in USD') },
+                          ]}
+                          onValueChange={field.onChange}
+                          value={field.value ?? 'CNY'}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue
+                                placeholder={t('Select settlement currency')}
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='CNY'>
+                                {t('Settle in CNY')}
+                              </SelectItem>
+                              <SelectItem value='USD'>
+                                {t('Settle in USD')}
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
               </SideDrawerSection>
 
               {/* Group & Quota Settings (Update only) */}
@@ -496,6 +535,43 @@ export function UsersMutateDrawer({
                             rows={3}
                           />
                         </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='settlement_currency'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Settlement Currency')}</FormLabel>
+                        <Select
+                          items={[
+                            { value: 'CNY', label: t('Settle in CNY') },
+                            { value: 'USD', label: t('Settle in USD') },
+                          ]}
+                          onValueChange={field.onChange}
+                          value={field.value ?? 'CNY'}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue
+                                placeholder={t('Select settlement currency')}
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='CNY'>
+                                {t('Settle in CNY')}
+                              </SelectItem>
+                              <SelectItem value='USD'>
+                                {t('Settle in USD')}
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}

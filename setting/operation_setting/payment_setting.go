@@ -13,6 +13,19 @@ type PaymentSetting struct {
 	ComplianceConfirmedIP  string `json:"compliance_confirmed_ip"`
 }
 
+// ConsumeUSDExchangeRate 消耗汇率展示（美元汇率）：展示消耗金额时使用的美元汇率
+const DefaultConsumeUSDExchangeRate = 6.8
+
+var ConsumeUSDExchangeRate = DefaultConsumeUSDExchangeRate
+
+// GetConsumeUSDExchangeRate 返回消耗汇率，未配置或非法时回退默认值 6.8
+func GetConsumeUSDExchangeRate() float64 {
+	if ConsumeUSDExchangeRate > 0 {
+		return ConsumeUSDExchangeRate
+	}
+	return DefaultConsumeUSDExchangeRate
+}
+
 const CurrentComplianceTermsVersion = "v1"
 
 // 默认配置

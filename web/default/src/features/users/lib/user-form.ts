@@ -39,6 +39,7 @@ export const userFormSchema = z.object({
   quota_dollars: z.number().optional(),
   group: z.string().optional(),
   remark: z.string().optional(),
+  settlement_currency: z.enum(['CNY', 'USD']).optional(),
   allow_online_topup: z.boolean().optional(),
   inviter_username: z.string().optional(),
   admin_permissions: z
@@ -60,6 +61,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   quota_dollars: 0,
   group: DEFAULT_GROUP,
   remark: '',
+  settlement_currency: 'CNY',
   allow_online_topup: true,
   inviter_username: '',
   admin_permissions: {},
@@ -85,6 +87,7 @@ export function transformFormDataToPayload(
     password: data.password || undefined,
     allow_online_topup: data.allow_online_topup === true,
     inviter_username: inviterUsername,
+    settlement_currency: data.settlement_currency || 'CNY',
   }
   const role = userId === undefined ? data.role || 1 : (data.role ?? 0)
 
@@ -120,6 +123,8 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,
     remark: user.remark || '',
+    settlement_currency:
+      user.settlement_currency === 'USD' ? 'USD' : 'CNY',
     allow_online_topup: user.allow_online_topup === true,
     inviter_username: user.inviter_username || '',
     admin_permissions: user.admin_permissions ?? {},

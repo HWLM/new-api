@@ -1051,12 +1051,13 @@ func CreateUser(c *gin.Context) {
 	}
 	// Even for admin users, we cannot fully trust them!
 	cleanUser := model.User{
-		Username:         user.Username,
-		Password:         user.Password,
-		DisplayName:      user.DisplayName,
-		Role:             user.Role, // 保持管理员设置的角色
-		InviterId:        inviterId,
-		AllowOnlineTopup: user.AllowOnlineTopup,
+		Username:           user.Username,
+		Password:           user.Password,
+		DisplayName:        user.DisplayName,
+		Role:               user.Role, // 保持管理员设置的角色
+		InviterId:          inviterId,
+		AllowOnlineTopup:   user.AllowOnlineTopup,
+		SettlementCurrency: user.SettlementCurrency,
 	}
 
 	authzTouched := false

@@ -32,6 +32,7 @@ const STATUS_RELATED_KEYS = new Set([
   "LogConsumeEnabled",
   "QuotaPerUnit",
   "USDExchangeRate",
+  "ConsumeUSDExchangeRate",
   "DisplayInCurrencyEnabled",
   "DisplayTokenStatEnabled",
   "general_setting.quota_display_type",

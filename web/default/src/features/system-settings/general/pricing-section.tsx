@@ -62,6 +62,9 @@ const createPricingSchema = (t: (key: string) => string) =>
       USDExchangeRate: z.coerce
         .number()
         .min(0.0001, t('Exchange rate must be greater than 0')),
+      ConsumeUSDExchangeRate: z.coerce
+        .number()
+        .min(0.0001, t('Exchange rate must be greater than 0')),
       DisplayInCurrencyEnabled: z.boolean(),
       DisplayTokenStatEnabled: z.boolean(),
       PricingDiscountColumnEnabled: z.boolean(),
@@ -386,6 +389,27 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                     />
                   </FormControl>
                 </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='ConsumeUSDExchangeRate'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Consumption Exchange Rate (USD)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      step='0.01'
+                      {...safeNumberFieldProps(field)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('USD exchange rate used when displaying consumption')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
               )}
             />
           </SettingsForm>
