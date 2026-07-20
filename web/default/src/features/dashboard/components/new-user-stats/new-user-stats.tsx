@@ -77,10 +77,16 @@ export function NewUserStats() {
   const [compareEndHour, setCompareEndHour] = useState(
     () => new Date().getHours()
   )
+  // 用户手动指定的对比日期；null 表示走自动推算
+  const [compareOverride, setCompareOverride] = useState<{
+    start_date: string
+    end_date: string
+  } | null>(null)
 
-  // 顶部筛选变化时自动关闭对比（避免基线对不上）
+  // 顶部筛选变化时自动关闭对比 + 清空手动日期覆盖（避免基线对不上）
   useEffect(() => {
     setCompareEnabled(false)
+    setCompareOverride(null)
   }, [
     filter.start_date,
     filter.end_date,
@@ -91,7 +97,12 @@ export function NewUserStats() {
   ])
 
   const todayMode = isTodayMode(filter)
-  const compareWindow = useMemo(() => computeCompareWindow(filter), [filter])
+  const autoCompareWindow = useMemo(
+    () => computeCompareWindow(filter),
+    [filter]
+  )
+  // 展示 + 传给子组件用的对比窗：用户覆盖优先，否则自动推算
+  const compareWindow = compareOverride ?? autoCompareWindow
   // 实际生效的对比窗（仅当 enabled 时传给子组件）
   const effectiveCompareWindow = compareEnabled ? compareWindow : null
 
@@ -205,6 +216,9 @@ export function NewUserStats() {
 
       <CompareBar
         compareWindow={compareWindow}
+        onCompareDateChange={(start_date, end_date) =>
+          setCompareOverride({ start_date, end_date })
+        }
         isTodayMode={todayMode}
         startHour={compareStartHour}
         endHour={compareEndHour}

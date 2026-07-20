@@ -5,6 +5,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { CompareWindow, StatsFilter } from './types'
 
+const DAY_MS = 86_400_000
+
 function fmtDate(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -16,6 +18,27 @@ function parseDate(s: string): Date | null {
   if (!s) return null
   const t = new Date(`${s}T00:00:00`)
   return Number.isNaN(t.getTime()) ? null : t
+}
+
+/**
+ * 在 YYYY-MM-DD 上加/减 delta 天。空串或非法日期原样返回。
+ */
+export function addDays(dateStr: string, delta: number): string {
+  const d = parseDate(dateStr)
+  if (!d) return dateStr
+  d.setDate(d.getDate() + delta)
+  return fmtDate(d)
+}
+
+/**
+ * [start, end] 闭区间天数（含两端）。任一端非法返回 1（保底给"单日"处理）。
+ */
+export function daysBetween(start: string, end: string): number {
+  const s = parseDate(start)
+  const e = parseDate(end)
+  if (!s || !e) return 1
+  const n = Math.round((e.getTime() - s.getTime()) / DAY_MS) + 1
+  return n > 0 ? n : 1
 }
 
 /**
@@ -32,11 +55,10 @@ export function computeCompareWindow(filter: StatsFilter): CompareWindow | null 
   const s = parseDate(filter.start_date ?? '')
   const e = parseDate(filter.end_date ?? '')
   if (!s || !e) return null
-  const dayMs = 86_400_000
-  const lenDays = Math.round((e.getTime() - s.getTime()) / dayMs) + 1
+  const lenDays = Math.round((e.getTime() - s.getTime()) / DAY_MS) + 1
   if (lenDays <= 0) return null
-  const compareEnd = new Date(s.getTime() - dayMs)
-  const compareStart = new Date(compareEnd.getTime() - (lenDays - 1) * dayMs)
+  const compareEnd = new Date(s.getTime() - DAY_MS)
+  const compareStart = new Date(compareEnd.getTime() - (lenDays - 1) * DAY_MS)
   return {
     start_date: fmtDate(compareStart),
     end_date: fmtDate(compareEnd),
