@@ -28,8 +28,7 @@ func GetAllLogs(c *gin.Context) {
 		return
 	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(logs)
-	common.ApiSuccess(c, pageInfo)
+	respondUserLogs(c, pageInfo, logs)
 	return
 }
 
@@ -59,8 +58,7 @@ func GetUserLogs(c *gin.Context) {
 		return
 	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(logs)
-	common.ApiSuccess(c, pageInfo)
+	respondUserLogs(c, pageInfo, logs)
 	return
 }
 
@@ -119,16 +117,20 @@ func GetLogsStat(c *gin.Context) {
 		return
 	}
 	//tokenNum := model.SumUsedToken(logType, startTimestamp, endTimestamp, modelName, username, "")
+	data := gin.H{
+		"quota":      stat.Quota,
+		"sub_quota":  stat.SubQuota,
+		"sub_tokens": stat.SubTokens,
+		"rpm":        stat.Rpm,
+		"tpm":        stat.Tpm,
+	}
+	if active, rate := settlementUSDRate(c); active {
+		convertMoneyKeys(data, rate, "quota", "sub_quota")
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data": gin.H{
-			"quota":      stat.Quota,
-			"sub_quota":  stat.SubQuota,
-			"sub_tokens": stat.SubTokens,
-			"rpm":        stat.Rpm,
-			"tpm":        stat.Tpm,
-		},
+		"data":    data,
 	})
 	return
 }
@@ -163,17 +165,21 @@ func GetLogsSelfStat(c *gin.Context) {
 		return
 	}
 	//tokenNum := model.SumUsedToken(logType, startTimestamp, endTimestamp, modelName, username, tokenName)
+	data := gin.H{
+		"quota":      quotaNum.Quota,
+		"sub_quota":  quotaNum.SubQuota,
+		"sub_tokens": quotaNum.SubTokens,
+		"rpm":        quotaNum.Rpm,
+		"tpm":        quotaNum.Tpm,
+		//"token": tokenNum,
+	}
+	if active, rate := settlementUSDRate(c); active {
+		convertMoneyKeys(data, rate, "quota", "sub_quota")
+	}
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": "",
-		"data": gin.H{
-			"quota":      quotaNum.Quota,
-			"sub_quota":  quotaNum.SubQuota,
-			"sub_tokens": quotaNum.SubTokens,
-			"rpm":        quotaNum.Rpm,
-			"tpm":        quotaNum.Tpm,
-			//"token": tokenNum,
-		},
+		"data":    data,
 	})
 	return
 }

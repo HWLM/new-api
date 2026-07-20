@@ -414,6 +414,26 @@ func SearchUsers(keyword string, group string, role *int, status *int, isVip *bo
 	return users, total, nil
 }
 
+// Settlement currency values for User.SettlementCurrency. Empty is treated as CNY.
+const (
+	SettlementCurrencyCNY = "CNY"
+	SettlementCurrencyUSD = "USD"
+)
+
+// GetUserSettlementCurrency returns the user's settlement currency ("CNY"/"USD").
+// It reads only the single column and returns "" on error or missing user, so
+// callers fall back to the default (per-RMB) behaviour without conversion.
+func GetUserSettlementCurrency(id int) string {
+	if id == 0 {
+		return ""
+	}
+	var user User
+	if err := DB.Select("settlement_currency").First(&user, "id = ?", id).Error; err != nil {
+		return ""
+	}
+	return user.SettlementCurrency
+}
+
 func GetUserById(id int, selectAll bool) (*User, error) {
 	if id == 0 {
 		return nil, errors.New("id 为空！")
@@ -805,12 +825,17 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 
 	newUser := *user
 	updates := map[string]interface{}{
-		"username":            newUser.Username,
-		"display_name":        newUser.DisplayName,
-		"group":               newUser.Group,
-		"remark":              newUser.Remark,
-		"settlement_currency": newUser.SettlementCurrency,
-		"allow_online_topup":  newUser.AllowOnlineTopup,
+		"username":           newUser.Username,
+		"display_name":       newUser.DisplayName,
+		"group":              newUser.Group,
+		"remark":             newUser.Remark,
+		"allow_online_topup": newUser.AllowOnlineTopup,
+	}
+	// settlement_currency 为空表示本次请求未提交该字段（如用户列表里仅切换"允许在线充值"的
+	// 部分更新），此时保留数据库原值，避免把用户的结算方式误清为默认（按人民币）。
+	// 全量编辑抽屉始终提交 CNY/USD，非空时正常更新。
+	if newUser.SettlementCurrency != "" {
+		updates["settlement_currency"] = newUser.SettlementCurrency
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password

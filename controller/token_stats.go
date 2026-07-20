@@ -49,15 +49,19 @@ func GetTokenStatsSummary(c *gin.Context) {
 		return
 	}
 
+	data := gin.H{
+		"enabled_count":   agg.EnabledCount,
+		"remain_total":    agg.RemainTotal,
+		"today_quota":     todayQuota,
+		"yesterday_quota": yesterdayQuota,
+		"last30_quota":    last30Quota,
+	}
+	if active, rate := settlementUSDRate(c); active {
+		convertMoneyKeys(data, rate, "remain_total", "today_quota", "yesterday_quota", "last30_quota")
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"enabled_count":    agg.EnabledCount,
-			"remain_total":     agg.RemainTotal,
-			"today_quota":      todayQuota,
-			"yesterday_quota":  yesterdayQuota,
-			"last30_quota":     last30Quota,
-		},
+		"data":    data,
 	})
 }
 
@@ -77,9 +81,13 @@ func GetTokenStatsTop(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	var data interface{} = items
+	if active, rate := settlementUSDRate(c); active {
+		data = convertStructsForSettlement(items, rate, "quota")
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    items,
+		"data":    data,
 	})
 }
 
@@ -93,10 +101,14 @@ func GetTokenStatsExhausting(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	var itemsData interface{} = items
+	if active, rate := settlementUSDRate(c); active {
+		itemsData = convertStructsForSettlement(items, rate, "used_quota", "remain_quota")
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"items": items,
+			"items": itemsData,
 			"total": total,
 		},
 	})
@@ -136,10 +148,14 @@ func GetTokenStatsDaily(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	var itemsData interface{} = items
+	if active, rate := settlementUSDRate(c); active {
+		itemsData = convertStructsForSettlement(items, rate, "daily_quota", "cumulative_quota")
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"items":     items,
+			"items":     itemsData,
 			"total":     total,
 			"page":      page,
 			"page_size": pageSize,

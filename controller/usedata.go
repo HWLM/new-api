@@ -37,10 +37,14 @@ func GetAllQuotaDates(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	var data interface{} = dates
+	if active, rate := settlementUSDRate(c); active {
+		data = convertStructsForSettlement(dates, rate, "quota")
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    dates,
+		"data":    data,
 	})
 	return
 }
@@ -94,10 +98,14 @@ func GetUserQuotaDates(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	var data interface{} = dates
+	if active, rate := settlementUSDRate(c); active {
+		data = convertStructsForSettlement(dates, rate, "quota")
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    dates,
+		"data":    data,
 	})
 	return
 }
