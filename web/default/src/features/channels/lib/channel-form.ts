@@ -196,6 +196,7 @@ export const channelFormSchema = z
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
     aws_key_type: z.enum(['ak_sk', 'api_key']).optional(), // AWS specific
     azure_responses_version: z.string().optional(), // Azure specific
+    asset_base_url: z.string().optional(), // SD Real Max (type 81) asset endpoint override
     // Field passthrough controls (stored in settings JSON)
     allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
     disable_store: z.boolean().optional(), // OpenAI only
@@ -336,6 +337,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   vertex_key_type: 'json',
   aws_key_type: 'ak_sk',
   azure_responses_version: '',
+  asset_base_url: '',
   // Field passthrough controls
   allow_service_tier: false,
   disable_store: false,
@@ -405,6 +407,7 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
   let advancedCustom = ''
+  let assetBaseUrl = ''
 
   if (channel.settings) {
     try {
@@ -433,6 +436,7 @@ export function transformChannelToFormDefaults(
       if (parsed.advanced_custom) {
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
       }
+      assetBaseUrl = parsed.asset_base_url || ''
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to parse channel settings:', error)
@@ -484,6 +488,7 @@ export function transformChannelToFormDefaults(
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     advanced_custom: advancedCustom,
+    asset_base_url: assetBaseUrl,
   }
 }
 
@@ -530,6 +535,16 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.azure_responses_version = formData.azure_responses_version
   } else if ('azure_responses_version' in settingsObj) {
     delete settingsObj.azure_responses_version
+  }
+
+  // Add asset_base_url for SD Real Max channels (type 81). Only saved when non-empty;
+  // absent means "use the channel main base URL" (used by the
+  // /v3/open/CreateAsset & /v3/open/GetAsset controllers to reach the wetoken
+  // asset host — see controller/seedance_v3_asset.go).
+  if (formData.type === 81 && formData.asset_base_url?.trim()) {
+    settingsObj.asset_base_url = formData.asset_base_url.trim()
+  } else if ('asset_base_url' in settingsObj) {
+    delete settingsObj.asset_base_url
   }
 
   // Add enterprise account setting for OpenRouter (type 20)

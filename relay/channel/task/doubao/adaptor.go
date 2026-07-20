@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -68,9 +69,10 @@ type responsePayload struct {
 }
 
 type responseTask struct {
-	ID      string `json:"id"`
-	Model   string `json:"model"`
-	Status  string `json:"status"`
+	ID      string   `json:"id"`
+	Model   string   `json:"model"`
+	Status  string   `json:"status"`
+	Outputs []string `json:"outputs,omitempty"`
 	Content struct {
 		VideoURL string `json:"video_url"`
 	} `json:"content"`
@@ -134,19 +136,119 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *r
 	return nil
 }
 
-// EstimateBilling 根据请求 metadata 中的输出分辨率与是否包含视频输入，返回相对基准价的计费 OtherRatio。
+// EstimateBilling 根据请求 metadata 中的输出分辨率、是否包含视频输入、以及请求时长，
+// 返回相对基准价的计费 OtherRatio。
+//
+// 两个 key 语义不同：
+//   - "video_input": 上游价格档差（tokens×modelRatio 之上的乘数），结算时会被
+//     AdjustBillingRatiosOnComplete 用上游返回的实际 resolution 覆盖。
+//   - "duration_estimate": 仅预扣阶段的时长估算乘数（相对 5s 基准），保证长视频
+//     预扣够扣。上游 total_tokens 已反映实际时长，AdjustBillingRatiosOnComplete
+//     结算时会剥掉该 key，避免重复计费。
+//
+// 若探测到 video_url 输入，同时把 hasVideo 写到 info.HasVideoInput，
+// 控制器会在提交成功时冻结到 BillingContext.HasVideoInput，供结算重算使用。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil
 	}
 	hasVideo := hasVideoInMetadata(req.Metadata)
+	if hasVideo && info != nil {
+		info.HasVideoInput = true
+	}
 	resolution, _ := req.Metadata["resolution"].(string)
-	ratio, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo)
-	if !ok || ratio == 1.0 {
+	ratios := map[string]float64{}
+	if r, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo); ok && r != 1.0 {
+		ratios["video_input"] = r
+	}
+	if dr := estimateDurationRatio(req.Metadata); dr != 1.0 {
+		ratios["duration_estimate"] = dr
+	}
+	if len(ratios) == 0 {
 		return nil
 	}
-	return map[string]float64{"video_input": ratio}
+	return ratios
+}
+
+// estimateDurationRatio 计算 duration_estimate 倍率（相对 5s 基准）。
+//   - 请求 5s → 1.0
+//   - 请求 N s → N/5
+//   - `-1` 或缺失 / 非法 → 用 MaxTaskDurationSeconds/5 作上限估算（宁可超扣，
+//     结算会按真实 tokens 精算并退回）
+//   - 剪到 [1, MaxTaskDurationSeconds] 后除 5
+func estimateDurationRatio(metadata map[string]any) float64 {
+	const baseSeconds = 5.0
+	fallback := float64(relaycommon.MaxTaskDurationSeconds) / baseSeconds
+	if metadata == nil {
+		return fallback
+	}
+	raw, ok := metadata["duration"]
+	if !ok {
+		return fallback
+	}
+	seconds, ok := durationToFloat(raw)
+	if !ok || seconds <= 0 { // 包含 -1（模型自决）
+		return fallback
+	}
+	if seconds > float64(relaycommon.MaxTaskDurationSeconds) {
+		seconds = float64(relaycommon.MaxTaskDurationSeconds)
+	}
+	return seconds / baseSeconds
+}
+
+// durationToFloat 把 metadata["duration"] 常见类型转为 float，无法转换返回 false。
+func durationToFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(n), 64); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+// AdjustBillingRatiosOnComplete 用上游返回的实际参数覆盖 BillingContext.OtherRatios。
+//   - video_input：用上游返回的实际 resolution 重查价格表；若上游未返回则保留原冻结值
+//   - duration_estimate：必然剥掉（tokens 已反映实际时长，再乘会重复计费）
+//   - 其它 key：原样保留
+//
+// 返回的 map 会被 settleTaskBillingOnComplete 全量替换到 BillingContext.OtherRatios。
+func (a *TaskAdaptor) AdjustBillingRatiosOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) map[string]float64 {
+	bc := task.PrivateData.BillingContext
+	if bc == nil {
+		return nil
+	}
+	newRatios := make(map[string]float64)
+	for k, v := range bc.OtherRatios {
+		if k == "video_input" || k == "duration_estimate" {
+			continue
+		}
+		newRatios[k] = v
+	}
+	resolution := ""
+	if taskResult != nil {
+		resolution = taskResult.Resolution
+	}
+	if resolution == "" {
+		// 上游没返回 → 保持原 video_input（若有）
+		if orig, ok := bc.OtherRatios["video_input"]; ok && orig > 0 {
+			newRatios["video_input"] = orig
+		}
+	} else if r, ok := GetVideoInputRatio(bc.OriginModelName, resolution, bc.HasVideoInput); ok && r != 1.0 {
+		newRatios["video_input"] = r
+	}
+	return newRatios
 }
 
 // hasVideoInMetadata 直接检查 metadata 的 content 数组是否包含 video_url 条目，
@@ -227,13 +329,22 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return
 	}
 
-	ov := dto.NewOpenAIVideo()
-	ov.ID = info.PublicTaskID
-	ov.TaskID = info.PublicTaskID
-	ov.CreatedAt = time.Now().Unix()
-	ov.Model = info.OriginModelName
-
-	c.JSON(http.StatusOK, ov)
+	if strings.HasPrefix(c.Request.URL.Path, "/api/v3/contents/generations/tasks") {
+		c.JSON(http.StatusOK, dto.SeedanceV3PublicTask{
+			ID:        info.PublicTaskID,
+			Model:     info.OriginModelName,
+			Status:    "queued",
+			Content:   dto.SeedanceV3PublicContent{},
+			CreatedAt: time.Now().Unix(),
+		})
+	} else {
+		ov := dto.NewOpenAIVideo()
+		ov.ID = info.PublicTaskID
+		ov.TaskID = info.PublicTaskID
+		ov.CreatedAt = time.Now().Unix()
+		ov.Model = info.OriginModelName
+		c.JSON(http.StatusOK, ov)
+	}
 	return dResp.ID, responseBody, nil
 }
 
@@ -328,10 +439,17 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusSuccess
 		taskResult.Progress = "100%"
 		taskResult.Url = resTask.Content.VideoURL
+		if taskResult.Url == "" && len(resTask.Outputs) > 0 {
+			taskResult.Url = resTask.Outputs[0]
+		}
 		// 解析 usage 信息用于按倍率计费
 		taskResult.CompletionTokens = resTask.Usage.CompletionTokens
 		taskResult.TotalTokens = resTask.Usage.TotalTokens
-	case "failed":
+		// 上游返回的实际 resolution/duration，供 AdjustBillingRatiosOnComplete 用来
+		// 覆盖预扣阶段的估算倍率（例如 adaptive → 1080p、duration=-1 → 8s 等场景）
+		taskResult.Resolution = resTask.Resolution
+		taskResult.DurationSeconds = resTask.Duration
+	case "failed", "expired":
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = "100%"
 		taskResult.Reason = resTask.Error.Message
@@ -368,4 +486,59 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	}
 
 	return common.Marshal(openAIVideo)
+}
+
+func (a *TaskAdaptor) ConvertToSeedanceV3Video(originTask *model.Task) ([]byte, error) {
+	var upstream responseTask
+	if len(originTask.Data) > 0 {
+		if err := common.Unmarshal(originTask.Data, &upstream); err != nil {
+			return nil, errors.Wrap(err, "unmarshal doubao task data failed")
+		}
+	}
+
+	status := "queued"
+	switch originTask.Status {
+	case model.TaskStatusInProgress:
+		status = "running"
+	case model.TaskStatusSuccess:
+		status = "succeeded"
+	case model.TaskStatusFailure:
+		status = "failed"
+	}
+	if strings.EqualFold(upstream.Status, "expired") {
+		status = "expired"
+	}
+
+	result := dto.SeedanceV3PublicTask{
+		ID:              originTask.TaskID,
+		Model:           originTask.Properties.OriginModelName,
+		Status:          status,
+		Content:         dto.SeedanceV3PublicContent{VideoURL: originTask.GetResultURL()},
+		DurationSeconds: upstream.Duration,
+		Outputs:         upstream.Outputs,
+		CreatedAt:       originTask.CreatedAt,
+		UpdatedAt:       originTask.UpdatedAt,
+	}
+	if result.Content.VideoURL == "" {
+		result.Content.VideoURL = upstream.Content.VideoURL
+	}
+	if len(result.Outputs) == 0 && result.Content.VideoURL != "" {
+		result.Outputs = []string{result.Content.VideoURL}
+	}
+	if upstream.Usage.CompletionTokens != 0 || upstream.Usage.TotalTokens != 0 {
+		result.Usage = &dto.SeedanceV3Usage{
+			CompletionTokens: upstream.Usage.CompletionTokens,
+			TotalTokens:      upstream.Usage.TotalTokens,
+		}
+	}
+	if originTask.Status == model.TaskStatusFailure {
+		result.Error = &dto.SeedanceV3Error{
+			Code:    upstream.Error.Code,
+			Message: upstream.Error.Message,
+		}
+		if result.Error.Message == "" {
+			result.Error.Message = originTask.FailReason
+		}
+	}
+	return common.Marshal(result)
 }

@@ -49,6 +49,11 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
+	// AssetBaseUrl 素材上传/查询专用的上游 base URL。仅对 SD Real Max（type 81）系列渠道生效：
+	// - 空：素材接口沿用渠道主 base URL（reseller 同域提供素材接口的场景）。
+	// - 非空：素材接口打到该地址，例如直连 wetoken 时配置为 https://asset.wetoken.ai，
+	//   而主 base URL 仍为 https://www.wetoken.ai。
+	AssetBaseUrl string `json:"asset_base_url,omitempty"`
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

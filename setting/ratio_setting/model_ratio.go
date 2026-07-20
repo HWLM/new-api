@@ -25,6 +25,12 @@ const (
 
 var defaultModelRatio = map[string]float64{
 	//"midjourney":                50,
+	// Seedance V3 unified Doubao aliases. The documented 7.0 base ratio is
+	// used for pre-consumption; administrators can override it per model.
+	"doubao-seedance-2-0-filter-off":            7,
+	"doubao-seedance-2-0":                       7,
+	"doubao-seedance-2-0-fast":                  7,
+	"dreamina-seedance-2-0-hc":                  7,
 	"gpt-4-gizmo-*":                             15,
 	"gpt-4o-gizmo-*":                            2.5,
 	"gpt-4-all":                                 15,

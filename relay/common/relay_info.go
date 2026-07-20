@@ -168,6 +168,12 @@ type RelayInfo struct {
 	// It is surfaced onto the consume/task log's admin_info for auditing.
 	QuotaClamp *common.QuotaClamp
 
+	// HasVideoInput 记录本次视频生成任务的 content 是否包含 video_url 输入。
+	// 由 task adapter 的 EstimateBilling 探测后写入，控制器在成功提交时冻结到
+	// TaskBillingContext.HasVideoInput，供轮询终态时 AdjustBillingRatiosOnComplete
+	// 用上游返回的实际 resolution 重查价格表（GetVideoInputRatio 的 hasVideo 参数）。
+	HasVideoInput bool
+
 	// TieredBillingSnapshot is a frozen snapshot of tiered billing rules
 	// captured at pre-consume time. Non-nil only when billing mode is "tiered_expr".
 	TieredBillingSnapshot *billingexpr.BillingSnapshot
@@ -779,6 +785,8 @@ type TaskInfo struct {
 	Progress         string `json:"progress,omitempty"`
 	CompletionTokens int    `json:"completion_tokens,omitempty"` // 用于按倍率计费
 	TotalTokens      int    `json:"total_tokens,omitempty"`      // 用于按倍率计费
+	Resolution       string `json:"resolution,omitempty"`        // 上游返回的实际输出分辨率，供 AdjustBillingRatiosOnComplete 差额结算使用
+	DurationSeconds  int    `json:"duration_seconds,omitempty"`  // 上游返回的实际视频时长（秒）
 }
 
 func FailTaskInfo(reason string) *TaskInfo {

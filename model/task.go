@@ -116,6 +116,7 @@ type TaskBillingContext struct {
 	OtherRatios     map[string]float64 `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
 	OriginModelName string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
 	PerCallBilling  bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	HasVideoInput   bool               `json:"has_video_input,omitempty"`   // 请求 content 是否含 video_url；供 AdjustBillingRatiosOnComplete 用实际 resolution 重查价格表
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -419,6 +420,12 @@ func (Task *Task) Update() error {
 
 func (t *Task) UpdateQuota() error {
 	return DB.Model(t).Update("quota", t.Quota).Error
+}
+
+// UpdatePrivateData 只写 private_data 列，避免 Save() 覆盖其他并发字段。
+// 在轮询终态用 AdjustBillingRatiosOnComplete 覆盖 BillingContext.OtherRatios 后调用。
+func (t *Task) UpdatePrivateData() error {
+	return DB.Model(t).Update("private_data", t.PrivateData).Error
 }
 
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).

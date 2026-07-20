@@ -20,7 +20,7 @@ export default defineConfig(({ envMode }) => {
   const proxyServerUrl = clientServerUrl || 'http://localhost:3000';
   const isProd = envMode === 'production';
   const devProxy = Object.fromEntries(
-    (['/api', '/mj', '/pg'] as const).map((key) => [
+    (['/api', '/mj', '/pg', '/v1'] as const).map((key) => [
       key,
       { target: proxyServerUrl, changeOrigin: true },
     ]),
