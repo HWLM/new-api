@@ -162,7 +162,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if r, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo); ok && r != 1.0 {
 		ratios["video_input"] = r
 	}
-	if dr := estimateDurationRatio(req.Metadata); dr != 1.0 {
+	if dr := estimateDurationRatio(&req); dr != 1.0 {
 		ratios["duration_estimate"] = dr
 	}
 	if len(ratios) == 0 {
@@ -177,17 +177,13 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 //   - `-1` 或缺失 / 非法 → 用 MaxTaskDurationSeconds/5 作上限估算（宁可超扣，
 //     结算会按真实 tokens 精算并退回）
 //   - 剪到 [1, MaxTaskDurationSeconds] 后除 5
-func estimateDurationRatio(metadata map[string]any) float64 {
+func estimateDurationRatio(req *relaycommon.TaskSubmitReq) float64 {
 	const baseSeconds = 5.0
 	fallback := float64(relaycommon.MaxTaskDurationSeconds) / baseSeconds
-	if metadata == nil {
+	if req == nil {
 		return fallback
 	}
-	raw, ok := metadata["duration"]
-	if !ok {
-		return fallback
-	}
-	seconds, ok := durationToFloat(raw)
+	seconds, ok := resolveTaskDurationSeconds(req)
 	if !ok || seconds <= 0 { // 包含 -1（模型自决）
 		return fallback
 	}
@@ -195,6 +191,28 @@ func estimateDurationRatio(metadata map[string]any) float64 {
 		seconds = float64(relaycommon.MaxTaskDurationSeconds)
 	}
 	return seconds / baseSeconds
+}
+
+func resolveTaskDurationSeconds(req *relaycommon.TaskSubmitReq) (float64, bool) {
+	if req == nil {
+		return 0, false
+	}
+	if req.Duration > 0 {
+		return float64(req.Duration), true
+	}
+	if req.Seconds != "" {
+		if seconds, err := strconv.ParseFloat(strings.TrimSpace(req.Seconds), 64); err == nil {
+			return seconds, true
+		}
+	}
+	if req.Metadata == nil {
+		return 0, false
+	}
+	raw, ok := req.Metadata["duration"]
+	if !ok {
+		return 0, false
+	}
+	return durationToFloat(raw)
 }
 
 // durationToFloat 把 metadata["duration"] 常见类型转为 float，无法转换返回 false。
@@ -404,7 +422,7 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
 
-	if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
+	if sec, ok := resolveTaskDurationSeconds(req); ok && sec > 0 {
 		r.Duration = lo.ToPtr(dto.IntValue(sec))
 	}
 
