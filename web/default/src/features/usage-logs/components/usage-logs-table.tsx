@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -28,7 +28,6 @@ import {
   useDataTable,
 } from '@/components/data-table'
 import { useMediaQuery } from '@/hooks'
-import { useIsAdmin } from '@/hooks/use-admin'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { cn } from '@/lib/utils'
 
@@ -37,10 +36,11 @@ import {
   LOG_TYPE_ALL_VALUE,
   LOG_TYPE_ENUM,
 } from '../constants'
+import { useUsageLogAccess } from '../hooks/use-usage-log-access'
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
 import { fetchLogsByCategory } from '../lib/utils'
-import type { LogCategory } from '../types'
+import type { LogCategory, UsageLogAccessScope } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
@@ -58,13 +58,18 @@ const quotaSaturationRowTint = 'bg-amber-50/60 dark:bg-amber-950/25'
 
 function getColumnVisibilityStorageKey(
   logCategory: LogCategory,
-  isAdmin: boolean
+  accessScope: UsageLogAccessScope
 ): string {
-  return `usage-logs:${logCategory}:${isAdmin ? 'admin' : 'user'}:column-visibility`
+  return `usage-logs:${logCategory}:${accessScope}:column-visibility`
 }
 
 function deserializeLogTypeFilter(value: unknown): unknown[] {
-  const values = Array.isArray(value) ? value : value ? [value] : []
+  let values: unknown[] = []
+  if (Array.isArray(value)) {
+    values = value
+  } else if (value) {
+    values = [value]
+  }
   return values.filter((item) => String(item) !== LOG_TYPE_ALL_VALUE)
 }
 
@@ -74,9 +79,19 @@ interface UsageLogsTableProps {
 
 export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const { t } = useTranslation()
-  const isAdmin = useIsAdmin()
+  const {
+    scope: accessScope,
+    userId,
+    isAdmin,
+    canViewUsername,
+  } = useUsageLogAccess()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
+  let tableAccessScope = accessScope
+  if (logCategory !== 'common' && !isAdmin) {
+    tableAccessScope = 'user'
+  }
+  const canFilterUsername = logCategory === 'common' && canViewUsername
 
   const {
     columnFilters,
@@ -106,6 +121,10 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
               searchKey: 'channel',
               type: 'string' as const,
             },
+          ]
+        : []),
+      ...(canFilterUsername
+        ? [
             {
               columnId: 'username',
               searchKey: 'username',
@@ -120,7 +139,8 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     queryKey: [
       'logs',
       logCategory,
-      isAdmin,
+      tableAccessScope,
+      userId,
       pagination.pageIndex + 1,
       pagination.pageSize,
       columnFilters,
@@ -130,7 +150,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     queryFn: async () => {
       const result = await fetchLogsByCategory({
         logCategory,
-        isAdmin,
+        accessScope: tableAccessScope,
         page: pagination.pageIndex + 1,
         pageSize: pagination.pageSize,
         searchParams,
@@ -145,7 +165,11 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       return result.data || DEFAULT_LOGS_DATA
     },
     placeholderData: (previousData, previousQuery) => {
-      if (previousQuery?.queryKey[1] === logCategory) {
+      if (
+        previousQuery?.queryKey[1] === logCategory &&
+        previousQuery.queryKey[2] === tableAccessScope &&
+        previousQuery.queryKey[3] === userId
+      ) {
         return previousData
       }
       return undefined
@@ -153,7 +177,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   })
 
   const logs = data?.items || []
-  const columns = useColumnsByCategory(logCategory, isAdmin)
+  const columns = useColumnsByCategory(logCategory, tableAccessScope)
   const isLoadingData = isLoading || (isFetching && !data)
 
   const { table } = useDataTable({
@@ -162,7 +186,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     columnFilters,
     columnVisibilityStorageKey: getColumnVisibilityStorageKey(
       logCategory,
-      isAdmin
+      tableAccessScope
     ),
     pagination,
     enableRowSelection: false,

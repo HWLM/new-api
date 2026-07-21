@@ -42,7 +42,7 @@ import {
   LOG_TYPE_ENUM,
   LOG_TYPE_FILTERS,
 } from "../constants";
-import { useIsAdmin } from "@/hooks/use-admin";
+import { useUsageLogAccess } from "../hooks/use-usage-log-access";
 import { buildSearchParams } from "../lib/filter";
 import { getDefaultTimeRange } from "../lib/utils";
 import type { CommonLogFilters } from "../types";
@@ -134,7 +134,7 @@ export function CommonLogsFilterBar<TData>(
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const searchParams = route.useSearch();
-  const isAdmin = useIsAdmin();
+  const { isAdmin, canViewUsername } = useUsageLogAccess();
   const { sensitiveVisible, setSensitiveVisible } = useUsageLogsContext();
   const fetchingLogs = useIsFetching({ queryKey: ["logs"] });
 
@@ -143,11 +143,11 @@ export function CommonLogsFilterBar<TData>(
     const sourceValues = {
       startTime: searchParams.startTime,
       endTime: searchParams.endTime,
-      channel: searchParams.channel,
+      channel: isAdmin ? searchParams.channel : undefined,
       model: searchParams.model,
       token: searchParams.token,
       group: searchParams.group,
-      username: searchParams.username,
+      username: canViewUsername ? searchParams.username : undefined,
       requestId: searchParams.requestId,
       upstreamRequestId: searchParams.upstreamRequestId,
       type: searchParams.type,
@@ -157,11 +157,13 @@ export function CommonLogsFilterBar<TData>(
         ? new Date(searchParams.startTime)
         : start,
       endTime: searchParams.endTime ? new Date(searchParams.endTime) : end,
-      channel: searchParams.channel || undefined,
+      channel: isAdmin ? searchParams.channel || undefined : undefined,
       model: searchParams.model || undefined,
       token: searchParams.token || undefined,
       group: searchParams.group || undefined,
-      username: searchParams.username || undefined,
+      username: canViewUsername
+        ? searchParams.username || undefined
+        : undefined,
       requestId: searchParams.requestId || undefined,
       upstreamRequestId: searchParams.upstreamRequestId || undefined,
     };
@@ -172,6 +174,7 @@ export function CommonLogsFilterBar<TData>(
       logType: getLogTypeValue(searchParams.type, isAdmin),
     };
   }, [
+    canViewUsername,
     isAdmin,
     searchParams.startTime,
     searchParams.endTime,
@@ -255,8 +258,8 @@ export function CommonLogsFilterBar<TData>(
 
   const hasExpandedFilters =
     !!filters.token ||
-    !!filters.username ||
-    !!filters.channel ||
+    (canViewUsername && !!filters.username) ||
+    (isAdmin && !!filters.channel) ||
     !!filters.requestId ||
     !!filters.upstreamRequestId;
 
@@ -266,7 +269,7 @@ export function CommonLogsFilterBar<TData>(
 
   const expandedFilterCount = [
     filters.token,
-    isAdmin ? filters.username : undefined,
+    canViewUsername ? filters.username : undefined,
     isAdmin ? filters.channel : undefined,
     filters.requestId,
     filters.upstreamRequestId,
@@ -401,7 +404,7 @@ export function CommonLogsFilterBar<TData>(
           onKeyDown={handleKeyDown}
         />
       </LogsFilterField>
-      {isAdmin && (
+      {canViewUsername && (
         <LogsFilterField>
           <LogsFilterInput
             placeholder={t("Username")}
