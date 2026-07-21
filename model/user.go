@@ -568,6 +568,39 @@ func SetUserBusinessChannel(id int, channel string) error {
 	return DB.Model(&User{}).Where("id = ?", id).Update("business_channel", channel).Error
 }
 
+// GetUserLogScopeIDs returns the users whose logs are visible through the
+// current user's self-log endpoints. Business accounts can also see users
+// they directly invited; all other accounts remain limited to themselves.
+func GetUserLogScopeIDs(userId int) ([]int, error) {
+	if userId == 0 {
+		return nil, errors.New("id 为空")
+	}
+
+	var current struct {
+		BusinessChannel string
+	}
+	if err := DB.Model(&User{}).
+		Select("business_channel").
+		Where("id = ?", userId).
+		Take(&current).Error; err != nil {
+		return nil, err
+	}
+
+	userIds := []int{userId}
+	if strings.TrimSpace(current.BusinessChannel) == "" {
+		return userIds, nil
+	}
+
+	var invitedIds []int
+	if err := DB.Model(&User{}).
+		Where("inviter_id = ?", userId).
+		Order("id ASC").
+		Pluck("id", &invitedIds).Error; err != nil {
+		return nil, err
+	}
+	return append(userIds, invitedIds...), nil
+}
+
 func inviteUser(inviterId int) (err error) {
 	user, err := GetUserById(inviterId, true)
 	if err != nil {

@@ -45,14 +45,24 @@ func GetUserLogs(c *gin.Context) {
 		common.ApiSuccess(c, pageInfo)
 		return
 	}
+	userIds := []int{userId}
+	if !isAdmin {
+		var err error
+		userIds, err = model.GetUserLogScopeIDs(userId)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	username := c.Query("username")
 	tokenName := c.Query("token_name")
 	modelName := c.Query("model_name")
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId, !isAdmin)
+	logs, total, err := model.GetUserLogs(userIds, logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId, !isAdmin)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -111,7 +121,7 @@ func GetLogsStat(c *gin.Context) {
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	group := c.Query("group")
-	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
+	stat, err := model.SumUsedQuota(nil, logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -136,10 +146,10 @@ func GetLogsStat(c *gin.Context) {
 }
 
 func GetLogsSelfStat(c *gin.Context) {
-	username := c.GetString("username")
 	logType, _ := strconv.Atoi(c.Query("type"))
+	isAdmin := c.GetInt("role") >= common.RoleAdminUser
 	// 与 GetUserLogs 保持一致：管理类日志统计仅向管理员开放。
-	if logType == model.LogTypeManage && c.GetInt("role") < common.RoleAdminUser {
+	if logType == model.LogTypeManage && !isAdmin {
 		c.JSON(200, gin.H{
 			"success": true,
 			"message": "",
@@ -153,13 +163,24 @@ func GetLogsSelfStat(c *gin.Context) {
 		})
 		return
 	}
+	userId := c.GetInt("id")
+	userIds := []int{userId}
+	if !isAdmin {
+		var err error
+		userIds, err = model.GetUserLogScopeIDs(userId)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	username := c.Query("username")
 	tokenName := c.Query("token_name")
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	group := c.Query("group")
-	quotaNum, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
+	quotaNum, err := model.SumUsedQuota(userIds, logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
 	if err != nil {
 		common.ApiError(c, err)
 		return

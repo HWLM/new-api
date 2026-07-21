@@ -38,6 +38,7 @@ import type {
   FetchLogsConfig,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  UsageLogAccessScope,
 } from '../types'
 
 // ============================================================================
@@ -89,24 +90,6 @@ export function getDefaultTimeRange(): { start: Date; end: Date } {
  */
 function timestampToSeconds(ms: number): number {
   return Math.floor(ms / 1000)
-}
-
-/**
- * Build query parameters from filters
- */
-export function buildQueryParams(
-  params: Record<string, unknown>
-): URLSearchParams {
-  const queryParams = new URLSearchParams()
-
-  Object.entries(params).forEach(([key, value]) => {
-    // Keep 0 as a valid value, only filter out undefined, null, and empty string
-    if (value !== undefined && value !== null && value !== '') {
-      queryParams.append(key, String(value))
-    }
-  })
-
-  return queryParams
 }
 
 /**
@@ -175,9 +158,17 @@ export function buildApiParams(config: {
   pageSize: number
   searchParams: Record<string, unknown>
   columnFilters?: Array<{ id: string; value: unknown }>
-  isAdmin: boolean
+  accessScope: UsageLogAccessScope
 }): GetLogsParams {
-  const { page, pageSize, searchParams, columnFilters = [], isAdmin } = config
+  const {
+    page,
+    pageSize,
+    searchParams,
+    columnFilters = [],
+    accessScope,
+  } = config
+  const isAdmin = accessScope === 'admin'
+  const canFilterUsername = accessScope !== 'user'
 
   // Helper to process type parameter (single value from array)
   const processType = (value: unknown): number | undefined => {
@@ -206,7 +197,7 @@ export function buildApiParams(config: {
     ...(isAdmin && searchParams.channel
       ? { channel: Number(searchParams.channel) || 0 }
       : {}),
-    ...(isAdmin && searchParams.username
+    ...(canFilterUsername && searchParams.username
       ? { username: String(searchParams.username) }
       : {}),
     ...(searchParams.requestId
@@ -240,7 +231,7 @@ export function buildApiParams(config: {
           if (isAdmin) params.channel = Number(value) || 0
           break
         case 'username':
-          if (isAdmin) params.username = String(value)
+          if (canFilterUsername) params.username = String(value)
           break
       }
     })
@@ -259,8 +250,15 @@ export function buildApiParams(config: {
 export async function fetchLogsByCategory(
   config: FetchLogsConfig
 ): Promise<GetLogsResponse> {
-  const { logCategory, isAdmin, page, pageSize, searchParams, columnFilters } =
-    config
+  const {
+    logCategory,
+    accessScope,
+    page,
+    pageSize,
+    searchParams,
+    columnFilters,
+  } = config
+  const isAdmin = accessScope === 'admin'
 
   if (logCategory === 'common') {
     const params = buildApiParams({
@@ -268,7 +266,7 @@ export async function fetchLogsByCategory(
       pageSize,
       searchParams,
       columnFilters,
-      isAdmin,
+      accessScope,
     })
     return isAdmin ? await getAllLogs(params) : await getUserLogs(params)
   }

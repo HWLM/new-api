@@ -19,12 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatCompactNumber, formatLogQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { useIsAdmin } from '@/hooks/use-admin'
-import { Skeleton } from '@/components/ui/skeleton'
+
 import { getLogStats, getUserLogStats } from '../api'
 import { DEFAULT_LOG_STATS } from '../constants'
+import { useUsageLogAccess } from '../hooks/use-usage-log-access'
 import { buildApiParams } from '../lib/utils'
 import { useUsageLogsContext } from './usage-logs-provider'
 
@@ -48,19 +50,19 @@ function StatBadge(props: {
 
 export function CommonLogsStats() {
   const { t } = useTranslation()
-  const isAdmin = useIsAdmin()
+  const { scope: accessScope, userId, isAdmin } = useUsageLogAccess()
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['usage-logs-stats', isAdmin, searchParams],
+    queryKey: ['usage-logs-stats', accessScope, userId, searchParams],
     queryFn: async () => {
       const params = buildApiParams({
         page: 1,
         pageSize: 1,
         searchParams,
         columnFilters: [],
-        isAdmin,
+        accessScope,
       })
 
       const result = isAdmin
