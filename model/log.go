@@ -114,6 +114,28 @@ const (
 	QuotaTypeGift      = "赠送"
 )
 
+// NetQuotaSumTypes 返回"净消耗"统计涉及的日志 type 列表。
+// 视频等异步任务在完成时若实际扣费小于预扣，会写一条 LogTypeRefund 抵消差额；
+// 因此运营向的消耗统计需要同时纳入 LogTypeConsume 和 LogTypeRefund，再靠符号累加。
+func NetQuotaSumTypes() []int {
+	return []int{LogTypeConsume, LogTypeRefund}
+}
+
+// NetQuotaSumExpr 返回"净消耗"求和 SQL 表达式（不含别名）：
+//
+//	COALESCE(SUM(CASE WHEN type=LogTypeConsume THEN quota
+//	                  WHEN type=LogTypeRefund  THEN -quota END), 0)
+//
+// 调用方需自行在 WHERE 中限定 type IN NetQuotaSumTypes()，
+// 并配合 request_count/tokens 的 type=LogTypeConsume 过滤（退款日志不算新请求、tokens 恒为 0）。
+// CASE WHEN 是 SQL 标准语法，SQLite/MySQL/PostgreSQL 均支持。
+func NetQuotaSumExpr() string {
+	return fmt.Sprintf(
+		"COALESCE(SUM(CASE WHEN type = %d THEN quota WHEN type = %d THEN -quota ELSE 0 END), 0)",
+		LogTypeConsume, LogTypeRefund,
+	)
+}
+
 func ensureLogRequestId(log *Log) {
 	if log != nil && log.RequestId == "" {
 		log.RequestId = common.NewRequestId()

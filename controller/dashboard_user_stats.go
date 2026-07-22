@@ -254,7 +254,7 @@ func sumTodaySubConsume(startTs, endTs int64, userIds []int) (int64, error) {
 		return 0, nil
 	}
 	tx := model.LOG_DB.Model(&model.Log{}).
-		Where("type = ?", model.LogTypeConsume).
+		Where("type IN ?", model.NetQuotaSumTypes()).
 		Where("user_id > 0").
 		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
 		Where("channel_id IN ?", subIds)
@@ -262,7 +262,7 @@ func sumTodaySubConsume(startTs, endTs int64, userIds []int) (int64, error) {
 		tx = tx.Where("user_id IN ?", userIds)
 	}
 	var quota int64
-	if err := tx.Select("COALESCE(SUM(quota), 0)").Scan(&quota).Error; err != nil {
+	if err := tx.Select(model.NetQuotaSumExpr()).Scan(&quota).Error; err != nil {
 		return 0, err
 	}
 	return quota, nil
@@ -274,17 +274,17 @@ func sumTodayConsumeRecharge(startTs, endTs int64, userIds []int) (int64, float6
 	if userIds != nil && len(userIds) == 0 {
 		return 0, 0, nil
 	}
-	// 消耗
+	// 消耗（净口径：扣除视频等异步任务的差额退款）
 	var quota int64
 	{
 		tx := model.LOG_DB.Model(&model.Log{}).
-			Where("type = ?", model.LogTypeConsume).
+			Where("type IN ?", model.NetQuotaSumTypes()).
 			Where("user_id > 0").
 			Where("created_at >= ? AND created_at <= ?", startTs, endTs)
 		if userIds != nil {
 			tx = tx.Where("user_id IN ?", userIds)
 		}
-		if err := tx.Select("COALESCE(SUM(quota), 0)").Scan(&quota).Error; err != nil {
+		if err := tx.Select(model.NetQuotaSumExpr()).Scan(&quota).Error; err != nil {
 			return 0, 0, err
 		}
 	}
@@ -594,12 +594,13 @@ func aggregateUserConsumption(f *chartFilter) (map[int]int64, error) {
 	}
 
 	// 今天段：start_date <= today <= end_date 才需要拼今天
+	// 净口径：与 vip_daily_consumption.quota 保持一致，扣除视频等异步任务的差额退款
 	if f.startDate <= todayStr && f.endDate >= todayStr {
 		loc := now.Location()
 		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
 		todayEnd := now.Unix()
 		tx := model.LOG_DB.Model(&model.Log{}).
-			Where("type = ?", model.LogTypeConsume).
+			Where("type IN ?", model.NetQuotaSumTypes()).
 			Where("user_id > 0").
 			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd)
 		if f.userIds != nil {
@@ -611,7 +612,7 @@ func aggregateUserConsumption(f *chartFilter) (map[int]int64, error) {
 		}
 		var rows []row
 		if err := tx.
-			Select("user_id, COALESCE(SUM(quota), 0) AS total").
+			Select("user_id, " + model.NetQuotaSumExpr() + " AS total").
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
 			return nil, err
@@ -1144,18 +1145,19 @@ func computeTrendSeries(startDate, endDate string, userIds []int, granularity st
 		}
 
 		// 当前小时（如果在范围内）实时聚合 logs
+		// 净口径：与 vip_hourly_consumption.quota 保持一致
 		if curDate >= startDate && curDate <= endDate && curHour >= startHour && curHour <= endHour {
 			startTs := currentHourStart.Unix()
 			endTs := now.Unix()
 			tx2 := model.LOG_DB.Model(&model.Log{}).
-				Where("type = ?", model.LogTypeConsume).
+				Where("type IN ?", model.NetQuotaSumTypes()).
 				Where("user_id > 0").
 				Where("created_at >= ? AND created_at <= ?", startTs, endTs)
 			if userIds != nil {
 				tx2 = tx2.Where("user_id IN ?", userIds)
 			}
 			var curQuota int64
-			if err := tx2.Select("COALESCE(SUM(quota), 0)").Scan(&curQuota).Error; err != nil {
+			if err := tx2.Select(model.NetQuotaSumExpr()).Scan(&curQuota).Error; err != nil {
 				return nil, nil, err
 			}
 			bucketMap[hourKey{curDate, curHour}] += curQuota

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 package model
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -62,24 +63,29 @@ func GetInviterStatCards(myUserId int) (*InviterStatCards, error) {
 	loc := now.Location()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
 
-	type todayRow struct {
-		UserId int
-		Total  int64
-	}
-	var rows []todayRow
+	// 今日活跃用户：以「今日出现 type=LogTypeConsume」判断，退款不算活跃
+	var activeUserIds []int
 	if err := LOG_DB.Model(&Log{}).
 		Where("type = ?", LogTypeConsume).
 		Where("user_id IN ?", ids).
 		Where("created_at >= ? AND created_at <= ?", todayStart, now.Unix()).
-		Select("user_id, COALESCE(SUM(quota), 0) AS total").
-		Group("user_id").
-		Scan(&rows).Error; err != nil {
+		Distinct("user_id").
+		Pluck("user_id", &activeUserIds).Error; err != nil {
 		return nil, err
 	}
-	stat.TodayActiveUsers = len(rows)
-	for _, r := range rows {
-		stat.TodayConsumed += r.Total
+	stat.TodayActiveUsers = len(activeUserIds)
+
+	// 今日消耗：净口径，扣掉视频等异步任务差额结算的退款
+	var todayNetQuota int64
+	if err := LOG_DB.Model(&Log{}).
+		Where("type IN ?", NetQuotaSumTypes()).
+		Where("user_id IN ?", ids).
+		Where("created_at >= ? AND created_at <= ?", todayStart, now.Unix()).
+		Select(NetQuotaSumExpr()).
+		Scan(&todayNetQuota).Error; err != nil {
+		return nil, err
 	}
+	stat.TodayConsumed = todayNetQuota
 	return stat, nil
 }
 
@@ -139,14 +145,14 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 		ids = append(ids, u.Id)
 	}
 
-	// TopUsers：单查 logs 按 user_id 聚合，倒序取前 10
+	// TopUsers：单查 logs 按 user_id 聚合，倒序取前 10（净口径，扣掉退款）
 	type userAgg struct {
 		UserId int
 		Total  int64
 	}
 	var perUser []userAgg
 	tx := LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeConsume).
+		Where("type IN ?", NetQuotaSumTypes()).
 		Where("user_id IN ?", ids)
 	if startTs > 0 {
 		tx = tx.Where("created_at >= ?", startTs)
@@ -155,7 +161,7 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 		tx = tx.Where("created_at <= ?", endTs)
 	}
 	if err := tx.
-		Select("user_id, COALESCE(SUM(quota), 0) AS total").
+		Select("user_id, " + NetQuotaSumExpr() + " AS total").
 		Group("user_id").
 		Order("total DESC").
 		Limit(10).
@@ -172,21 +178,22 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 	}
 
 	// Daily：按天聚合 quota + requests
+	// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负）；
+	// requests 只算 type=LogTypeConsume。跨库 date format 不一致，采用前置按 created_at 拉所有 row 再内存聚合
 	type dayRow struct {
 		Day      string
 		Quota    int64
 		Requests int64
 	}
 	var dayRows []dayRow
-	// 三库通用：用 unix 秒除以 86400 取整得到天序号；为了能按 date 字符串排序，传回 YYYY-MM-DD
-	// 但跨库 date format 函数不一致，采用前置按 created_at 拉所有 row 再内存聚合
 	type rawRow struct {
 		CreatedAt int64
 		Quota     int64
+		Type      int
 	}
 	var raw []rawRow
 	tx2 := LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeConsume).
+		Where("type IN ?", NetQuotaSumTypes()).
 		Where("user_id IN ?", ids)
 	if startTs > 0 {
 		tx2 = tx2.Where("created_at >= ?", startTs)
@@ -194,7 +201,7 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 	if endTs > 0 {
 		tx2 = tx2.Where("created_at <= ?", endTs)
 	}
-	if err := tx2.Select("created_at, quota").Scan(&raw).Error; err != nil {
+	if err := tx2.Select("created_at, quota, type").Scan(&raw).Error; err != nil {
 		return nil, err
 	}
 	loc := time.Now().Location()
@@ -206,8 +213,12 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 			row = &dayRow{Day: date}
 			daily[date] = row
 		}
-		row.Quota += r.Quota
-		row.Requests++
+		if r.Type == LogTypeRefund {
+			row.Quota -= r.Quota
+		} else {
+			row.Quota += r.Quota
+			row.Requests++
+		}
 	}
 	for _, r := range daily {
 		dayRows = append(dayRows, *r)
@@ -295,6 +306,8 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 	}
 
 	// 一次 logs 聚合：每个用户的 SUM(quota)、SUM(tokens)、COUNT(*)、MAX(created_at)
+	// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负）；
+	// tokens / request_count / last_consumed_at 仅算 type=LogTypeConsume（退款不是新请求，也不代表"最后消费日期"）
 	type logAgg struct {
 		UserId         int
 		TotalQuota     int64
@@ -304,9 +317,14 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 	}
 	var aggs []logAgg
 	if err := LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeConsume).
+		Where("type IN ?", NetQuotaSumTypes()).
 		Where("user_id IN ?", ids).
-		Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens, COUNT(*) AS request_count, COALESCE(MAX(created_at), 0) AS last_consumed_at").
+		Select(fmt.Sprintf(
+			"user_id, %s AS total_quota, "+
+				"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens, "+
+				"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
+				"COALESCE(MAX(CASE WHEN type = %d THEN created_at END), 0) AS last_consumed_at",
+			NetQuotaSumExpr(), LogTypeConsume, LogTypeConsume, LogTypeConsume)).
 		Group("user_id").
 		Scan(&aggs).Error; err != nil {
 		return nil, err
@@ -495,15 +513,18 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 		ids = append(ids, u.Id)
 	}
 
+	// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负）；
+	// TotalRequests / TotalTokens 仅算 type=LogTypeConsume
 	type rawRow struct {
 		UserId    int
 		CreatedAt int64
 		Quota     int64
 		Tokens    int64
+		Type      int
 	}
 	var raw []rawRow
 	tx2 := LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeConsume).
+		Where("type IN ?", NetQuotaSumTypes()).
 		Where("user_id IN ?", ids)
 	if f.StartTs > 0 {
 		tx2 = tx2.Where("created_at >= ?", f.StartTs)
@@ -512,7 +533,7 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 		tx2 = tx2.Where("created_at <= ?", f.EndTs)
 	}
 	if err := tx2.
-		Select("user_id, created_at, quota, (prompt_tokens + completion_tokens) AS tokens").
+		Select("user_id, created_at, quota, (prompt_tokens + completion_tokens) AS tokens, type").
 		Scan(&raw).Error; err != nil {
 		return nil, err
 	}
@@ -535,9 +556,13 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 			}
 			bucket[key] = row
 		}
-		row.TotalRequests++
-		row.TotalConsumed += r.Quota
-		row.TotalTokens += r.Tokens
+		if r.Type == LogTypeRefund {
+			row.TotalConsumed -= r.Quota
+		} else {
+			row.TotalRequests++
+			row.TotalConsumed += r.Quota
+			row.TotalTokens += r.Tokens
+		}
 	}
 
 	// 充值原始行：与消耗对称的一次查询，按 (day, user) 合到同一桶。

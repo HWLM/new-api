@@ -273,15 +273,20 @@ func GetUserStatsDetails(c *gin.Context) {
 		TotalTokens    int64
 		LastConsumedAt int64
 	}
+	// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负）；
+	// request_count / tokens / last_consumed_at 仅算 type=LogTypeConsume
 	consumeMap := map[int]consumeAgg{}
 	{
 		var rows []consumeAgg
 		if err := model.LOG_DB.Model(&model.Log{}).
-			Where("type = ?", model.LogTypeConsume).
+			Where("type IN ?", model.NetQuotaSumTypes()).
 			Where("user_id IN ?", userIds).
-			Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COUNT(*) AS request_count, " +
-				"COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens, " +
-				"COALESCE(MAX(created_at), 0) AS last_consumed_at").
+			Select(fmt.Sprintf(
+				"user_id, %s AS total_quota, "+
+					"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
+					"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens, "+
+					"COALESCE(MAX(CASE WHEN type = %d THEN created_at END), 0) AS last_consumed_at",
+				model.NetQuotaSumExpr(), model.LogTypeConsume, model.LogTypeConsume, model.LogTypeConsume)).
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
 			common.ApiError(c, err)
@@ -666,12 +671,12 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 		}
 	}
 
-	// 3. 含今天 → 实时聚合 logs
+	// 3. 含今天 → 实时聚合 logs（净口径：与 vip_daily_consumption.quota 保持一致）
 	if f.startDate <= todayStr && f.endDate >= todayStr {
 		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
 		todayEnd := now.Unix()
 		tx := model.LOG_DB.Model(&model.Log{}).
-			Where("type = ?", model.LogTypeConsume).
+			Where("type IN ?", model.NetQuotaSumTypes()).
 			Where("user_id > 0").
 			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd)
 		if candidateIds != nil {
@@ -685,7 +690,11 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 		}
 		var rows []row
 		if err := tx.
-			Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COUNT(*) AS request_count, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens").
+			Select(fmt.Sprintf(
+				"user_id, %s AS total_quota, "+
+					"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
+					"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens",
+				model.NetQuotaSumExpr(), model.LogTypeConsume, model.LogTypeConsume)).
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
 			common.ApiError(c, err)
@@ -1136,12 +1145,17 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 			RequestCount int64
 			TotalTokens  int64
 		}
+		// 净口径：quota 扣掉视频等异步任务的差额退款；request_count/tokens 仅算 type=LogTypeConsume
 		var rows []row
 		if err := model.LOG_DB.Model(&model.Log{}).
-			Where("type = ?", model.LogTypeConsume).
+			Where("type IN ?", model.NetQuotaSumTypes()).
 			Where("user_id IN ?", candidateIds).
 			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
-			Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COUNT(*) AS request_count, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens").
+			Select(fmt.Sprintf(
+				"user_id, %s AS total_quota, "+
+					"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
+					"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens",
+				model.NetQuotaSumExpr(), model.LogTypeConsume, model.LogTypeConsume)).
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
 			return nil, err
