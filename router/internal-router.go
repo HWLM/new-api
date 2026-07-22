@@ -38,6 +38,13 @@ func SetInternalRouter(router *gin.Engine) {
 			// 返回 total_quota + per_account 明细。account_ids 数量无外部上限，
 			// controller/model 内部自动分批（每批 1000）查库并合并。
 			logsGroup.POST("/stat-by-accounts", controller.GetInternalLogsStatByAccounts)
+
+			// POST /internal/logs/stat-by-channel
+			// Body: {"channel_id": ..., "type": ..., "start_timestamp": ..., "end_timestamp": ...}
+			// 供 sub2api 的 ROI 上游分支使用：按 channel_id + type 精确聚合 quota。
+			// 与老对外接口 /api/log/stat 不同,本接口的 type 参数真正生效,允许调用方
+			// 分别拉 consume(type=2)和 refund(type=6),做「净收入 = 消耗 - 退款」。
+			logsGroup.POST("/stat-by-channel", controller.GetInternalLogsStatByChannel)
 		}
 	}
 }

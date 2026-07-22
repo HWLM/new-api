@@ -1134,6 +1134,42 @@ func SumUsedQuotaByAccountIDs(ctx context.Context, accountIDs []int64, startTime
 	return total, perAccount, nil
 }
 
+// SumChannelQuota 按 channel_id + type + 时间窗聚合 logs.quota。
+//
+// **type 参数在这里真正生效**,与老对外接口 SumUsedQuota 的行为不同 —— 那个函数
+// 声明了 logType 参数但函数体里被 [line 989] 硬编码 `WHERE type = LogTypeConsume` 覆盖,
+// 参数是死代码;本函数按传入的 logType 精确过滤,供 sub2api ROI 上游分支分别拉:
+//
+//	consume = SumChannelQuota(ctx, channelID, LogTypeConsume, ...)
+//	refund  = SumChannelQuota(ctx, channelID, LogTypeRefund,  ...)
+//	净收入 = consume - refund
+//
+// 入参约束:controller 层已经校验 channelID > 0 且 logType > 0,这里再做一层防御性,
+// 传 0 视为"参数缺失,直接返回 0" —— 避免 GORM `Where("channel_id = ?", 0)` 在某些版本
+// 里被误优化成"不过滤"导致全库聚合。
+//
+// startTimestamp / endTimestamp 传 0 表示不加下/上界,与 SumUsedQuotaByAccountIDs 一致。
+func SumChannelQuota(ctx context.Context, channelID int, logType int, startTimestamp, endTimestamp int64) (int64, error) {
+	if channelID <= 0 || logType <= 0 {
+		return 0, nil
+	}
+	tx := LOG_DB.WithContext(ctx).Table("logs").
+		Select("COALESCE(SUM(quota), 0)").
+		Where("channel_id = ?", channelID).
+		Where("type = ?", logType)
+	if startTimestamp != 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+	var quota int64
+	if err := tx.Scan(&quota).Error; err != nil {
+		return 0, fmt.Errorf("sum channel quota (channel=%d type=%d): %w", channelID, logType, err)
+	}
+	return quota, nil
+}
+
 func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string) (token int) {
 	tx := LOG_DB.Table("logs").Select("COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0)")
 	if username != "" {
