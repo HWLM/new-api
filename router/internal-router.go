@@ -31,6 +31,13 @@ func SetInternalRouter(router *gin.Engine) {
 			// 由 sub2api 的 push_account_to_newapi 任务批量回填 logs.account_id。
 			// 只做写入（UPDATE），不涉及任何计费/额度变动。ClickHouse 日志库不支持。
 			logsGroup.POST("/patch-account", controller.PatchInternalLogAccountIDs)
+
+			// POST /internal/logs/stat-by-accounts
+			// Body: {"account_ids": [...], "start_timestamp": ..., "end_timestamp": ...}
+			// 供 sub2api 的 ROI 统计使用：按 account_id 精确聚合 [start, end] 窗口内的 quota，
+			// 返回 total_quota + per_account 明细。account_ids 数量无外部上限，
+			// controller/model 内部自动分批（每批 1000）查库并合并。
+			logsGroup.POST("/stat-by-accounts", controller.GetInternalLogsStatByAccounts)
 		}
 	}
 }

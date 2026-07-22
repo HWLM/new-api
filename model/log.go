@@ -1037,6 +1037,65 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	return stat, nil
 }
 
+// AccountQuotaEntry 单个账号在时间窗内的 quota 聚合结果。
+// 只在 SumUsedQuotaByAccountIDs 返回值里使用,给 sub2api ROI 统计做「按账号看当日实际消耗」用。
+type AccountQuotaEntry struct {
+	AccountID int64 `gorm:"column:account_id" json:"account_id"`
+	Quota     int64 `gorm:"column:quota" json:"quota"`
+}
+
+// statByAccountsChunkSize 单批查询的 account_id 上限。
+// 避免超大 IN 列表让 PG 优化器变慢、同时规避 pgx 单条 SQL 参数上限;
+// sub2api 侧一次调用可能传几千甚至上万个 id,内部分批更稳。
+const statByAccountsChunkSize = 1000
+
+// SumUsedQuotaByAccountIDs 按 account_id 集合聚合 [start, end] 时间窗内的消耗 quota。
+// 返回 (总 quota, 每个账号的 quota) — 后者只包含 quota > 0 的账号(对齐 sub2api HAVING SUM > 0 语义)。
+//
+// 只统计 type = LogTypeConsume 的日志,与 SumUsedQuota 保持一致。
+// startTimestamp / endTimestamp 传 0 表示不加下/上界。
+//
+// 内部按 statByAccountsChunkSize 分批查库;不同 chunk 的 account_id 天然互不相交(sub2api 传的是
+// 唯一集合),Go 层直接 append 无需 dedup。
+func SumUsedQuotaByAccountIDs(ctx context.Context, accountIDs []int64, startTimestamp, endTimestamp int64) (int64, []AccountQuotaEntry, error) {
+	if len(accountIDs) == 0 {
+		return 0, nil, nil
+	}
+
+	perAccount := make([]AccountQuotaEntry, 0, len(accountIDs))
+	var total int64
+
+	for i := 0; i < len(accountIDs); i += statByAccountsChunkSize {
+		end := i + statByAccountsChunkSize
+		if end > len(accountIDs) {
+			end = len(accountIDs)
+		}
+		batch := accountIDs[i:end]
+
+		tx := LOG_DB.WithContext(ctx).Table("logs").
+			Select("account_id, COALESCE(SUM(quota), 0) AS quota").
+			Where("account_id IN ?", batch).
+			Where("type = ?", LogTypeConsume)
+		if startTimestamp != 0 {
+			tx = tx.Where("created_at >= ?", startTimestamp)
+		}
+		if endTimestamp != 0 {
+			tx = tx.Where("created_at <= ?", endTimestamp)
+		}
+		tx = tx.Group("account_id").Having("COALESCE(SUM(quota), 0) > 0")
+
+		var batchRows []AccountQuotaEntry
+		if err := tx.Scan(&batchRows).Error; err != nil {
+			return 0, nil, fmt.Errorf("stat by accounts chunk offset=%d n=%d: %w", i, len(batch), err)
+		}
+		for _, r := range batchRows {
+			total += r.Quota
+			perAccount = append(perAccount, r)
+		}
+	}
+	return total, perAccount, nil
+}
+
 func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string) (token int) {
 	tx := LOG_DB.Table("logs").Select("COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0)")
 	if username != "" {
