@@ -21,42 +21,43 @@ const UserNameMaxLength = 20
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id               int                        `json:"id"`
-	Username         string                     `json:"username" gorm:"unique;index" validate:"max=20"`
-	Password         string                     `json:"password" gorm:"not null;" validate:"min=8,max=20"`
-	OriginalPassword string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName      string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role             int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status           int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email            string                     `json:"email" gorm:"index" validate:"max=50"`
-	GitHubId         string                     `json:"github_id" gorm:"column:github_id;index"`
-	DiscordId        string                     `json:"discord_id" gorm:"column:discord_id;index"`
-	OidcId           string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
-	WeChatId         string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
-	TelegramId       string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
-	VerificationCode string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
-	AccessToken      *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	Quota            int                        `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota        int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
-	Group            string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
-	AffCode          string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
-	AffCount         int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
-	AffQuota         int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
-	AffHistoryQuota  int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
-	InviterId        int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
-	InviterUsername  string                     `json:"inviter_username,omitempty" gorm:"-"` // 非持久化字段：通过 inviter_id 关联查询填充
-	DeletedAt        gorm.DeletedAt             `gorm:"index"`
-	LinuxDOId        string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
-	Setting          string                     `json:"setting" gorm:"type:text;column:setting"`
-	Remark           string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
-	StripeCustomer   string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
-	IsVipCustomer    bool                       `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
-	BusinessChannel  string                     `json:"business_channel" gorm:"type:varchar(255);default:'';column:business_channel" validate:"max=255"`
-	AllowOnlineTopup bool                       `json:"allow_online_topup" gorm:"type:bool;default:false;column:allow_online_topup;index"`
-	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
-	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
-	AdminPermissions map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+	Id                 int                        `json:"id"`
+	Username           string                     `json:"username" gorm:"unique;index" validate:"max=20"`
+	Password           string                     `json:"password" gorm:"not null;" validate:"min=8,max=20"`
+	OriginalPassword   string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName        string                     `json:"display_name" gorm:"index" validate:"max=20"`
+	Role               int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status             int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email              string                     `json:"email" gorm:"index" validate:"max=50"`
+	GitHubId           string                     `json:"github_id" gorm:"column:github_id;index"`
+	DiscordId          string                     `json:"discord_id" gorm:"column:discord_id;index"`
+	OidcId             string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
+	WeChatId           string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
+	TelegramId         string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
+	VerificationCode   string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
+	AccessToken        *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
+	Quota              int                        `json:"quota" gorm:"type:int;default:0"`
+	UsedQuota          int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
+	RequestCount       int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
+	Group              string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
+	AffCode            string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
+	AffCount           int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
+	AffQuota           int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
+	AffHistoryQuota    int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
+	InviterId          int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	InviterUsername    string                     `json:"inviter_username,omitempty" gorm:"-"` // 非持久化字段：通过 inviter_id 关联查询填充
+	DeletedAt          gorm.DeletedAt             `gorm:"index"`
+	LinuxDOId          string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
+	Setting            string                     `json:"setting" gorm:"type:text;column:setting"`
+	Remark             string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
+	SettlementCurrency string                     `json:"settlement_currency" gorm:"type:varchar(16);default:'';column:settlement_currency" validate:"omitempty,oneof=CNY USD"`
+	StripeCustomer     string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	IsVipCustomer      bool                       `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
+	BusinessChannel    string                     `json:"business_channel" gorm:"type:varchar(255);default:'';column:business_channel" validate:"max=255"`
+	AllowOnlineTopup   bool                       `json:"allow_online_topup" gorm:"type:bool;default:false;column:allow_online_topup;index"`
+	CreatedAt          int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
+	LastLoginAt        int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
+	AdminPermissions   map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -413,6 +414,26 @@ func SearchUsers(keyword string, group string, role *int, status *int, isVip *bo
 	return users, total, nil
 }
 
+// Settlement currency values for User.SettlementCurrency. Empty is treated as CNY.
+const (
+	SettlementCurrencyCNY = "CNY"
+	SettlementCurrencyUSD = "USD"
+)
+
+// GetUserSettlementCurrency returns the user's settlement currency ("CNY"/"USD").
+// It reads only the single column and returns "" on error or missing user, so
+// callers fall back to the default (per-RMB) behaviour without conversion.
+func GetUserSettlementCurrency(id int) string {
+	if id == 0 {
+		return ""
+	}
+	var user User
+	if err := DB.Select("settlement_currency").First(&user, "id = ?", id).Error; err != nil {
+		return ""
+	}
+	return user.SettlementCurrency
+}
+
 func GetUserById(id int, selectAll bool) (*User, error) {
 	if id == 0 {
 		return nil, errors.New("id 为空！")
@@ -545,6 +566,39 @@ func SetUserBusinessChannel(id int, channel string) error {
 		return errors.New("id 为空")
 	}
 	return DB.Model(&User{}).Where("id = ?", id).Update("business_channel", channel).Error
+}
+
+// GetUserLogScopeIDs returns the users whose logs are visible through the
+// current user's self-log endpoints. Business accounts can also see users
+// they directly invited; all other accounts remain limited to themselves.
+func GetUserLogScopeIDs(userId int) ([]int, error) {
+	if userId == 0 {
+		return nil, errors.New("id 为空")
+	}
+
+	var current struct {
+		BusinessChannel string
+	}
+	if err := DB.Model(&User{}).
+		Select("business_channel").
+		Where("id = ?", userId).
+		Take(&current).Error; err != nil {
+		return nil, err
+	}
+
+	userIds := []int{userId}
+	if strings.TrimSpace(current.BusinessChannel) == "" {
+		return userIds, nil
+	}
+
+	var invitedIds []int
+	if err := DB.Model(&User{}).
+		Where("inviter_id = ?", userId).
+		Order("id ASC").
+		Pluck("id", &invitedIds).Error; err != nil {
+		return nil, err
+	}
+	return append(userIds, invitedIds...), nil
 }
 
 func inviteUser(inviterId int) (err error) {
@@ -809,6 +863,12 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		"group":              newUser.Group,
 		"remark":             newUser.Remark,
 		"allow_online_topup": newUser.AllowOnlineTopup,
+	}
+	// settlement_currency 为空表示本次请求未提交该字段（如用户列表里仅切换"允许在线充值"的
+	// 部分更新），此时保留数据库原值，避免把用户的结算方式误清为默认（按人民币）。
+	// 全量编辑抽屉始终提交 CNY/USD，非空时正常更新。
+	if newUser.SettlementCurrency != "" {
+		updates["settlement_currency"] = newUser.SettlementCurrency
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password

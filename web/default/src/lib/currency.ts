@@ -84,6 +84,7 @@ import {
   type CurrencyConfig,
   type CurrencyDisplayType,
 } from '@/stores/system-config-store'
+import { useAuthStore } from '@/stores/auth-store'
 
 export interface CurrencyFormatOptions {
   /** Fraction digits to use when |value| >= 1 */
@@ -182,6 +183,33 @@ function getConfig(): CurrencyConfig {
       currency?.customCurrencySymbol?.trim() ||
       DEFAULT_CURRENCY_CONFIG.customCurrencySymbol,
   }
+}
+
+/**
+ * 登录用户的结算币种是否为美元。
+ *
+ * 结算币种为 USD 时，消费类金额(余额、消费日志、模型价格、密钥/兑换额度、看板)在后端
+ * 已按消耗汇率换算成美元口径，前端需强制以美元(符号 $、汇率 1)展示，覆盖全局「显示模式」。
+ * 真实交易金额(充值预览、账单历史)不属于消费口径，仍按全局显示模式渲染。
+ */
+function isUserSettlementUSD(): boolean {
+  try {
+    return useAuthStore.getState().auth.user?.settlement_currency === 'USD'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 解析用于「展示」的货币配置。默认对 USD 结算用户把显示模式覆盖为美元；
+ * 传入 useGlobalDisplayCurrency 时保持全局显示模式(供充值/账单历史等真实交易金额使用)。
+ */
+function resolveDisplayConfig(useGlobalDisplayCurrency: boolean): CurrencyConfig {
+  const config = getConfig()
+  if (!useGlobalDisplayCurrency && isUserSettlementUSD()) {
+    return { ...config, quotaDisplayType: 'USD' }
+  }
+  return config
 }
 
 function getDisplayMeta(config: CurrencyConfig): DisplayMeta {
@@ -342,8 +370,8 @@ function formatCurrencyValue(
  * This is primarily for internal use. Most consumers should use the
  * higher-level formatting functions instead.
  */
-export function getCurrencyDisplay() {
-  const config = getConfig()
+export function getCurrencyDisplay(useGlobalDisplayCurrency = false) {
+  const config = resolveDisplayConfig(useGlobalDisplayCurrency)
   const meta = getDisplayMeta(config)
   return { config, meta }
 }
@@ -387,11 +415,12 @@ export function getCurrencyDisplay() {
  */
 export function formatCurrencyFromUSD(
   amountUSD: number | null | undefined,
-  options?: CurrencyFormatOptions
+  options?: CurrencyFormatOptions,
+  useGlobalDisplayCurrency = false
 ): string {
   if (amountUSD == null || Number.isNaN(amountUSD)) return '-'
 
-  const { config, meta } = getCurrencyDisplay()
+  const { config, meta } = getCurrencyDisplay(useGlobalDisplayCurrency)
   const merged = mergeOptions(options)
 
   if (meta.kind === 'tokens') {
@@ -450,11 +479,12 @@ export function formatCurrencyFromUSD(
  */
 export function formatBillingCurrencyFromUSD(
   amountUSD: number | null | undefined,
-  options?: CurrencyFormatOptions
+  options?: CurrencyFormatOptions,
+  useGlobalDisplayCurrency = false
 ): string {
   if (amountUSD == null || Number.isNaN(amountUSD)) return '-'
 
-  const { config } = getCurrencyDisplay()
+  const { config } = getCurrencyDisplay(useGlobalDisplayCurrency)
   const meta = getBillingDisplayMeta(config)
   const merged = mergeOptions(options)
   const value =
@@ -495,13 +525,14 @@ export function formatBillingCurrencyFromUSD(
  */
 export function formatQuotaWithCurrency(
   quota: number | null | undefined,
-  options?: CurrencyFormatOptions
+  options?: CurrencyFormatOptions,
+  useGlobalDisplayCurrency = false
 ): string {
   if (quota == null || Number.isNaN(quota)) return '-'
 
-  const { config } = getCurrencyDisplay()
+  const { config } = getCurrencyDisplay(useGlobalDisplayCurrency)
   const amountUSD = quota / config.quotaPerUnit
-  return formatCurrencyFromUSD(amountUSD, options)
+  return formatCurrencyFromUSD(amountUSD, options, useGlobalDisplayCurrency)
 }
 
 /**
@@ -609,7 +640,9 @@ export function formatLocalCurrencyAmount(
 ): string {
   if (amount == null || Number.isNaN(amount)) return '-'
 
-  const { config } = getCurrencyDisplay()
+  // 真实交易金额(已按 priceRatio 换算成网关货币)：始终按全局显示模式渲染，
+  // 不随用户结算币种切换为美元，避免把 ¥ 金额错误标成 $。
+  const { config } = getCurrencyDisplay(true)
   const meta = getBillingDisplayMeta(config)
   const merged = mergeOptions(options)
 

@@ -52,6 +52,8 @@ export interface AuthUser {
   business_channel?: string
   sidebar_modules?: string
   permissions?: UserPermissions
+  /** 结算币种：'USD' 时消费类金额按美元显示，其余(含空/'CNY')按全局显示模式 */
+  settlement_currency?: string
 }
 
 interface AuthState {

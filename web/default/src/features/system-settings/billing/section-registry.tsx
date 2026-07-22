@@ -89,6 +89,7 @@ const BILLING_SECTIONS = [
         defaultValues={{
           QuotaPerUnit: settings.QuotaPerUnit,
           USDExchangeRate: settings.USDExchangeRate,
+          ConsumeUSDExchangeRate: settings.ConsumeUSDExchangeRate,
           DisplayInCurrencyEnabled: settings.DisplayInCurrencyEnabled,
           DisplayTokenStatEnabled: settings.DisplayTokenStatEnabled,
           PricingDiscountColumnEnabled: settings.PricingDiscountColumnEnabled,

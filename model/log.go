@@ -778,20 +778,34 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 
 const logSearchCountLimit = 10000
 
-func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string, excludeManageType bool) (logs []*Log, total int64, err error) {
-	var tx *gorm.DB
-	if logType == LogTypeUnknown {
-		tx = LOG_DB.Where("logs.user_id = ?", userId)
-	} else {
-		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
+func applyLogUserScope(tx *gorm.DB, column string, userIds []int) *gorm.DB {
+	if userIds == nil {
+		return tx
 	}
-	// // 非管理员在「全部类型」下也不应看到管理类（type=3）日志，这里统一兜底过滤。
-	// // 已显式指定 logType 时本就不会命中 type=3，因此该条件不影响其他场景。
-	// if excludeManageType && logType == LogTypeUnknown {
-	// 	tx = tx.Where("logs.type <> ?", LogTypeManage)
-	// }
+	if len(userIds) == 0 {
+		return tx.Where("1 = 0")
+	}
+	return tx.Where(column+" IN ?", userIds)
+}
+
+func GetUserLogs(userIds []int, logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string, excludeManageType bool) (logs []*Log, total int64, err error) {
+	if excludeManageType && logType == LogTypeManage {
+		return []*Log{}, 0, nil
+	}
+
+	tx := applyLogUserScope(LOG_DB, "logs.user_id", userIds)
+	if logType == LogTypeUnknown {
+		if excludeManageType {
+			tx = tx.Where("logs.type <> ?", LogTypeManage)
+		}
+	} else {
+		tx = tx.Where("logs.type = ?", logType)
+	}
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
+		return nil, 0, err
+	}
+	if tx, err = applyExplicitLogTextFilter(tx, "logs.username", username); err != nil {
 		return nil, 0, err
 	}
 	if tokenName != "" {
@@ -933,11 +947,13 @@ func ResolveSubChannelIdsByType() (openaiIds []int, otherIds []int, err error) {
 	return openaiIds, otherIds, nil
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
-	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
+func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
+	tx := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
+		Select("COALESCE(sum(quota), 0) quota")
 
 	// 为rpm和tpm创建单独的查询
-	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
+	rpmTpmQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
+		Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
 
 	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
 		return stat, err
@@ -996,7 +1012,7 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		subIds := make([]int, 0, len(openaiSubIds)+len(otherSubIds))
 		subIds = append(subIds, openaiSubIds...)
 		subIds = append(subIds, otherSubIds...)
-		subQuery := LOG_DB.Table("logs").
+		subQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
 			Select("COALESCE(SUM(quota), 0) AS sub_quota, " + subTokensExpr(openaiSubIds, otherSubIds))
 		if subQuery, err = applyExplicitLogTextFilter(subQuery, "username", username); err != nil {
 			return stat, err

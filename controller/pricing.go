@@ -74,9 +74,17 @@ func GetPricing(c *gin.Context) {
 		}
 	}
 
+	var pricingData interface{} = pricing
+	if active, rate := settlementUSDRate(c); active {
+		// 按量计费的 输入/输出/缓存 价格由前端用 model_ratio 派生（price = model_ratio×2×group_ratio×相对倍率），
+		// 故换算 model_ratio 即让三者一并 ÷ 汇率；completion_ratio/cache_ratio 是相对倍率不能动。
+		// 按次计费的固定价由 model_price 派生，一并换算。group_ratio 是展示用倍率，保持不变。
+		pricingData = convertStructsForSettlement(pricing, rate, "model_ratio", "model_price", "official_model_price")
+	}
+
 	c.JSON(200, gin.H{
 		"success":                         true,
-		"data":                            pricing,
+		"data":                            pricingData,
 		"vendors":                         model.GetVendors(),
 		"group_ratio":                     groupRatio,
 		"usable_group":                    displayUsableGroup,

@@ -97,6 +97,41 @@ func TestBuildRequestBodyReconstructsFromMetadata(t *testing.T) {
 	assert.Equal(t, "https://example.com/ref.mp3", audio["audio_url"].(map[string]any)["url"])
 }
 
+func TestBuildRequestBodyUsesTopLevelDuration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/v3/contents/generations/tasks", nil)
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "doubao-seedance-2-0-filter-off",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    "https://example.com",
+			ApiKey:            "test-key",
+			UpstreamModelName: "doubao-seedance-2-0-filter-off",
+		},
+	}
+	context.Set("task_request", relaycommon.TaskSubmitReq{
+		Model:    "doubao-seedance-2-0-filter-off",
+		Prompt:   "animate the subject",
+		Duration: 5,
+		Metadata: map[string]any{
+			"resolution": "720p",
+		},
+	})
+
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	reader, err := adaptor.BuildRequestBody(context, info)
+	require.NoError(t, err)
+
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, common.Unmarshal(data, &out))
+	assert.EqualValues(t, 5, out["duration"])
+}
+
 func TestDoResponseUsesSeedanceV3PublicTaskOnUnifiedRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

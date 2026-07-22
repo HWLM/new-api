@@ -107,7 +107,11 @@ func GetAllTokens(c *gin.Context) {
 	}
 	total, _ := model.CountUserTokens(userId)
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	if active, rate := settlementUSDRate(c); active {
+		pageInfo.SetItems(convertTokensForSettlement(buildMaskedTokenResponses(tokens), rate))
+	} else {
+		pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	}
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -128,7 +132,11 @@ func SearchTokens(c *gin.Context) {
 		return
 	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	if active, rate := settlementUSDRate(c); active {
+		pageInfo.SetItems(convertTokensForSettlement(buildMaskedTokenResponses(tokens), rate))
+	} else {
+		pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	}
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -144,7 +152,12 @@ func GetToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, buildMaskedTokenResponse(token))
+	masked := buildMaskedTokenResponse(token)
+	if active, rate := settlementUSDRate(c); active {
+		common.ApiSuccess(c, convertTokenForSettlement(masked, rate))
+		return
+	}
+	common.ApiSuccess(c, masked)
 }
 
 func GetTokenKey(c *gin.Context) {
@@ -256,6 +269,9 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	// 按美元结算的用户提交的额度是「显示汇率换算后」的值，落库前需乘回汇率还原为底层额度，
+	// 且在后续负值/上限校验之前完成，使校验作用于真实存储额度。
+	applyTokenSettlementToStorage(c, &token)
 	if token.DailyQuota < 0 || token.WeeklyQuota < 0 {
 		common.ApiErrorMsg(c, "daily_quota and weekly_quota must be zero or greater")
 		return
@@ -350,6 +366,8 @@ func UpdateToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	// 按美元结算的用户提交的额度是「显示汇率换算后」的值，落库前需乘回汇率还原为底层额度。
+	applyTokenSettlementToStorage(c, &token)
 	if token.DailyQuota < 0 || token.WeeklyQuota < 0 {
 		common.ApiErrorMsg(c, "daily_quota and weekly_quota must be zero or greater")
 		return

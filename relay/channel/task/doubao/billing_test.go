@@ -89,6 +89,23 @@ func TestEstimateBillingBaselineNoRatios(t *testing.T) {
 	assert.Nil(t, (&TaskAdaptor{}).EstimateBilling(c, info))
 }
 
+// TestEstimateBillingUsesTopLevelDuration ensures the adapter reads the request's
+// top-level duration field, not only Metadata["duration"].
+func TestEstimateBillingUsesTopLevelDuration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/contents/generations/tasks", nil)
+	c.Set("task_request", relaycommon.TaskSubmitReq{
+		Model:     "doubao-seedance-2-0-filter-off",
+		Prompt:    "animate",
+		Duration:  5,
+		Metadata:  map[string]any{"resolution": "720p"},
+	})
+
+	info := &relaycommon.RelayInfo{OriginModelName: "doubao-seedance-2-0-filter-off"}
+	assert.Nil(t, (&TaskAdaptor{}).EstimateBilling(c, info))
+}
+
 // TestParseTaskResultCopiesResolutionAndDuration 确认上游 succeeded 响应里的
 // Resolution/Duration 被填进 TaskInfo，供 AdjustBillingRatiosOnComplete 使用。
 func TestParseTaskResultCopiesResolutionAndDuration(t *testing.T) {

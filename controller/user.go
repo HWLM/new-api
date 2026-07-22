@@ -561,6 +561,14 @@ func GetSelf(c *gin.Context) {
 		"business_channel":  user.BusinessChannel,       // 用于"邀请用户统计" tab 判断是否商务账号
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,                // 新增权限字段
+		// 结算币种：供前端把消费类金额的「显示模式」按用户结算币种(USD)渲染，空表示按人民币
+		"settlement_currency": user.SettlementCurrency,
+	}
+
+	// 按美元结算：把余额类金额按显示汇率换算（保留 6 位小数），前端无需改动。
+	if user.SettlementCurrency == model.SettlementCurrencyUSD {
+		rate := operation_setting.GetConsumeUSDExchangeRate()
+		convertMoneyKeys(responseData, rate, "quota", "used_quota", "aff_quota", "aff_history_quota")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1051,12 +1059,13 @@ func CreateUser(c *gin.Context) {
 	}
 	// Even for admin users, we cannot fully trust them!
 	cleanUser := model.User{
-		Username:         user.Username,
-		Password:         user.Password,
-		DisplayName:      user.DisplayName,
-		Role:             user.Role, // 保持管理员设置的角色
-		InviterId:        inviterId,
-		AllowOnlineTopup: user.AllowOnlineTopup,
+		Username:           user.Username,
+		Password:           user.Password,
+		DisplayName:        user.DisplayName,
+		Role:               user.Role, // 保持管理员设置的角色
+		InviterId:          inviterId,
+		AllowOnlineTopup:   user.AllowOnlineTopup,
+		SettlementCurrency: user.SettlementCurrency,
 	}
 
 	authzTouched := false
