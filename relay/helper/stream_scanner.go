@@ -217,10 +217,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			wg.Done()
 		}()
 
-		// pendingUpstreamErrorEvent 缓存上一条 `event:` 头的类型（仅白名单错误事件）。
-		// SSE 规范里紧随的 `data:` 行属于该 event，此时的 payload 就是上游错误消息。
+		// pendingEventType 缓存上一条 `event:` 头。SSE 规范里紧随的 `data:`
+		// 行属于该 event，此时的 payload 就是本 event 的内容。
+		// 白名单错误事件：payload 就是上游错误消息，用来把端因固定为 UpstreamError。
+		// 内容/元数据事件：payload 用来判断是否为「实质生成内容」帧（SawStreamContentDelta），
+		// 后者驱动 ClientAbortedBeforeAnyDataAPIError 的退款判定。
 		// 空行代表 event 结束，重置为空；下一条 `data:` 消费后也重置为空。
-		var pendingUpstreamErrorEvent string
+		var pendingEventType string
 
 		for scanner.Scan() {
 			// 检查是否需要停止
@@ -236,18 +239,17 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			data := scanner.Text()
 			// 空行是 SSE event 边界：任何 pending event 头都在此失效。
 			if len(data) == 0 {
-				pendingUpstreamErrorEvent = ""
+				pendingEventType = ""
 				continue
 			}
 			logger.LogDebug(c, "stream scanner data: %s", data)
 
-			// 识别 `event:` 头。只对白名单里的错误终止事件类型置位，
-			// 其他 event 类型继续走原有的丢弃分支，行为不变。
+			// 识别 `event:` 头。缓存供紧随的 `data:` 行同时用于：
+			//   1) 白名单错误终止事件（UpstreamError 端因判定，见下方）
+			//   2) 内容/元数据帧分类（SawStreamContentDelta 置位，见下方）
+			// 其他自定义 event 类型继续走原有的丢弃分支，行为不变。
 			if strings.HasPrefix(data, "event:") {
-				eventType := strings.TrimSpace(data[len("event:"):])
-				if IsUpstreamErrorEventType(eventType) {
-					pendingUpstreamErrorEvent = eventType
-				}
+				pendingEventType = strings.TrimSpace(data[len("event:"):])
 				continue
 			}
 
@@ -266,19 +268,29 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
 
+				// 「实质生成内容」帧分类：只要看见一次真实 delta（Anthropic content_block_delta.text/thinking/partial_json、
+				// OpenAI Responses response.*.delta、Chat Completions delta.content/tool_calls/reasoning 等）
+				// 就把 SawStreamContentDelta 拉起，供后续退款判定使用。
+				// message_start / ping / content_block_start 等元数据帧不触发。
+				if !info.SawStreamContentDelta && IsContentBearingFrame(pendingEventType, data) {
+					info.SawStreamContentDelta = true
+				}
+
 				// 若前一行 `event:` 属于错误终止事件白名单，此 data 载荷即上游
 				// 错误消息：把端因固定为 UpstreamError，但仍照常投递到 dataHandler，
 				// 保留 event 帧对下游客户端的可观测性。结算路径会通过
 				// StreamStatus.HasUpstreamError() 感知并豁免估算扣费。
-				if pendingUpstreamErrorEvent != "" {
+				if IsUpstreamErrorEventType(pendingEventType) {
 					msg := ExtractUpstreamErrorMessage(data)
 					info.StreamStatus.RecordError(msg)
 					info.StreamStatus.SetEndReason(
 						relaycommon.StreamEndReasonUpstreamError,
-						fmt.Errorf("upstream sse %s: %s", pendingUpstreamErrorEvent, msg),
+						fmt.Errorf("upstream sse %s: %s", pendingEventType, msg),
 					)
-					pendingUpstreamErrorEvent = ""
 				}
+				// 一条 event 的 data 消费完毕后重置 pending，保持与旧实现一致的
+				// 「后续 data: 不再继承本次 event: 头」的行为。
+				pendingEventType = ""
 
 				select {
 				case dataChan <- data:
