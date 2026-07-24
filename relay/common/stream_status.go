@@ -110,6 +110,32 @@ func (s *StreamStatus) HasUpstreamError() bool {
 	return s.EndReason == StreamEndReasonUpstreamError
 }
 
+// ObservedUpstreamError 表示 scanner 至少观察到过一次上游错误终止事件帧，
+// 覆盖 endOnce 竞态兜底：
+//
+//   - HasUpstreamError() 严格判定 EndReason == StreamEndReasonUpstreamError，
+//     要求 scanner 在客户端 context.Done() 之前抢先 SetEndReason；
+//   - 实测该竞态几乎必输 —— 上游发 event: error 帧后，客户端 SDK（Claude Code
+//     等）迅速关连接，new-api 侧 context.Done() 比 scanner 处理错误帧更快触发，
+//     导致 EndReason 被固化为 ClientGone。scanner 后续的 RecordError 仍然会
+//     追加 Errors，但 SetEndReason(UpstreamError) 已经是 no-op。
+//
+// ObservedUpstreamError() 在上述情况下也返回 true：EndReason 是 ClientGone
+// 但 HasErrors() 为真，说明 scanner 确实收到过上游错误帧、只是被抢跑。
+// UpstreamStreamErrorToAPIError 依据此方法给出退款决定，避免因时序竞争漏放。
+func (s *StreamStatus) ObservedUpstreamError() bool {
+	if s == nil {
+		return false
+	}
+	if s.EndReason == StreamEndReasonUpstreamError {
+		return true
+	}
+	if s.EndReason == StreamEndReasonClientGone && s.HasErrors() {
+		return true
+	}
+	return false
+}
+
 // FirstErrorMessage 返回 StreamStatus 中第一条软错误 message；
 // 无错误时返回空串。供 handler 层构造对客错误响应时复用。
 func (s *StreamStatus) FirstErrorMessage() string {

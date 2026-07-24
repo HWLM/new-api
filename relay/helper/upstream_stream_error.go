@@ -65,8 +65,17 @@ func ExtractUpstreamErrorMessage(dataPayload string) string {
 	return unknownUpstreamStreamErrorFallback
 }
 
-// UpstreamStreamErrorToAPIError 若 StreamStatus 端因判定为 UpstreamError，
+// UpstreamStreamErrorToAPIError 若 StreamStatus 观察到过上游错误终止事件，
 // 返回对应的 *types.NewAPIError（对客固定 502 upstream_error）；否则返回 nil。
+//
+// 判定用 StreamStatus.ObservedUpstreamError()：
+//   - 严格路径：EndReason == StreamEndReasonUpstreamError（scanner 抢先设置）
+//   - 兜底路径：EndReason == StreamEndReasonClientGone 且 HasErrors() 为真
+//     （scanner 收到过 event: error 但 context.Done 抢跑了 endOnce.Do）
+//
+// 兜底路径是本次修复引入：实测上线 7 天 upstream_error 计数为 0，全部被 client_gone
+// 抢跑；改用 ObservedUpstreamError() 后，只要 scanner 实际观察到错误帧就走退款，
+// 修正跨系统对账的错扣。
 //
 // 副作用：命中时在 gin.Context 上记录 ContextKeyRefundReason=upstream_stream_error，
 // 供 controller.processChannelError 写入 logs.other.refund_reason 字段，
@@ -77,7 +86,7 @@ func ExtractUpstreamErrorMessage(dataPayload string) string {
 // 命中时直接把该错误返回给调用方，触发 controller 层的 Refund 逻辑，
 // 避免估算的 prompt token 被写入 logs 表并从用户额度扣除。
 func UpstreamStreamErrorToAPIError(c *gin.Context, status *relaycommon.StreamStatus) *types.NewAPIError {
-	if status == nil || !status.HasUpstreamError() {
+	if status == nil || !status.ObservedUpstreamError() {
 		return nil
 	}
 	msg := status.FirstErrorMessage()
