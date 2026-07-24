@@ -12,10 +12,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestRelaySeedanceV3AssetForwardsToAssetBaseUrl(t *testing.T) {
@@ -49,7 +52,7 @@ func TestRelaySeedanceV3AssetForwardsToAssetBaseUrl(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v3/open/CreateAsset", strings.NewReader(`{"model":"doubao-seedance-2-0","url":"https://example.com/x.jpg","name":"avatar_front","AssetType":"Image"}`))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/open/CreateAsset", strings.NewReader(`{"model":"doubao-seedance-2-0","url":"https://example.com/x.jpg","name":"avatar_front","AssetType":"Image"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	// 模拟 Distribute 选完渠道之后的上下文：主 base URL 与素材 base URL 不同域，
@@ -70,6 +73,95 @@ func TestRelaySeedanceV3AssetForwardsToAssetBaseUrl(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &out))
 	assert.Equal(t, "asset-abc123", out["id"])
+}
+
+func TestRelaySeedanceV3AssetUsesConfiguredCreateRoute(t *testing.T) {
+	service.InitHttpClient()
+	oldLogDB := model.LOG_DB
+	logDB, err := gorm.Open(sqlite.Open("file:seedance_asset_log?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, logDB.AutoMigrate(&model.Log{}))
+	model.LOG_DB = logDB
+	t.Cleanup(func() {
+		model.LOG_DB = oldLogDB
+		if sqlDB, dbErr := logDB.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPut, r.Method)
+		assert.Equal(t, "/custom/assets", r.URL.Path)
+		assert.Equal(t, "Bearer channel-key", r.Header.Get("Authorization"))
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{
+			"GroupId":"group-1",
+			"URL":"https://example.com/a.jpg",
+			"Name":"a.jpg",
+			"AssetType":"Image"
+		}`, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"payload":{"asset_id":"asset-custom"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/open/CreateAsset", strings.NewReader(`{"model":"doubao-seedance-2-0","url":"https://example.com/a.jpg","name":"a.jpg","AssetType":"Image"}`))
+	c.Set("id", 42)
+	c.Set("username", "asset-user")
+	c.Set("token_id", 7)
+	c.Set("token_name", "asset-token")
+	c.Set(common.RequestIdKey, "req-asset-upload")
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+	common.SetContextKey(c, constant.ContextKeyChannelId, 81)
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "")
+	common.SetContextKey(c, constant.ContextKeyChannelKey, "channel-key")
+	common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{})
+	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, dto.ChannelOtherSettings{
+		SeedanceV3Routes: &dto.SeedanceV3Routes{
+			AssetCreate: &dto.SeedanceV3Route{
+				Method: http.MethodPut,
+				Target: upstream.URL + "/custom/assets",
+				Parameters: map[string]any{
+					"model":   nil,
+					"url":     nil,
+					"name":    nil,
+					"GroupId": "group-1",
+					"URL":     "{url}",
+					"Name":    "{name}",
+				},
+				ResponseMapping: map[string]any{
+					"id":      "{payload.asset_id}",
+					"payload": nil,
+				},
+			},
+		},
+	})
+
+	RelaySeedanceV3Asset(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.JSONEq(t, `{"id":"asset-custom"}`, recorder.Body.String())
+
+	var log model.Log
+	require.NoError(t, logDB.First(&log).Error)
+	assert.Equal(t, model.LogTypeAsset, log.Type)
+	assert.Equal(t, 42, log.UserId)
+	assert.Equal(t, 81, log.ChannelId)
+	assert.Equal(t, 7, log.TokenId)
+	assert.Equal(t, "asset-token", log.TokenName)
+	assert.Equal(t, "doubao-seedance-2-0", log.ModelName)
+	assert.Equal(t, "req-asset-upload", log.RequestId)
+	assert.Contains(t, log.Content, "asset-custom")
+	assert.NotContains(t, log.Content, "https://example.com/a.jpg")
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, true, other["asset_success"])
+	assert.Equal(t, "asset-custom", other["asset_id"])
+	assert.Equal(t, "a.jpg", other["asset_name"])
+	assert.Equal(t, "Image", other["asset_type"])
 }
 
 func TestRelaySeedanceV3AssetFallbackToMainBaseUrl(t *testing.T) {
@@ -129,7 +221,7 @@ func TestRelaySeedanceV3AssetConvertsHCAssetCreation(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v3/open/CreateAsset", strings.NewReader(`{"model":"dreamina-seedance-2-0-hc","url":"https://example.com/hc.jpg","name":"hc-reference.jpg","AssetType":"Image"}`))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/open/CreateAsset", strings.NewReader(`{"model":"dreamina-seedance-2-0-hc","url":"https://example.com/hc.jpg","name":"hc-reference.jpg","AssetType":"Image"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
 	common.SetContextKey(c, constant.ContextKeyChannelKey, "channel-key")

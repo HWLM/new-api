@@ -196,7 +196,43 @@ export const channelFormSchema = z
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
     aws_key_type: z.enum(['ak_sk', 'api_key']).optional(), // AWS specific
     azure_responses_version: z.string().optional(), // Azure specific
-    asset_base_url: z.string().optional(), // SD Real Max (type 81) asset endpoint override
+    asset_base_url: z.string().optional(), // Byteplus (type 81) asset endpoint override
+    seedance_asset_create_method: z
+      .enum(['GET', 'POST', 'PUT', 'PATCH'])
+      .optional(),
+    seedance_asset_create_target: z.string().optional(),
+    seedance_asset_create_parameters: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    seedance_asset_create_response_mapping: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    seedance_task_create_method: z
+      .enum(['GET', 'POST', 'PUT', 'PATCH'])
+      .optional(),
+    seedance_task_create_target: z.string().optional(),
+    seedance_task_create_parameters: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    seedance_task_create_response_mapping: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    seedance_task_get_method: z
+      .enum(['GET', 'POST', 'PUT', 'PATCH'])
+      .optional(),
+    seedance_task_get_target: z.string().optional(),
+    seedance_task_get_parameters: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    seedance_task_get_response_mapping: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
     // Field passthrough controls (stored in settings JSON)
     allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
     disable_store: z.boolean().optional(), // OpenAI only
@@ -338,6 +374,18 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   aws_key_type: 'ak_sk',
   azure_responses_version: '',
   asset_base_url: '',
+  seedance_asset_create_method: 'POST',
+  seedance_asset_create_target: '',
+  seedance_asset_create_parameters: '{}',
+  seedance_asset_create_response_mapping: '{}',
+  seedance_task_create_method: 'POST',
+  seedance_task_create_target: '',
+  seedance_task_create_parameters: '{}',
+  seedance_task_create_response_mapping: '{}',
+  seedance_task_get_method: 'GET',
+  seedance_task_get_target: '',
+  seedance_task_get_parameters: '{}',
+  seedance_task_get_response_mapping: '{}',
   // Field passthrough controls
   allow_service_tier: false,
   disable_store: false,
@@ -408,6 +456,18 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateIgnoredModels = ''
   let advancedCustom = ''
   let assetBaseUrl = ''
+  let seedanceAssetCreateMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' = 'POST'
+  let seedanceAssetCreateTarget = ''
+  let seedanceAssetCreateParameters = '{}'
+  let seedanceAssetCreateResponseMapping = '{}'
+  let seedanceTaskCreateMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' = 'POST'
+  let seedanceTaskCreateTarget = ''
+  let seedanceTaskCreateParameters = '{}'
+  let seedanceTaskCreateResponseMapping = '{}'
+  let seedanceTaskGetMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' = 'GET'
+  let seedanceTaskGetTarget = ''
+  let seedanceTaskGetParameters = '{}'
+  let seedanceTaskGetResponseMapping = '{}'
 
   if (channel.settings) {
     try {
@@ -437,6 +497,49 @@ export function transformChannelToFormDefaults(
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
       }
       assetBaseUrl = parsed.asset_base_url || ''
+      const seedanceRoutes = parsed.seedance_v3_routes
+      if (seedanceRoutes?.asset_create) {
+        seedanceAssetCreateMethod = seedanceRoutes.asset_create.method || 'POST'
+        seedanceAssetCreateTarget = seedanceRoutes.asset_create.target || ''
+        seedanceAssetCreateParameters = JSON.stringify(
+          seedanceRoutes.asset_create.parameters || {},
+          null,
+          2
+        )
+        seedanceAssetCreateResponseMapping = JSON.stringify(
+          seedanceRoutes.asset_create.response_mapping || {},
+          null,
+          2
+        )
+      }
+      if (seedanceRoutes?.task_create) {
+        seedanceTaskCreateMethod = seedanceRoutes.task_create.method || 'POST'
+        seedanceTaskCreateTarget = seedanceRoutes.task_create.target || ''
+        seedanceTaskCreateParameters = JSON.stringify(
+          seedanceRoutes.task_create.parameters || {},
+          null,
+          2
+        )
+        seedanceTaskCreateResponseMapping = JSON.stringify(
+          seedanceRoutes.task_create.response_mapping || {},
+          null,
+          2
+        )
+      }
+      if (seedanceRoutes?.task_get) {
+        seedanceTaskGetMethod = seedanceRoutes.task_get.method || 'GET'
+        seedanceTaskGetTarget = seedanceRoutes.task_get.target || ''
+        seedanceTaskGetParameters = JSON.stringify(
+          seedanceRoutes.task_get.parameters || {},
+          null,
+          2
+        )
+        seedanceTaskGetResponseMapping = JSON.stringify(
+          seedanceRoutes.task_get.response_mapping || {},
+          null,
+          2
+        )
+      }
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to parse channel settings:', error)
@@ -489,6 +592,18 @@ export function transformChannelToFormDefaults(
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     advanced_custom: advancedCustom,
     asset_base_url: assetBaseUrl,
+    seedance_asset_create_method: seedanceAssetCreateMethod,
+    seedance_asset_create_target: seedanceAssetCreateTarget,
+    seedance_asset_create_parameters: seedanceAssetCreateParameters,
+    seedance_asset_create_response_mapping: seedanceAssetCreateResponseMapping,
+    seedance_task_create_method: seedanceTaskCreateMethod,
+    seedance_task_create_target: seedanceTaskCreateTarget,
+    seedance_task_create_parameters: seedanceTaskCreateParameters,
+    seedance_task_create_response_mapping: seedanceTaskCreateResponseMapping,
+    seedance_task_get_method: seedanceTaskGetMethod,
+    seedance_task_get_target: seedanceTaskGetTarget,
+    seedance_task_get_parameters: seedanceTaskGetParameters,
+    seedance_task_get_response_mapping: seedanceTaskGetResponseMapping,
   }
 }
 
@@ -537,7 +652,7 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     delete settingsObj.azure_responses_version
   }
 
-  // Add asset_base_url for SD Real Max channels (type 81). Only saved when non-empty;
+  // Add asset_base_url for Byteplus channels (type 81). Only saved when non-empty;
   // absent means "use the channel main base URL" (used by the
   // /v3/open/CreateAsset & /v3/open/GetAsset controllers to reach the wetoken
   // asset host — see controller/seedance_v3_asset.go).
@@ -545,6 +660,76 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.asset_base_url = formData.asset_base_url.trim()
   } else if ('asset_base_url' in settingsObj) {
     delete settingsObj.asset_base_url
+  }
+
+  if (formData.type === 54 || formData.type === 81) {
+    const routes: Record<
+      string,
+      {
+        method: string
+        target: string
+        parameters?: Record<string, unknown>
+        response_mapping?: Record<string, unknown>
+      }
+    > = {}
+    const assetCreateTarget = formData.seedance_asset_create_target?.trim()
+    if (assetCreateTarget) {
+      const parameters = JSON.parse(
+        formData.seedance_asset_create_parameters?.trim() || '{}'
+      ) as Record<string, unknown>
+      const responseMapping = JSON.parse(
+        formData.seedance_asset_create_response_mapping?.trim() || '{}'
+      ) as Record<string, unknown>
+      routes.asset_create = {
+        method: formData.seedance_asset_create_method || 'POST',
+        target: assetCreateTarget,
+        ...(Object.keys(parameters).length > 0 ? { parameters } : {}),
+        ...(Object.keys(responseMapping).length > 0
+          ? { response_mapping: responseMapping }
+          : {}),
+      }
+    }
+    const taskCreateTarget = formData.seedance_task_create_target?.trim()
+    if (taskCreateTarget) {
+      const parameters = JSON.parse(
+        formData.seedance_task_create_parameters?.trim() || '{}'
+      ) as Record<string, unknown>
+      const responseMapping = JSON.parse(
+        formData.seedance_task_create_response_mapping?.trim() || '{}'
+      ) as Record<string, unknown>
+      routes.task_create = {
+        method: formData.seedance_task_create_method || 'POST',
+        target: taskCreateTarget,
+        ...(Object.keys(parameters).length > 0 ? { parameters } : {}),
+        ...(Object.keys(responseMapping).length > 0
+          ? { response_mapping: responseMapping }
+          : {}),
+      }
+    }
+    const taskGetTarget = formData.seedance_task_get_target?.trim()
+    if (taskGetTarget) {
+      const parameters = JSON.parse(
+        formData.seedance_task_get_parameters?.trim() || '{}'
+      ) as Record<string, unknown>
+      const responseMapping = JSON.parse(
+        formData.seedance_task_get_response_mapping?.trim() || '{}'
+      ) as Record<string, unknown>
+      routes.task_get = {
+        method: formData.seedance_task_get_method || 'GET',
+        target: taskGetTarget,
+        ...(Object.keys(parameters).length > 0 ? { parameters } : {}),
+        ...(Object.keys(responseMapping).length > 0
+          ? { response_mapping: responseMapping }
+          : {}),
+      }
+    }
+    if (Object.keys(routes).length > 0) {
+      settingsObj.seedance_v3_routes = routes
+    } else {
+      delete settingsObj.seedance_v3_routes
+    }
+  } else {
+    delete settingsObj.seedance_v3_routes
   }
 
   // Add enterprise account setting for OpenRouter (type 20)
@@ -579,12 +764,15 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.allow_inference_geo = formData.allow_inference_geo === true
   } else {
     if ('disable_store' in settingsObj) delete settingsObj.disable_store
-    if ('allow_safety_identifier' in settingsObj)
+    if ('allow_safety_identifier' in settingsObj) {
       delete settingsObj.allow_safety_identifier
-    if ('allow_include_obfuscation' in settingsObj)
+    }
+    if ('allow_include_obfuscation' in settingsObj) {
       delete settingsObj.allow_include_obfuscation
-    if (formData.type !== 14 && 'allow_inference_geo' in settingsObj)
+    }
+    if (formData.type !== 14 && 'allow_inference_geo' in settingsObj) {
       delete settingsObj.allow_inference_geo
+    }
   }
 
   // Anthropic (type 14): claude_beta_query, allow_inference_geo, allow_speed
@@ -607,14 +795,14 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.upstream_model_update_auto_sync_enabled =
       settingsObj.upstream_model_update_check_enabled === true &&
       formData.upstream_model_update_auto_sync_enabled === true
-    settingsObj.upstream_model_update_ignored_models = Array.from(
-      new Set(
+    settingsObj.upstream_model_update_ignored_models = [
+      ...new Set(
         String(formData.upstream_model_update_ignored_models || '')
           .split(',')
           .map((model) => model.trim())
           .filter(Boolean)
-      )
-    )
+      ),
+    ]
     if (
       !Array.isArray(settingsObj.upstream_model_update_last_detected_models) ||
       settingsObj.upstream_model_update_check_enabled !== true

@@ -3,7 +3,7 @@ package sdrealmax
 import "github.com/QuantumNous/new-api/dto"
 
 const (
-	ChannelName = "sd-real-max"
+	ChannelName = "byteplus"
 	ModelName   = dto.SeedanceV3ModelName
 )
 

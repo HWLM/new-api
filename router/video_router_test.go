@@ -115,9 +115,9 @@ func TestSetVideoRouter(t *testing.T) {
 		},
 		// Seedance V3 asset routes
 		{
-			name:     "Seedance V3 asset POST /v3/open/CreateAsset",
+			name:     "Seedance V3 asset POST /api/v3/open/CreateAsset",
 			method:   http.MethodPost,
-			path:     "/v3/open/CreateAsset",
+			path:     "/api/v3/open/CreateAsset",
 			expected: true,
 		},
 		{
@@ -153,4 +153,6 @@ func TestSetVideoRouterRegistersSeedanceV3Contract(t *testing.T) {
 
 	assert.True(t, routes[http.MethodPost+" /api/v3/contents/generations/tasks"])
 	assert.True(t, routes[http.MethodGet+" /api/v3/contents/generations/tasks/:task_id"])
+	assert.True(t, routes[http.MethodPost+" /api/v3/open/CreateAsset"])
+	assert.False(t, routes[http.MethodPost+" /v3/open/CreateAsset"])
 }

@@ -11,10 +11,85 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCustomSeedanceRoutesOverrideTaskCreateAndGet(t *testing.T) {
+	service.InitHttpClient()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var responseBody string
+		switch r.URL.Path {
+		case "/custom/create":
+			assert.Equal(t, http.MethodPatch, r.Method)
+			body, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			assert.JSONEq(t, `{"model":"test","region":"global"}`, string(body))
+			responseBody = `{"payload":{"job_id":"task-1"}}`
+		case "/custom/query":
+			assert.Equal(t, http.MethodPost, r.Method)
+			body, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			assert.JSONEq(t, `{"task_id":"task-1"}`, string(body))
+			responseBody = `{"job":{"id":"task-1","state":"queued"}}`
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		assert.Equal(t, "Bearer channel-key", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(responseBody))
+	}))
+	t.Cleanup(server.Close)
+
+	routes := &dto.SeedanceV3Routes{
+		TaskCreate: &dto.SeedanceV3Route{
+			Method:     http.MethodPatch,
+			Target:     "/custom/create",
+			Parameters: map[string]any{"region": "global"},
+			ResponseMapping: map[string]any{
+				"id":      "{payload.job_id}",
+				"payload": nil,
+			},
+		},
+		TaskGet: &dto.SeedanceV3Route{
+			Method: http.MethodPost,
+			Target: "/custom/query",
+			ResponseMapping: map[string]any{
+				"id":     "{job.id}",
+				"status": "{job.state}",
+				"job":    nil,
+			},
+		},
+	}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelBaseUrl:       server.URL,
+		ChannelOtherSettings: dto.ChannelOtherSettings{SeedanceV3Routes: routes},
+		ApiKey:               "channel-key",
+	}}
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/contents/generations/tasks", strings.NewReader(`{}`))
+	response, err := adaptor.DoRequest(c, info, strings.NewReader(`{"model":"test"}`))
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	info.TaskRelayInfo = &relaycommon.TaskRelayInfo{PublicTaskID: "public-task-1"}
+	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, response, info)
+	require.Nil(t, taskErr)
+	assert.Equal(t, "task-1", upstreamTaskID)
+	assert.JSONEq(t, `{"id":"task-1"}`, string(taskData))
+
+	response, err = adaptor.FetchTask(server.URL, "channel-key", map[string]any{"task_id": "task-1"}, "")
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	responseBody, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"id":"task-1","status":"queued"}`, string(responseBody))
+	_ = response.Body.Close()
+}
 
 // TestBuildRequestBodyReconstructsFromMetadata 确认：当 middleware 把整个原始 doubao 风格 body
 // 放进 TaskSubmitReq.Metadata 时，doubao adapter 会把 content 数组（含 image/video/audio 项）、

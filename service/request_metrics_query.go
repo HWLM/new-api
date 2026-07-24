@@ -1341,7 +1341,7 @@ func ChannelTypeName(t int) string {
 	case constant.ChannelTypeSora:
 		return "Sora"
 	case constant.ChannelTypeSDRealMax:
-		return "SD Real Max"
+		return "Byteplus"
 	case constant.ChannelTypeReplicate:
 		return "Replicate"
 	case constant.ChannelTypeCodex:

@@ -33,6 +33,17 @@ func RunExprWithRequest(exprStr string, params TokenParams, request RequestInput
 	return runProgram(prog, params, request)
 }
 
+// RunExprRequestMultiplierWithRequest evaluates an expression while making
+// every selected tier return 1. This extracts an outer request-condition
+// multiplier without depending on the tier's current cost.
+func RunExprRequestMultiplierWithRequest(exprStr string, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+	prog, err := CompileFromCache(exprStr)
+	if err != nil {
+		return 0, TraceResult{}, err
+	}
+	return runProgramWithTierUnit(prog, params, request)
+}
+
 // RunExprByHash is like RunExpr but accepts a pre-computed hash for the cache
 // lookup, avoiding a redundant SHA-256 computation when the caller already
 // holds BillingSnapshot.ExprHash.
@@ -49,23 +60,42 @@ func RunExprByHashWithRequest(exprStr, hash string, params TokenParams, request 
 }
 
 func runProgram(prog *vm.Program, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+	return runProgramWithTierUnitValue(prog, params, request, false)
+}
+
+func runProgramWithTierUnit(prog *vm.Program, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+	return runProgramWithTierUnitValue(prog, params, request, true)
+}
+
+func runProgramWithTierUnitValue(prog *vm.Program, params TokenParams, request RequestInput, returnTierUnit bool) (float64, TraceResult, error) {
 	trace := TraceResult{}
 	headers := normalizeHeaders(request.Headers)
 
 	env := map[string]interface{}{
-		"p":    params.P,
-		"c":    params.C,
-		"len":  params.Len,
-		"cr":   params.CR,
-		"cc":   params.CC,
-		"cc1h": params.CC1h,
-		"img":  params.Img,
+		"p":     params.P,
+		"c":     params.C,
+		"len":   params.Len,
+		"cr":    params.CR,
+		"cc":    params.CC,
+		"cc1h":  params.CC1h,
+		"img":   params.Img,
 		"img_o": params.ImgO,
-		"ai":   params.AI,
-		"ao":   params.AO,
+		"ai":    params.AI,
+		"ao":    params.AO,
+		// v2 task/video variables — extra keys are inert for v1 programs.
+		"seconds":    params.Seconds,
+		"resolution": params.Resolution,
+		"size":       params.Size,
+		"has_video":  params.HasVideo,
+		"has_image":  params.HasImage,
+		"n":          params.N,
+		"mode":       params.Mode,
 		"tier": func(name string, value float64) float64 {
 			trace.MatchedTier = name
 			trace.Cost = value
+			if returnTierUnit {
+				return 1
+			}
 			return value
 		},
 		"header": func(key string) string {
@@ -94,10 +124,10 @@ func runProgram(prog *vm.Program, params TokenParams, request RequestInput) (flo
 		"month":   func(tz string) int { return int(timeInZone(tz).Month()) },
 		"day":     func(tz string) int { return timeInZone(tz).Day() },
 		"max":     math.Max,
-		"min":   math.Min,
-		"abs":   math.Abs,
-		"ceil":  math.Ceil,
-		"floor": math.Floor,
+		"min":     math.Min,
+		"abs":     math.Abs,
+		"ceil":    math.Ceil,
+		"floor":   math.Floor,
 	}
 
 	out, err := expr.Run(prog, env)

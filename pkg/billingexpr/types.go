@@ -15,6 +15,9 @@ type RequestInput struct {
 // TokenParams holds all token dimensions passed into an Expr evaluation.
 // Fields beyond P and C are optional — when absent they default to 0,
 // which means cache-unaware expressions keep working unchanged.
+//
+// The v2 task/video fields (Seconds..Mode) are only exposed in the v2 compile
+// environment; v1 expressions cannot reference them (type check will fail).
 type TokenParams struct {
 	P    float64 // prompt tokens (text) — auto-excludes sub-categories priced separately
 	C    float64 // completion tokens (text) — auto-excludes sub-categories priced separately
@@ -26,6 +29,15 @@ type TokenParams struct {
 	ImgO float64 // image output tokens
 	AI   float64 // audio input tokens
 	AO   float64 // audio output tokens
+
+	// v2 task/video variables — populated by task pre-consume and settle paths.
+	Seconds    float64 // video/audio duration in seconds
+	Resolution string  // normalized "480p" | "720p" | "1080p" | "4k"
+	Size       string  // raw size string ("WxH" or shorthand like "720P")
+	HasVideo   bool    // input contains a video_url (i2v / v2v)
+	HasImage   bool    // input contains an image
+	N          float64 // generation count (image/video n)
+	Mode       string  // provider-specific mode ("std" / "pro" / ...)
 }
 
 // TraceResult holds side-channel info captured by the tier() function
@@ -51,6 +63,10 @@ type BillingSnapshot struct {
 	EstimatedTier             string  `json:"estimated_tier"`
 	QuotaPerUnit              float64 `json:"quota_per_unit"`
 	ExprVersion               int     `json:"expr_version"`
+	// FrozenRequestMultiplier is evaluated during pre-consume for task billing
+	// and reused during async settlement. A pointer distinguishes an explicit
+	// zero multiplier from snapshots created before this field existed.
+	FrozenRequestMultiplier *float64 `json:"frozen_request_multiplier,omitempty"`
 }
 
 // TieredResult holds everything needed after running tiered settlement.

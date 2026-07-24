@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -50,7 +51,8 @@ func updateVideoTaskAll(ctx context.Context, platform constant.TaskPlatform, cha
 	}
 	info := &relaycommon.RelayInfo{}
 	info.ChannelMeta = &relaycommon.ChannelMeta{
-		ChannelBaseUrl: cacheGetChannel.GetBaseURL(),
+		ChannelBaseUrl:       cacheGetChannel.GetBaseURL(),
+		ChannelOtherSettings: cacheGetChannel.GetOtherSettings(),
 	}
 	info.ApiKey = cacheGetChannel.Key
 	adaptor.Init(info)
@@ -81,8 +83,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 		key = privateData.Key
 	}
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
-		"task_id": taskId,
-		"action":  task.Action,
+		"task_id":                              taskId,
+		"action":                               task.Action,
+		taskcommon.SeedanceTaskGetRouteBodyKey: task.PrivateData.SeedanceV3TaskGetRoute,
 	}, proxy)
 	if err != nil {
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)

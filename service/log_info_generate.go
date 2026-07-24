@@ -307,16 +307,28 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData types.Price
 // module-specific other map. Call this after GenerateTextOtherInfo /
 // GenerateClaudeOtherInfo / etc. when the request used tiered_expr billing.
 func InjectTieredBillingInfo(other map[string]interface{}, relayInfo *relaycommon.RelayInfo, result *billingexpr.TieredResult) {
-	if relayInfo == nil || other == nil {
+	if relayInfo == nil {
 		return
 	}
-	snap := relayInfo.TieredBillingSnapshot
-	if snap == nil {
+	InjectTieredBillingInfoFromSnapshot(other, relayInfo.TieredBillingSnapshot, result)
+}
+
+// InjectTieredBillingInfoFromSnapshot writes tiered billing fields onto the
+// log's `other` map directly from a snapshot. This is the task/video variant
+// where the log is generated at settle time — long after RelayInfo is gone —
+// so the snapshot lives on TaskBillingContext instead.
+func InjectTieredBillingInfoFromSnapshot(other map[string]interface{}, snap *billingexpr.BillingSnapshot, result *billingexpr.TieredResult) {
+	if other == nil || snap == nil {
 		return
 	}
 	other["billing_mode"] = "tiered_expr"
 	other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
 	if result != nil {
 		other["matched_tier"] = result.MatchedTier
+	} else if snap.EstimatedTier != "" {
+		other["matched_tier"] = snap.EstimatedTier
+	}
+	if snap.ExprVersion > 0 {
+		other["expr_version"] = snap.ExprVersion
 	}
 }

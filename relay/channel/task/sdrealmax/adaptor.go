@@ -24,9 +24,10 @@ import (
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	baseURL string
-	apiKey  string
-	// doubaoDelegate 处理 SD Real Max 渠道下**非** dreamina-seedance-2-0-hc 模型的请求。
+	baseURL        string
+	apiKey         string
+	seedanceRoutes *dto.SeedanceV3Routes
+	// doubaoDelegate 处理 Byteplus 渠道下**非** dreamina-seedance-2-0-hc 模型的请求。
 	// 这类请求走上游原生的 /api/v3/contents/generations/tasks 路径。
 	doubaoDelegate *doubao.TaskAdaptor
 }
@@ -47,11 +48,12 @@ type doubaoUnifiedTaskResponse struct {
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.baseURL = info.ChannelBaseUrl
 	a.apiKey = info.ApiKey
+	a.seedanceRoutes = info.ChannelOtherSettings.SeedanceV3Routes
 	a.doubaoDelegate = &doubao.TaskAdaptor{}
 	a.doubaoDelegate.Init(info)
 }
 
-// isSeedanceV3Model 判断当前请求应该走 SD Real Max 专属 SeedanceV3 分支（否则委托给 doubao）。
+// isSeedanceV3Model 判断当前请求应该走 Byteplus 专属 SeedanceV3 分支（否则委托给 doubao）。
 // 请求阶段 (Validate/BuildRequestBody/DoRequest) 优先看上下文里的 ContextKeySeedanceV3Request：
 // middleware 只在 model == dreamina-seedance-2-0-hc 时写入该键。
 // 无 context 时（响应处理、任务转换）回落到 model 名判断。
@@ -109,6 +111,13 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
+		route, err := taskcommon.NormalizeSeedanceV3Route(a.baseURL, a.seedanceRoutes.TaskCreate, http.MethodPost)
+		if err != nil {
+			return "", err
+		}
+		return route.Target, nil
+	}
 	if !a.shouldUseSeedanceV3(nil, info) {
 		return a.doubaoDelegate.BuildRequestURL(info)
 	}
@@ -215,7 +224,7 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, request *http.Request, 
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
 	if !a.shouldUseSeedanceV3(c, info) {
 		// 非 hc：直接委托给 doubao adapter，让它按 metadata overlay 重建上游 body。
-		// 素材由客户端自己通过 /v3/open/CreateAsset 上传，网关不再代做上传。
+		// 素材由客户端自己通过 /api/v3/open/CreateAsset 上传，网关不再代做上传。
 		return a.doubaoDelegate.BuildRequestBody(c, info)
 	}
 	request, err := a.requestFromContext(c, info)
@@ -231,9 +240,20 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 }
 
 // DoRequest 对 hc 和非 hc 走同一条透传路径：body 已经在 BuildRequestBody 里准备好，
-// URL 由 BuildRequestURL 按模型分发。素材由客户端自行通过 /v3/open/CreateAsset 上传，
+// URL 由 BuildRequestURL 按模型分发。素材由客户端自行通过 /api/v3/open/CreateAsset 上传，
 // 网关不再扫描 content 里的图片 URL 也不做替换。
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
+		route, err := taskcommon.NormalizeSeedanceV3Route(a.baseURL, a.seedanceRoutes.TaskCreate, http.MethodPost)
+		if err != nil {
+			return nil, err
+		}
+		requestBody, err = taskcommon.ApplySeedanceV3RouteParameters(requestBody, route)
+		if err != nil {
+			return nil, err
+		}
+		return channel.DoTaskApiRequestWithMethod(a, c, info, requestBody, route.Method)
+	}
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
@@ -245,6 +265,12 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, response *http.Response, info *
 				return "", nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
 			}
 			_ = response.Body.Close()
+			if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
+				responseBody, err = taskcommon.ApplySeedanceV3RouteResponseMapping(responseBody, a.seedanceRoutes.TaskCreate)
+				if err != nil {
+					return "", nil, service.TaskErrorWrapper(err, "seedance_response_mapping_failed", http.StatusInternalServerError)
+				}
+			}
 			var upstream doubaoUnifiedTaskResponse
 			if err := common.Unmarshal(responseBody, &upstream); err != nil {
 				return "", nil, service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
@@ -268,6 +294,12 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, response *http.Response, info *
 		return "", nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
 	}
 	_ = response.Body.Close()
+	if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
+		responseBody, err = taskcommon.ApplySeedanceV3RouteResponseMapping(responseBody, a.seedanceRoutes.TaskCreate)
+		if err != nil {
+			return "", nil, service.TaskErrorWrapper(err, "seedance_response_mapping_failed", http.StatusInternalServerError)
+		}
+	}
 
 	var upstream dto.SeedanceV3VideoTaskResponse
 	if err := common.Unmarshal(responseBody, &upstream); err != nil {
@@ -298,13 +330,37 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, response *http.Response, info *
 }
 
 func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
-	// task_polling 会在 body 里带 "model"（见 service/task_polling.go），据此选择端点
-	if modelName, _ := body["model"].(string); modelName != "" && !isSeedanceV3Model(modelName) {
-		return a.doubaoDelegate.FetchTask(baseURL, key, body, proxy)
-	}
 	taskID, ok := body["task_id"].(string)
 	if !ok || strings.TrimSpace(taskID) == "" {
 		return nil, errors.New("invalid task_id")
+	}
+	var customRoute *dto.SeedanceV3Route
+	if frozen, ok := body[taskcommon.SeedanceTaskGetRouteBodyKey].(*dto.SeedanceV3Route); ok && frozen.IsConfigured() {
+		customRoute = frozen
+	} else if a.seedanceRoutes != nil && a.seedanceRoutes.TaskGet.IsConfigured() {
+		customRoute = a.seedanceRoutes.TaskGet
+	}
+	if customRoute != nil {
+		request, err := taskcommon.BuildSeedanceV3TaskGetRequest(baseURL, customRoute, taskID, key)
+		if err != nil {
+			return nil, err
+		}
+		client, err := service.GetHttpClientWithProxy(proxy)
+		if err != nil {
+			return nil, fmt.Errorf("new proxy http client failed: %w", err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return nil, err
+		}
+		if err := taskcommon.ApplySeedanceV3RouteHTTPResponseMapping(response, customRoute); err != nil {
+			return nil, err
+		}
+		return response, nil
+	}
+	// task_polling 会在 body 里带 "model"（见 service/task_polling.go），据此选择端点
+	if modelName, _ := body["model"].(string); modelName != "" && !isSeedanceV3Model(modelName) {
+		return a.doubaoDelegate.FetchTask(baseURL, key, body, proxy)
 	}
 
 	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/v1/video/tasks/%s", baseURL, taskID), nil)
@@ -504,7 +560,7 @@ func (a *TaskAdaptor) convertToPublicTask(task *model.Task) (*dto.SeedanceV3Publ
 	var upstream dto.SeedanceV3VideoTaskResponse
 	if len(task.Data) > 0 {
 		if err := common.Unmarshal(task.Data, &upstream); err != nil {
-			return nil, errors.Wrap(err, "unmarshal SD Real Max task data failed")
+			return nil, errors.Wrap(err, "unmarshal Byteplus task data failed")
 		}
 	}
 

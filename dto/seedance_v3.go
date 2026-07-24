@@ -6,6 +6,8 @@ const (
 	SeedanceV3DoubaoFilterOffModel = "doubao-seedance-2-0-filter-off"
 	SeedanceV3DoubaoModel          = "doubao-seedance-2-0"
 	SeedanceV3DoubaoFastModel      = "doubao-seedance-2-0-fast"
+	SeedanceV3DoubaoVersionedModel = "doubao-seedance-2-0-260128"
+	SeedanceV3DoubaoVersionedFast  = "doubao-seedance-2-0-fast-260128"
 )
 
 var SeedanceV3UnifiedModels = []string{
@@ -13,6 +15,8 @@ var SeedanceV3UnifiedModels = []string{
 	SeedanceV3DoubaoFilterOffModel,
 	SeedanceV3DoubaoModel,
 	SeedanceV3DoubaoFastModel,
+	SeedanceV3DoubaoVersionedModel,
+	SeedanceV3DoubaoVersionedFast,
 }
 
 func IsSeedanceV3UnifiedModel(model string) bool {
@@ -132,6 +136,6 @@ type SeedanceV3PublicTask struct {
 	LastFrameURL    string                  `json:"last_frame_url,omitempty"`
 }
 
-// WetokenV3 素材接口的强类型 DTO 曾用于 sdrealmax adapter 侧的自动上传：
-// 当前逻辑不再由网关代做上传，客户端应通过 /v3/open/CreateAsset controller 自行调用。
+// WetokenV3 素材接口的强类型 DTO 曾用于 Byteplus adapter 侧的自动上传：
+// 当前逻辑不再由网关代做上传，客户端应通过 /api/v3/open/CreateAsset controller 自行调用。
 // 那条 controller 用 map[string]any 透传，因此不再保留这里的 wetoken V3 DTO。

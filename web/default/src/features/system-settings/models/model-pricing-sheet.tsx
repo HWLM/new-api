@@ -155,6 +155,7 @@ export const ModelPricingEditorPanel = forwardRef<
   })
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [isBillingExprValid, setIsBillingExprValid] = useState(true)
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const isEditMode = !!editData
 
@@ -188,15 +189,16 @@ export const ModelPricingEditorPanel = forwardRef<
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
       })
-      setPricingMode(
-        editData.billingMode === 'tiered_expr'
-          ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
-      )
+      let nextPricingMode: PricingMode = 'per-token'
+      if (editData.billingMode === 'tiered_expr') {
+        nextPricingMode = 'tiered_expr'
+      } else if (editData.price) {
+        nextPricingMode = 'per-request'
+      }
+      setPricingMode(nextPricingMode)
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
+      setIsBillingExprValid(true)
     } else {
       form.reset({
         name: '',
@@ -212,6 +214,7 @@ export const ModelPricingEditorPanel = forwardRef<
       setPricingMode('per-token')
       setBillingExpr('')
       setRequestRuleExpr('')
+      setIsBillingExprValid(true)
     }
 
     setPromptPrice(nextLaneState.promptPrice)
@@ -335,6 +338,9 @@ export const ModelPricingEditorPanel = forwardRef<
   const handleModeChange = (value: string) => {
     const nextMode = value as PricingMode
     setPricingMode(nextMode)
+    if (nextMode !== 'tiered_expr') {
+      setIsBillingExprValid(true)
+    }
     if (nextMode === 'tiered_expr' && !billingExpr) {
       setBillingExpr('tier("base", p * 0 + c * 0)')
     }
@@ -468,11 +474,23 @@ export const ModelPricingEditorPanel = forwardRef<
     () => ({
       commitDraft: async () => {
         const isValid = await form.trigger()
-        if (!isValid || !validatePricingValues()) return null
+        if (
+          !isValid ||
+          !validatePricingValues() ||
+          (pricingMode === 'tiered_expr' && !isBillingExprValid)
+        ) {
+          return null
+        }
         return buildSubmitData(form.getValues())
       },
     }),
-    [form, validatePricingValues, buildSubmitData]
+    [
+      form,
+      validatePricingValues,
+      pricingMode,
+      isBillingExprValid,
+      buildSubmitData,
+    ]
   )
 
   const showActions = Boolean(onSave)
@@ -648,6 +666,7 @@ export const ModelPricingEditorPanel = forwardRef<
                         requestRuleExpr={requestRuleExpr}
                         onBillingExprChange={setBillingExpr}
                         onRequestRuleExprChange={setRequestRuleExpr}
+                        onValidationChange={setIsBillingExprValid}
                       />
                     </FieldGroup>
                   </TabsContent>

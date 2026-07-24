@@ -20,7 +20,7 @@ import (
 // TaskSubmitReq，让下游 Distribute + adapter 走同一条链路：
 //
 //   - dreamina-seedance-2-0-hc：走原逻辑，另存强类型请求到 ContextKeySeedanceV3Request，
-//     sdrealmax adapter 从上下文取回并转换为 /v1/video/generate 的上游请求（会做素材上传）。
+//     Byteplus adapter 从上下文取回并转换为 /v1/video/generate 的上游请求。
 //   - 其他模型（如 doubao-seedance-2-0-filter-off）：不做业务转换，把整个原始 body 挂到
 //     TaskSubmitReq.Metadata；doubao adapter 通过 Metadata overlay 恢复完整原始字段，
 //     URL 保持 /api/v3/contents/generations/tasks 透传给上游（不上传素材）。
@@ -38,10 +38,6 @@ func SeedanceV3RequestConvert() gin.HandlerFunc {
 			return
 		}
 		modelName, _ := rawMap["model"].(string)
-		if !dto.IsSeedanceV3UnifiedModel(modelName) {
-			abortWithOpenAiMessage(c, http.StatusBadRequest, "Seedance V3 does not support model "+modelName)
-			return
-		}
 		promptParts, images := extractContentTextAndImages(rawMap)
 
 		unifiedRequest := relaycommon.TaskSubmitReq{
@@ -63,7 +59,7 @@ func SeedanceV3RequestConvert() gin.HandlerFunc {
 		}
 
 		if modelName == dto.SeedanceV3ModelName {
-			// SeedanceV3：再解析一次成强类型，供 sdrealmax adapter 从 ContextKey 拿回
+			// SeedanceV3：再解析一次成强类型，供 Byteplus adapter 从 ContextKey 拿回
 			var seedanceReq dto.SeedanceV3VideoRequest
 			if err := common.UnmarshalBodyReusable(c, &seedanceReq); err != nil {
 				abortWithOpenAiMessage(c, http.StatusBadRequest, "Invalid Seedance V3 request body")

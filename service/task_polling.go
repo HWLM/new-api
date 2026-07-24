@@ -415,7 +415,8 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	}
 	info := &relaycommon.RelayInfo{}
 	info.ChannelMeta = &relaycommon.ChannelMeta{
-		ChannelBaseUrl: cacheGetChannel.GetBaseURL(),
+		ChannelBaseUrl:       cacheGetChannel.GetBaseURL(),
+		ChannelOtherSettings: cacheGetChannel.GetOtherSettings(),
 	}
 	info.ApiKey = cacheGetChannel.Key
 	adaptor.Init(info)
@@ -463,9 +464,10 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		key = privateData.Key
 	}
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
-		"task_id": task.GetUpstreamTaskID(),
-		"action":  task.Action,
-		"model":   task.Properties.OriginModelName,
+		"task_id":                              task.GetUpstreamTaskID(),
+		"action":                               task.Action,
+		"model":                                task.Properties.OriginModelName,
+		taskcommon.SeedanceTaskGetRouteBodyKey: task.PrivateData.SeedanceV3TaskGetRoute,
 	}, proxy)
 	if err != nil {
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
@@ -641,14 +643,20 @@ func truncateBase64(s string) string {
 
 // settleTaskBillingOnComplete 任务完成时的统一计费调整。
 // 优先级：
-//  0. 按次计费的任务不做差额结算
-//  1. 若 adapter 实现 TaskPollingRatiosAdjuster 且返回非 nil，用返回的 map 全量替换
+//  0. tiered_expr 快照存在 → 用上游最终参数重跑表达式独立结算，不走 adaptor 逻辑
+//  1. 按次计费的任务不做差额结算
+//  2. 若 adapter 实现 TaskPollingRatiosAdjuster 且返回非 nil，用返回的 map 全量替换
 //     BillingContext.OtherRatios（写回 DB），随后走 token 重算
-//  2. adaptor.AdjustBillingOnComplete 返回正数 → 使用 adaptor 计算的额度
-//  3. taskResult.TotalTokens > 0 → 按 token 重算
-//  4. 都不满足 → 保持预扣额度不变
+//  3. adaptor.AdjustBillingOnComplete 返回正数 → 使用 adaptor 计算的额度
+//  4. taskResult.TotalTokens > 0 → 按 token 重算
+//  5. 都不满足 → 保持预扣额度不变
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
-	// 0. 按次计费的任务不做差额结算
+	// 0. tiered_expr 独立结算路径 —— 完全接管，跳过所有 adaptor OtherRatios 逻辑
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.TieredSnapshot != nil {
+		settleTaskTieredExpr(ctx, task, taskResult)
+		return
+	}
+	// 1. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
 		return

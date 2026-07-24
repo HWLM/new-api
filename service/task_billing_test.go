@@ -140,6 +140,29 @@ func makeTask(userId, channelId, quota, tokenId int, billingSource string, subsc
 	}
 }
 
+func TestTaskExprMatchedParamsPreservesReferencedConditionValues(t *testing.T) {
+	vars := &model.TaskExprVars{
+		Seconds:    8,
+		Resolution: "1080p",
+		HasVideo:   false,
+		HasImage:   true,
+		N:          1,
+	}
+
+	params := taskExprMatchedParams(
+		vars,
+		`v2:resolution == "1080p" && !has_video ? tier("matched", 0.1 * seconds) : tier("fallback", 0)`,
+	)
+
+	assert.Equal(t, map[string]interface{}{
+		"seconds":    8.0,
+		"resolution": "1080p",
+		"has_video":  false,
+	}, params)
+	assert.NotContains(t, params, "has_image")
+	assert.NotContains(t, params, "n")
+}
+
 // ---------------------------------------------------------------------------
 // Read-back helpers
 // ---------------------------------------------------------------------------
@@ -313,7 +336,10 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
 
-	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
+	RecalculateTaskQuotaWithUsage(ctx, task, actualQuota, "adaptor adjustment", TaskBillingUsage{
+		TotalTokens:      1200,
+		CompletionTokens: 200,
+	})
 
 	// User quota should decrease by the delta (1000 additional charge)
 	assert.Equal(t, initQuota-(actualQuota-preConsumed), getUserQuota(t, userID))
@@ -329,6 +355,12 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeConsume, log.Type)
 	assert.Equal(t, actualQuota-preConsumed, log.Quota)
+	var other map[string]interface{}
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.EqualValues(t, 1200, other["task_total_tokens"])
+	assert.EqualValues(t, 200, other["task_completion_tokens"])
+	assert.EqualValues(t, preConsumed, other["pre_consumed_quota"])
+	assert.EqualValues(t, actualQuota, other["actual_quota"])
 }
 
 func TestRecalculate_NegativeDelta(t *testing.T) {

@@ -552,3 +552,29 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	}
 	return resp, nil
 }
+
+// DoTaskApiRequestWithMethod is the opt-in task request path for adaptors that
+// expose a channel-configured upstream method. DoTaskApiRequest remains the
+// unchanged default for every existing task route.
+func DoTaskApiRequestWithMethod(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader, method string) (*http.Response, error) {
+	fullRequestURL, err := a.BuildRequestURL(info)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(method, fullRequestURL, requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("new request failed: %w", err)
+	}
+	applyUpstreamContentLength(req, info)
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(requestBody), nil
+	}
+	if err = a.BuildRequestHeader(c, req, info); err != nil {
+		return nil, fmt.Errorf("setup request header failed: %w", err)
+	}
+	resp, err := doRequest(c, req, info)
+	if err != nil {
+		return nil, fmt.Errorf("do request failed: %w", err)
+	}
+	return resp, nil
+}

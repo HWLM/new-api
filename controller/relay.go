@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -594,19 +595,41 @@ func RelayTask(c *gin.Context) {
 
 		task := model.InitTask(result.Platform, relayInfo)
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
+		task.PrivateData.SeedanceV3TaskGetRoute = result.TaskGetRoute
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
-		task.PrivateData.BillingContext = &model.TaskBillingContext{
+		// tiered_expr 走独立的差额结算路径（settleTaskTieredExpr），必须
+		// 显式关掉 PerCallBilling 以免结算被短路。快照 + 冻结的 vars +
+		// 原始请求体一起写进 BillingContext，供轮询阶段重跑表达式。
+		tiered := relayInfo.TieredBillingSnapshot != nil
+		billingCtx := &model.TaskBillingContext{
 			ModelPrice:      relayInfo.PriceData.ModelPrice,
 			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
 			ModelRatio:      relayInfo.PriceData.ModelRatio,
 			OtherRatios:     relayInfo.PriceData.OtherRatios,
 			OriginModelName: relayInfo.OriginModelName,
-			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+			PerCallBilling:  !tiered && (common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice),
 			HasVideoInput:   relayInfo.HasVideoInput,
 		}
+		if tiered {
+			billingCtx.TieredSnapshot = relayInfo.TieredBillingSnapshot
+			if req, err := relaycommon.GetTaskRequest(c); err == nil {
+				var bodyBytes []byte
+				if relayInfo.BillingRequestInput != nil {
+					bodyBytes = relayInfo.BillingRequestInput.Body
+				}
+				vars := taskcommon.ExtractTaskExprVars(req, relayInfo, bodyBytes)
+				billingCtx.TieredExprVars = &vars
+			}
+			if relayInfo.BillingRequestInput != nil && len(relayInfo.BillingRequestInput.Body) > 0 {
+				body := make([]byte, len(relayInfo.BillingRequestInput.Body))
+				copy(body, relayInfo.BillingRequestInput.Body)
+				billingCtx.RequestBody = body
+			}
+		}
+		task.PrivateData.BillingContext = billingCtx
 		task.Quota = result.Quota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action

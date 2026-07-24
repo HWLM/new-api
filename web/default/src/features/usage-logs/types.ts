@@ -94,6 +94,11 @@ export interface ChannelAffinityInfo {
   using_group?: string
 }
 
+export type MatchedPricingParams = Record<
+  string,
+  string | number | boolean | null | undefined
+>
+
 export interface LogOtherData {
   admin_info?: {
     is_multi_key?: boolean
@@ -142,6 +147,13 @@ export interface LogOtherData {
   login_method?: string
   user_agent?: string
   request_path?: string
+  asset_operation?: string
+  asset_status_code?: number
+  asset_success?: boolean
+  asset_result?: string
+  asset_id?: string
+  asset_name?: string
+  asset_type?: string
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean
@@ -174,6 +186,11 @@ export interface LogOtherData {
   billing_mode?: string
   expr_b64?: string
   matched_tier?: string
+  matched_params?: MatchedPricingParams
+  task_total_tokens?: number
+  task_completion_tokens?: number
+  pre_consumed_quota?: number
+  actual_quota?: number
   reasoning_effort?: string
   image?: boolean
   image_ratio?: number

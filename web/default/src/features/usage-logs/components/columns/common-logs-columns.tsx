@@ -41,7 +41,7 @@ import {
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { LOG_TYPE_ALL_VALUE } from '../../constants'
+import { LOG_TYPE_ALL_VALUE, LOG_TYPE_ENUM } from '../../constants'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
@@ -170,6 +170,22 @@ function buildTypeDetailSegments(
   const isTieredExpr = other.billing_mode === 'tiered_expr'
   const tieredSummary = getTieredBillingSummary(other)
   if (isTieredExpr) {
+    if (other.matched_tier) {
+      segments.push({
+        text: `${t('Hit tier')}: ${other.matched_tier}`,
+      })
+    }
+    if (other.matched_params) {
+      const params = Object.entries(other.matched_params)
+        .filter((entry) => entry[1] !== undefined && entry[1] !== null)
+        .map(([key, value]) => `${key}=${String(value)}`)
+      if (params.length > 0) {
+        segments.push({
+          text: params.join(' · '),
+          muted: true,
+        })
+      }
+    }
     if (tieredSummary) {
       const baseEntries = tieredSummary.priceEntries
         .filter((entry) => ['inputPrice', 'outputPrice'].includes(entry.field))
@@ -748,6 +764,9 @@ export function useCommonLogsColumns(
         const quota = row.getValue('quota') as number
         const other = parseLogOther(log.other)
         const isSubscription = other?.billing_source === 'subscription'
+        if (log.type === LOG_TYPE_ENUM.ASSET) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
 
         if (isSubscription) {
           return (
@@ -801,9 +820,7 @@ export function useCommonLogsColumns(
         const segments = buildDetailSegments(log, other, t, isAdmin)
         const primary = segments[0]
         const hasMore = segments.length > 1
-        let detailsPreview = (
-          <span className='text-muted-foreground/40'>—</span>
-        )
+        let detailsPreview = <span className='text-muted-foreground/40'>—</span>
         if (log.content) {
           detailsPreview = (
             <span className='text-muted-foreground truncate group-hover:underline'>

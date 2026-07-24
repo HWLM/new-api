@@ -27,6 +27,7 @@ type TaskSubmitResult struct {
 	TaskData       []byte
 	Platform       constant.TaskPlatform
 	Quota          int
+	TaskGetRoute   *dto.SeedanceV3Route
 	//PerCallPrice   types.PriceData
 }
 
@@ -155,6 +156,14 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("invalid api platform: %s", platform), "invalid_api_platform", http.StatusBadRequest)
 	}
 	adaptor.Init(info)
+	var taskGetRoute *dto.SeedanceV3Route
+	if routes := info.ChannelOtherSettings.SeedanceV3Routes; routes != nil && routes.TaskGet.IsConfigured() {
+		resolvedRoute, routeErr := taskcommon.NormalizeSeedanceV3Route(info.ChannelBaseUrl, routes.TaskGet, http.MethodGet)
+		if routeErr != nil {
+			return nil, service.TaskErrorWrapper(routeErr, "invalid_seedance_task_get_route", http.StatusBadRequest)
+		}
+		taskGetRoute = resolvedRoute
+	}
 	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
 		return nil, taskErr
 	}
@@ -188,14 +197,18 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
 	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
 	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
-	if estimatedRatios := adaptor.EstimateBilling(c, info); len(estimatedRatios) > 0 {
-		for k, v := range estimatedRatios {
-			info.PriceData.AddOtherRatio(k, v)
+	//    tiered_expr 已经把所有维度吃进了表达式，跳过适配器 OtherRatios 以避免重复计费。
+	if info.TieredBillingSnapshot == nil {
+		if estimatedRatios := adaptor.EstimateBilling(c, info); len(estimatedRatios) > 0 {
+			for k, v := range estimatedRatios {
+				info.PriceData.AddOtherRatio(k, v)
+			}
 		}
 	}
 
 	// 6. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）
-	if !common.StringsContains(constant.TaskPricePatches, modelName) {
+	//    tiered_expr 分支下 quota 已由表达式最终确定，跳过此处的倍率乘法。
+	if info.TieredBillingSnapshot == nil && !common.StringsContains(constant.TaskPricePatches, modelName) {
 		quotaWithRatios := float64(info.PriceData.Quota)
 		for _, ra := range info.PriceData.OtherRatios {
 			if ra != 1.0 {
@@ -246,12 +259,15 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
+	//     tiered_expr 完全接管，跳过（结算阶段会用上游最终参数重跑表达式）。
 	finalQuota := info.PriceData.Quota
-	if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData); len(adjustedRatios) > 0 {
-		// 基于调整后的 ratios 重新计算 quota
-		finalQuota = recalcQuotaFromRatios(info, adjustedRatios)
-		info.PriceData.OtherRatios = adjustedRatios
-		info.PriceData.Quota = finalQuota
+	if info.TieredBillingSnapshot == nil {
+		if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData); len(adjustedRatios) > 0 {
+			// 基于调整后的 ratios 重新计算 quota
+			finalQuota = recalcQuotaFromRatios(info, adjustedRatios)
+			info.PriceData.OtherRatios = adjustedRatios
+			info.PriceData.Quota = finalQuota
+		}
 	}
 
 	return &TaskSubmitResult{
@@ -259,6 +275,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		TaskData:       taskData,
 		Platform:       platform,
 		Quota:          finalQuota,
+		TaskGetRoute:   taskGetRoute,
 	}, nil
 }
 

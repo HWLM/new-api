@@ -54,6 +54,10 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  HumanConditions,
+  HumanFormula,
+} from '@/features/pricing/components/human-formula'
+import {
   BILLING_EXTRA_VARS,
   COMMON_TIMEZONES,
   MATCH_CONTAINS,
@@ -99,6 +103,35 @@ import {
   normalizeVisualTier,
   tryParseVisualConfig,
 } from '@/features/pricing/lib/tier-expr'
+import {
+  DOUBAO_SEEDANCE_2_PRICING_EXPR,
+  NUMERIC_OPS as V2_NUMERIC_OPS,
+  TASK_BOOL_VARS,
+  TASK_NUMERIC_VARS,
+  TASK_STRING_VARS,
+  type MatrixCostUnit,
+  type MatrixDimension,
+  type MatrixDimensionSource,
+  type TaskConditionInputV2,
+  type CustomCostComponent,
+  type VisualConfigV2,
+  type VisualMatrixV2,
+  type VisualTierV2,
+  cellKeyFromCoords,
+  createDefaultEvalInputs,
+  createDefaultVisualConfigV2,
+  createEmptyMatrix,
+  dimensionDisplayLabel,
+  evalExprLocallyV2,
+  generateExprFromVisualConfigV2,
+  isV2Expression,
+  matrixToVisualConfigV2,
+  newDimensionId,
+  normalizeVisualConfigV2,
+  normalizeVisualTierV2,
+  tryParseMatrixFromVisualConfig,
+  tryParseVisualConfigV2,
+} from '@/features/pricing/lib/tier-expr-v2'
 import { cn } from '@/lib/utils'
 
 const PRICE_SUFFIX = '$/1M tokens'
@@ -108,6 +141,18 @@ const CACHE_PRICE_VARS = BILLING_EXTRA_VARS.filter(
 const MEDIA_PRICE_VARS = BILLING_EXTRA_VARS.filter(
   (variable) => variable.group === 'media'
 )
+
+const renderKeyMap = new WeakMap<object, string>()
+let renderKeyCounter = 0
+
+function getStableRenderKey(value: object): string {
+  const existing = renderKeyMap.get(value)
+  if (existing) return existing
+  renderKeyCounter += 1
+  const key = `pricing-row-${renderKeyCounter}`
+  renderKeyMap.set(value, key)
+  return key
+}
 
 const CONDITION_INPUT_OPTIONS: {
   value: TierConditionInput['var']
@@ -251,6 +296,39 @@ const PRESET_GROUPS: PresetGroup[] = [
     ],
   },
   {
+    group: 'Video / Task (v2)',
+    presets: [
+      {
+        key: 'video-flat-per-call',
+        label: 'Video flat $0.30/call',
+        expr: 'v2:tier("flat", 0.30)',
+      },
+      {
+        key: 'video-by-resolution',
+        label: 'Video by resolution × seconds',
+        expr: 'v2:resolution == "4k" ? tier("4k", 0.15 * seconds) : resolution == "1080p" ? tier("1080p", 0.06 * seconds) : resolution == "720p" ? tier("720p", 0.04 * seconds) : tier("480p", 0.025 * seconds)',
+      },
+      {
+        key: 'video-i2v-surcharge',
+        label: 'Video i2v surcharge',
+        expr: 'v2:has_video ? tier("i2v_" + resolution, 0.10 + 0.06 * seconds) : resolution == "1080p" ? tier("t2v_1080p", 0.06 * seconds) : tier("t2v_default", 0.04 * seconds)',
+      },
+      {
+        key: 'image-per-count',
+        label: 'Image $0.05 × n',
+        expr: 'v2:tier("img_" + resolution, 0.05 * n)',
+      },
+      {
+        key: 'doubao-seedance-2-0',
+        label: 'Doubao Seedance 2.0',
+        // Explicit Cartesian tiers keep this preset editable in matrix view.
+        // Seedance requests with an omitted/adaptive resolution are normalized
+        // to 720p during pre-consume; settlement overlays the actual resolution.
+        expr: DOUBAO_SEEDANCE_2_PRICING_EXPR,
+      },
+    ],
+  },
+  {
     group: 'Time-based',
     presets: [
       {
@@ -332,8 +410,9 @@ function formatTokenHint(n: number | string | null | undefined): string {
 
 function formatNumberDraft(value: number | string): string {
   if (value === '') return ''
-  if (typeof value === 'number')
+  if (typeof value === 'number') {
     return Number.isFinite(value) ? String(value) : '0'
+  }
   return value
 }
 
@@ -436,12 +515,10 @@ function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
   return (
     <div className='flex items-center gap-2'>
       <Select
-        items={[
-          ...CONDITION_INPUT_OPTIONS.map((option) => ({
-            value: option.value,
-            label: t(option.labelKey),
-          })),
-        ]}
+        items={CONDITION_INPUT_OPTIONS.map((option) => ({
+          value: option.value,
+          label: t(option.labelKey),
+        }))}
         value={condition.var}
         onValueChange={(value) =>
           onChange({ ...condition, var: value as TierConditionInput['var'] })
@@ -667,7 +744,7 @@ function VisualTierCard({
         ) : (
           tier.conditions.map((condition, conditionIndex) => (
             <ConditionRow
-              key={conditionIndex}
+              key={getStableRenderKey(condition)}
               condition={condition}
               onChange={(next) => handleConditionChange(conditionIndex, next)}
               onRemove={() => handleConditionRemove(conditionIndex)}
@@ -849,7 +926,7 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
       </p>
       {config.tiers.map((tier, index) => (
         <VisualTierCard
-          key={index}
+          key={getStableRenderKey(tier)}
           tier={tier}
           index={index}
           total={config.tiers.length}
@@ -867,6 +944,1278 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
         <Plus className='mr-2 h-4 w-4' />
         {t('Add tier')}
       </Button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Task (v2) visual editor — tier list for video / image / audio task models.
+// Body shape per tier: flat + per_second * seconds + per_n * n.
+// Conditions support: resolution/size/mode (string ==), has_video/has_image
+// (bool), seconds/n (numeric compare). See tier-expr-v2.ts.
+// ---------------------------------------------------------------------------
+
+type TaskConditionKind = TaskConditionInputV2['kind']
+
+const TASK_CONDITION_OPTIONS: {
+  value: string
+  kind: TaskConditionKind
+  varName: string
+  labelKey: string
+}[] = [
+  ...TASK_STRING_VARS.map((v) => ({
+    value: `string:${v}`,
+    kind: 'string_eq' as const,
+    varName: v,
+    labelKey: `Task var: ${v} (string)`,
+  })),
+  ...TASK_BOOL_VARS.map((v) => ({
+    value: `bool:${v}`,
+    kind: 'bool' as const,
+    varName: v,
+    labelKey: `Task var: ${v} (yes/no)`,
+  })),
+  ...TASK_NUMERIC_VARS.map((v) => ({
+    value: `num:${v}`,
+    kind: 'numeric' as const,
+    varName: v,
+    labelKey: `Task var: ${v} (number)`,
+  })),
+]
+
+const RESOLUTION_SUGGESTIONS = ['480p', '720p', '1080p', '4k']
+
+function makeDefaultCondition(
+  kind: TaskConditionKind,
+  varName: string
+): TaskConditionInputV2 {
+  if (kind === 'string_eq') {
+    return {
+      kind: 'string_eq',
+      var: varName as TaskConditionInputV2 extends {
+        kind: 'string_eq'
+        var: infer V
+      }
+        ? V
+        : never,
+      value: varName === 'resolution' ? '1080p' : '',
+    }
+  }
+  if (kind === 'bool') {
+    return {
+      kind: 'bool',
+      var: varName as TaskConditionInputV2 extends {
+        kind: 'bool'
+        var: infer V
+      }
+        ? V
+        : never,
+      value: true,
+    }
+  }
+  return {
+    kind: 'numeric',
+    var: varName as TaskConditionInputV2 extends {
+      kind: 'numeric'
+      var: infer V
+    }
+      ? V
+      : never,
+    op: '>=',
+    value: 5,
+  }
+}
+
+type TaskConditionRowProps = {
+  condition: TaskConditionInputV2
+  onChange: (next: TaskConditionInputV2) => void
+  onRemove: () => void
+}
+
+function TaskConditionRow({
+  condition,
+  onChange,
+  onRemove,
+}: TaskConditionRowProps) {
+  const { t } = useTranslation()
+  // param_string_eq / param_bool conditions are only produced by the matrix
+  // editor; the list-view condition picker only handles the v2 first-class
+  // vars, so we defensively fall through those variants without a var lookup.
+  let selectedKey = ''
+  if (condition.kind === 'string_eq') {
+    selectedKey = `string:${condition.var}`
+  } else if (condition.kind === 'bool') {
+    selectedKey = `bool:${condition.var}`
+  } else if (condition.kind === 'numeric') {
+    selectedKey = `num:${condition.var}`
+  }
+
+  const handleVarChange = (nextKey: string | null) => {
+    if (!nextKey) return
+    const option = TASK_CONDITION_OPTIONS.find((o) => o.value === nextKey)
+    if (!option) return
+    onChange(makeDefaultCondition(option.kind, option.varName))
+  }
+
+  return (
+    <div className='flex flex-wrap items-center gap-2'>
+      <Select
+        items={TASK_CONDITION_OPTIONS.map((o) => ({
+          value: o.value,
+          label: t(o.labelKey),
+        }))}
+        value={selectedKey}
+        onValueChange={handleVarChange}
+      >
+        <SelectTrigger className='w-56' size='sm'>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          <SelectGroup>
+            {TASK_CONDITION_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {t(o.labelKey)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      {condition.kind === 'string_eq' && (
+        <>
+          <span className='text-muted-foreground text-xs'>==</span>
+          <Input
+            list={
+              condition.var === 'resolution'
+                ? 'v2-resolution-suggestions'
+                : undefined
+            }
+            value={condition.value}
+            onChange={(event) =>
+              onChange({ ...condition, value: event.target.value })
+            }
+            placeholder={condition.var === 'resolution' ? '1080p' : t('value')}
+            className='h-8 w-32'
+          />
+          {condition.var === 'resolution' && (
+            <datalist id='v2-resolution-suggestions'>
+              {RESOLUTION_SUGGESTIONS.map((r) => (
+                <option key={r} value={r} />
+              ))}
+            </datalist>
+          )}
+        </>
+      )}
+
+      {condition.kind === 'bool' && (
+        <Select
+          items={[
+            { value: 'true', label: t('is true') },
+            { value: 'false', label: t('is false') },
+          ]}
+          value={condition.value ? 'true' : 'false'}
+          onValueChange={(v) => onChange({ ...condition, value: v === 'true' })}
+        >
+          <SelectTrigger className='w-24' size='sm'>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            <SelectGroup>
+              <SelectItem value='true'>{t('is true')}</SelectItem>
+              <SelectItem value='false'>{t('is false')}</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      )}
+
+      {condition.kind === 'numeric' && (
+        <>
+          <Select
+            items={V2_NUMERIC_OPS.map((op) => ({ value: op, label: op }))}
+            value={condition.op}
+            onValueChange={(v) =>
+              onChange({
+                ...condition,
+                op: v as TaskConditionInputV2 extends {
+                  kind: 'numeric'
+                  op: infer O
+                }
+                  ? O
+                  : never,
+              })
+            }
+          >
+            <SelectTrigger className='w-20' size='sm'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {V2_NUMERIC_OPS.map((op) => (
+                  <SelectItem key={op} value={op}>
+                    {op}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <DraftNumberInput
+            min={0}
+            value={condition.value}
+            onValueChange={(value) => onChange({ ...condition, value })}
+            className='h-8 w-24'
+          />
+        </>
+      )}
+
+      <Button
+        variant='ghost'
+        size='icon'
+        onClick={onRemove}
+        aria-label={t('Remove')}
+        className='ml-auto'
+      >
+        <Trash2 className='text-destructive h-4 w-4' />
+      </Button>
+    </div>
+  )
+}
+
+type TaskTierCardProps = {
+  tier: VisualTierV2
+  index: number
+  total: number
+  hasPreConsumeEstimate: boolean
+  onChange: (next: VisualTierV2) => void
+  onRemove: () => void
+  onAddCondition: () => void
+}
+
+function TaskTierCard({
+  tier,
+  index,
+  total,
+  hasPreConsumeEstimate,
+  onChange,
+  onRemove,
+  onAddCondition,
+}: TaskTierCardProps) {
+  const { t } = useTranslation()
+
+  const handlePrice = (field: keyof VisualTierV2, value: number) => {
+    onChange({ ...tier, [field]: value })
+  }
+
+  return (
+    <div className='space-y-3 rounded-lg border p-3'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <div className='flex items-center gap-2'>
+          <Badge variant='outline'>
+            {t('Tier')} {index + 1} / {total}
+          </Badge>
+          {tier.conditions.length === 0 && (
+            <Badge variant='secondary'>{t('Fallback tier')}</Badge>
+          )}
+          <Input
+            value={tier.label}
+            onChange={(event) =>
+              onChange({ ...tier, label: event.target.value })
+            }
+            placeholder={t('Tier name')}
+            className='h-7 w-36'
+          />
+        </div>
+        <Button
+          variant='ghost'
+          size='icon'
+          onClick={onRemove}
+          disabled={total <= 1}
+          aria-label={t('Remove tier')}
+        >
+          <Trash2 className='text-destructive h-4 w-4' />
+        </Button>
+      </div>
+
+      {/* Conditions */}
+      <div className='space-y-1.5'>
+        <div className='flex h-7 items-center justify-between'>
+          <Label className='text-xs font-medium'>{t('Tier conditions')}</Label>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={onAddCondition}
+            disabled={tier.conditions.length >= 3}
+            className='h-7 px-2 text-xs'
+          >
+            <Plus className='mr-1 h-3 w-3' />
+            {t('Add condition')}
+          </Button>
+        </div>
+        {tier.conditions.length === 0 ? (
+          <p className='text-muted-foreground text-xs'>
+            {t('Always matches (default tier).')}
+          </p>
+        ) : (
+          tier.conditions.map((condition, conditionIndex) => (
+            <TaskConditionRow
+              key={getStableRenderKey(condition)}
+              condition={condition}
+              onChange={(next) => {
+                const conditions = [...tier.conditions]
+                conditions[conditionIndex] = next
+                onChange({ ...tier, conditions })
+              }}
+              onRemove={() =>
+                onChange({
+                  ...tier,
+                  conditions: tier.conditions.filter(
+                    (_, i) => i !== conditionIndex
+                  ),
+                })
+              }
+            />
+          ))
+        )}
+      </div>
+
+      {/* Costs */}
+      <div className='space-y-2'>
+        <div className='flex items-center justify-between gap-3'>
+          <Label className='text-sm font-semibold'>{t('Per-call costs')}</Label>
+          <span className='bg-muted text-muted-foreground rounded-md px-2 py-1 text-xs'>
+            USD / call
+          </span>
+        </div>
+        <div className='flex flex-wrap gap-x-4 gap-y-2'>
+          <PriceField
+            label={t('Flat $/call')}
+            value={tier.flat_cost}
+            onChange={(v) => handlePrice('flat_cost', v)}
+          />
+          <PriceField
+            label={t('$ × seconds')}
+            value={tier.per_second_cost}
+            onChange={(v) => handlePrice('per_second_cost', v)}
+          />
+          <PriceField
+            label={t('$ × n')}
+            value={tier.per_n_cost}
+            onChange={(v) => handlePrice('per_n_cost', v)}
+          />
+          <PriceField
+            label={t('$ / 1M tokens')}
+            value={tier.per_mtok_cost}
+            onChange={(v) => handlePrice('per_mtok_cost', v)}
+          />
+        </div>
+        <CustomCostRows
+          tier={tier}
+          onChange={(customCosts) => onChange({ ...tier, customCosts })}
+        />
+        <div className='rounded-md border border-dashed p-2 text-xs'>
+          <div className='text-muted-foreground mb-1 font-medium'>
+            {t('Preview')}
+          </div>
+          <HumanFormula tier={tier} currencySymbol='$' currencyRate={1} />
+          {tier.conditions.length > 0 && (
+            <div className='text-muted-foreground mt-1'>
+              {t('Condition')}: <HumanConditions conditions={tier.conditions} />
+            </div>
+          )}
+          <div className='text-muted-foreground/70 mt-1 font-mono text-[10px]'>
+            {`tier("${tier.label || 'base'}", ${previewTaskBody(tier)})`}
+          </div>
+        </div>
+        {tier.per_mtok_cost > 0 &&
+          !hasPreConsumeEstimate &&
+          tier.flat_cost === 0 &&
+          tier.per_second_cost === 0 &&
+          tier.per_n_cost === 0 &&
+          (tier.customCosts || []).length === 0 && (
+            <p className='text-xs text-amber-600 dark:text-amber-500'>
+              {t(
+                'This tier only charges per output token, so upstream failures (timeout / no tokens returned) will bill $0. Add a fixed per-call amount, per-second charge, or a custom cost component above to guarantee some minimum charge.'
+              )}
+            </p>
+          )}
+      </div>
+    </div>
+  )
+}
+
+function previewTaskBody(tier: VisualTierV2): string {
+  const parts: string[] = []
+  if (tier.flat_cost) parts.push(String(tier.flat_cost))
+  if (tier.per_second_cost) parts.push(`${tier.per_second_cost} * seconds`)
+  if (tier.per_n_cost) parts.push(`${tier.per_n_cost} * n`)
+  if (tier.per_mtok_cost) parts.push(`${tier.per_mtok_cost} * p / 1000000`)
+  for (const c of tier.customCosts || []) {
+    if (c.coef && c.variable) parts.push(`${c.coef} * ${c.variable}`)
+  }
+  return parts.length > 0 ? parts.join(' + ') : '0'
+}
+
+// Custom cost editor: admins add extra (coefficient × variable) terms per tier,
+// e.g. `0.001 * param("metadata.frames")` or `0.02 * len`. Variable can be a
+// built-in identifier from BUILTIN_CUSTOM_VARS or a param()/header() call
+// typed freely.
+const BUILTIN_CUSTOM_VARS: { value: string; labelKey: string }[] = [
+  { value: 'p', labelKey: 'input tokens' },
+  { value: 'c', labelKey: 'output tokens' },
+  { value: 'len', labelKey: 'input length' },
+  { value: 'cr', labelKey: 'cache-read tokens' },
+  { value: 'cc', labelKey: 'cache-write tokens' },
+]
+
+function CustomCostRows({
+  tier,
+  onChange,
+}: {
+  tier: VisualTierV2
+  onChange: (next: CustomCostComponent[]) => void
+}) {
+  const { t } = useTranslation()
+  const rows = tier.customCosts || []
+
+  const updateRow = (i: number, next: Partial<CustomCostComponent>) => {
+    const copy = rows.map((r) => ({ ...r }))
+    copy[i] = { ...copy[i], ...next }
+    onChange(copy)
+  }
+  const addRow = () => {
+    onChange([...rows, { label: '', coef: 0.01, variable: 'p' }])
+  }
+  const removeRow = (i: number) => {
+    onChange(rows.filter((_, idx) => idx !== i))
+  }
+
+  return (
+    <div className='space-y-1.5'>
+      <div className='flex items-center justify-between'>
+        <Label className='text-xs font-medium'>
+          {t('Custom cost components')}
+        </Label>
+        <Button
+          variant='ghost'
+          size='sm'
+          onClick={addRow}
+          className='h-7 px-2 text-xs'
+        >
+          <Plus className='mr-1 h-3 w-3' />
+          {t('Add component')}
+        </Button>
+      </div>
+      {rows.length === 0 ? (
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Optional. Add "coefficient × variable" terms (e.g. 0.001 × param("metadata.frames")).'
+          )}
+        </p>
+      ) : (
+        rows.map((row, i) => (
+          <CustomCostRow
+            key={getStableRenderKey(row)}
+            row={row}
+            onChange={(next) => updateRow(i, next)}
+            onRemove={() => removeRow(i)}
+          />
+        ))
+      )}
+    </div>
+  )
+}
+
+function CustomCostRow({
+  row,
+  onChange,
+  onRemove,
+}: {
+  row: CustomCostComponent
+  onChange: (next: Partial<CustomCostComponent>) => void
+  onRemove: () => void
+}) {
+  const { t } = useTranslation()
+  const isBuiltin = BUILTIN_CUSTOM_VARS.some((v) => v.value === row.variable)
+  return (
+    <div className='flex flex-wrap items-center gap-1.5 rounded-md border p-1.5'>
+      <span className='text-muted-foreground text-xs'>$</span>
+      <DraftNumberInput
+        min={0}
+        step={0.001}
+        value={row.coef}
+        onValueChange={(next) => onChange({ coef: next })}
+        className='h-7 w-20'
+      />
+      <span className='text-muted-foreground text-xs'>×</span>
+      <Select
+        value={isBuiltin ? row.variable : '__custom__'}
+        onValueChange={(v) => {
+          if (v === '__custom__') {
+            if (isBuiltin) onChange({ variable: '' })
+          } else if (v !== null) {
+            onChange({ variable: v })
+          }
+        }}
+      >
+        <SelectTrigger className='h-7 w-32 text-xs'>
+          <SelectValue placeholder={t('Variable')} />
+        </SelectTrigger>
+        <SelectContent>
+          {BUILTIN_CUSTOM_VARS.map((v) => (
+            <SelectItem key={v.value} value={v.value} className='text-xs'>
+              {t(v.labelKey)}{' '}
+              <span className='text-muted-foreground'>({v.value})</span>
+            </SelectItem>
+          ))}
+          <SelectItem value='__custom__' className='text-xs'>
+            {t('Custom expression')}…
+          </SelectItem>
+        </SelectContent>
+      </Select>
+      {!isBuiltin && (
+        <Input
+          value={row.variable}
+          onChange={(e) => onChange({ variable: e.target.value })}
+          placeholder='param("metadata.frames")'
+          className='h-7 w-56 font-mono text-xs'
+        />
+      )}
+      <Input
+        value={row.label}
+        onChange={(e) => onChange({ label: e.target.value })}
+        placeholder={t('Display name (optional)')}
+        className='h-7 w-28 text-xs'
+      />
+      <Button
+        variant='ghost'
+        size='icon'
+        onClick={onRemove}
+        className='h-7 w-7'
+        aria-label={t('Remove component')}
+      >
+        <Trash2 className='text-destructive h-3.5 w-3.5' />
+      </Button>
+    </div>
+  )
+}
+
+type TaskVisualEditorProps = {
+  visualConfigV2: VisualConfigV2 | null
+  onChange: (next: VisualConfigV2) => void
+}
+
+// ---------------------------------------------------------------------------
+// Task visual editor — switches between List view (tier cards) and Matrix
+// view (dimensions + cell price table). The underlying source of truth is
+// always VisualConfigV2 (the tier list); matrix view reverse-parses on mount
+// and forwards edits back through matrixToVisualConfigV2.
+// ---------------------------------------------------------------------------
+
+type TaskVisualViewMode = 'list' | 'matrix'
+
+function TaskVisualEditor({ visualConfigV2, onChange }: TaskVisualEditorProps) {
+  const { t } = useTranslation()
+  const config = useMemo(
+    () => normalizeVisualConfigV2(visualConfigV2),
+    [visualConfigV2]
+  )
+  const usesPerMillionTokenPricing = config.tiers.some(
+    (tier) => tier.per_mtok_cost > 0
+  )
+  const usesAutomaticTokenEstimate = (config.preConsumeTokensPerSecond ?? 0) > 0
+  const [viewMode, setViewMode] = useState<TaskVisualViewMode>(() => {
+    // Default: matrix view if the current tiers already look like a matrix.
+    const cfg = normalizeVisualConfigV2(visualConfigV2)
+    return tryParseMatrixFromVisualConfig(cfg) ? 'matrix' : 'list'
+  })
+
+  return (
+    <div className='space-y-3'>
+      {usesPerMillionTokenPricing && (
+        <Field className='gap-2'>
+          <FieldLabel>{t('Pre-consume estimate')}</FieldLabel>
+          {usesAutomaticTokenEstimate ? (
+            <Input
+              readOnly
+              value={`${config.preConsumeTokensPerSecond} × seconds`}
+              className='max-w-56 font-mono'
+            />
+          ) : (
+            <DraftNumberInput
+              min={0}
+              step={1}
+              inputMode='numeric'
+              value={config.preConsumeTokens ?? 0}
+              onValueChange={(value) =>
+                onChange({
+                  ...config,
+                  preConsumeTokens: Math.max(0, Math.round(value)),
+                  preConsumeEstimate: 0,
+                })
+              }
+              className='max-w-56'
+            />
+          )}
+          <p className='text-muted-foreground text-xs leading-5'>
+            {t(
+              'Used before actual usage is available. Final billing is recalculated with the upstream token count.'
+            )}
+          </p>
+          {!usesAutomaticTokenEstimate &&
+            (config.preConsumeTokens ?? 0) <= 0 && (
+              <Alert variant='destructive'>
+                <AlertDescription className='text-xs'>
+                  {t(
+                    'Enter a positive token estimate to avoid a zero pre-consume for per-1M-token pricing.'
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+        </Field>
+      )}
+
+      <div className='flex items-center gap-2'>
+        <Label className='text-muted-foreground text-xs'>{t('View')}</Label>
+        <Tabs
+          value={viewMode}
+          onValueChange={(v) =>
+            v !== null && setViewMode(v as TaskVisualViewMode)
+          }
+        >
+          <TabsList className='h-8'>
+            <TabsTrigger value='list' className='px-3 text-xs'>
+              {t('List')}
+            </TabsTrigger>
+            <TabsTrigger value='matrix' className='px-3 text-xs'>
+              {t('Matrix')}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {viewMode === 'list' ? (
+        <TaskListVisualEditor
+          visualConfigV2={visualConfigV2}
+          onChange={onChange}
+        />
+      ) : (
+        <TaskMatrixVisualEditor
+          visualConfigV2={visualConfigV2}
+          onChange={onChange}
+        />
+      )}
+    </div>
+  )
+}
+
+function TaskListVisualEditor({
+  visualConfigV2,
+  onChange,
+}: TaskVisualEditorProps) {
+  const { t } = useTranslation()
+  const config = useMemo(
+    () => normalizeVisualConfigV2(visualConfigV2),
+    [visualConfigV2]
+  )
+
+  const handleTierChange = (index: number, next: VisualTierV2) => {
+    const tiers = [...config.tiers]
+    tiers[index] = normalizeVisualTierV2(next)
+    onChange({ ...config, tiers })
+  }
+
+  const handleAddTier = () => {
+    const tiers = [...config.tiers]
+    const lastIndex = tiers.length - 1
+    // If the current fallback tier has no conditions, give it a default
+    // resolution guard so the chain still ends with a real fallback.
+    if (lastIndex >= 0 && tiers[lastIndex].conditions.length === 0) {
+      tiers[lastIndex] = normalizeVisualTierV2({
+        ...tiers[lastIndex],
+        conditions: [{ kind: 'string_eq', var: 'resolution', value: '1080p' }],
+      })
+    }
+    tiers.push(
+      normalizeVisualTierV2({
+        label: `tier_${tiers.length + 1}`,
+        conditions: [],
+        flat_cost: 0.1,
+        per_second_cost: 0,
+        per_n_cost: 0,
+        per_mtok_cost: 0,
+      })
+    )
+    onChange({ ...config, tiers })
+  }
+
+  const handleRemoveTier = (index: number) => {
+    const tiers = config.tiers.filter((_, i) => i !== index)
+    onChange({ ...config, tiers: tiers.length > 0 ? tiers : config.tiers })
+  }
+
+  const handleAddCondition = (index: number) => {
+    const tier = config.tiers[index]
+    if (tier.conditions.length >= 3) return
+    onChange({
+      ...config,
+      tiers: config.tiers.map((current, i) =>
+        i === index
+          ? {
+              ...current,
+              conditions: [
+                ...tier.conditions,
+                makeDefaultCondition('string_eq', 'resolution'),
+              ],
+            }
+          : current
+      ),
+    })
+  }
+
+  return (
+    <div className='space-y-2'>
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Video / task pricing: each tier bills a flat $/call plus optional per-second and per-count components. Conditions branch on resolution / seconds / has_video / n. Last unconditioned tier is the fallback. Output expression is prefixed with v2:.'
+        )}
+      </p>
+      {config.tiers.map((tier, index) => (
+        <TaskTierCard
+          key={getStableRenderKey(tier)}
+          tier={tier}
+          index={index}
+          total={config.tiers.length}
+          hasPreConsumeEstimate={
+            (config.preConsumeTokensPerSecond ?? 0) > 0 ||
+            (config.preConsumeTokens ?? 0) > 0 ||
+            (config.preConsumeEstimate ?? 0) > 0
+          }
+          onChange={(next) => handleTierChange(index, next)}
+          onRemove={() => handleRemoveTier(index)}
+          onAddCondition={() => handleAddCondition(index)}
+        />
+      ))}
+      <Button
+        variant='outline'
+        size='sm'
+        className='h-9 w-36 justify-center'
+        onClick={handleAddTier}
+      >
+        <Plus className='mr-2 h-4 w-4' />
+        {t('Add tier')}
+      </Button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Task matrix visual editor — dimension chips + cell price table. The matrix
+// state is local; every edit regenerates the underlying VisualConfigV2 via
+// matrixToVisualConfigV2 and forwards it up so the expression stays in sync.
+// ---------------------------------------------------------------------------
+
+const V2_DIM_SOURCE_OPTIONS: {
+  value: string
+  labelKey: string
+  build: (path?: string) => MatrixDimensionSource
+  defaultValues: string[]
+}[] = [
+  ...TASK_STRING_VARS.map((v) => ({
+    value: `v2_string:${v}`,
+    labelKey: `${v} (string)`,
+    build: () => ({ kind: 'v2_string' as const, var: v }),
+    defaultValues: v === 'resolution' ? ['480p', '720p', '1080p', '4k'] : [],
+  })),
+  ...TASK_BOOL_VARS.map((v) => ({
+    value: `v2_bool:${v}`,
+    labelKey: `${v} (yes/no)`,
+    build: () => ({ kind: 'v2_bool' as const, var: v }),
+    defaultValues: ['true', 'false'],
+  })),
+  {
+    value: 'param_string',
+    labelKey: 'Custom param (string)',
+    build: (path?: string) => ({
+      kind: 'param_string' as const,
+      path: path ?? '',
+    }),
+    defaultValues: [],
+  },
+  {
+    value: 'param_bool',
+    labelKey: 'Custom param (yes/no)',
+    build: (path?: string) => ({
+      kind: 'param_bool' as const,
+      path: path ?? '',
+    }),
+    defaultValues: ['true', 'false'],
+  },
+]
+
+function dimSourceKey(source: MatrixDimensionSource): string {
+  switch (source.kind) {
+    case 'v2_string':
+      return `v2_string:${source.var}`
+    case 'v2_bool':
+      return `v2_bool:${source.var}`
+    case 'param_string':
+      return 'param_string'
+    case 'param_bool':
+      return 'param_bool'
+  }
+}
+
+function TaskMatrixVisualEditor({
+  visualConfigV2,
+  onChange,
+}: TaskVisualEditorProps) {
+  const { t } = useTranslation()
+
+  // Matrix state is local to this component. On mount we try to reverse-parse
+  // the current tier list; if the tiers form a valid matrix (Cartesian
+  // product across the same dimensions), we adopt it. Otherwise we start
+  // empty and let the user configure dimensions from scratch.
+  const [matrix, setMatrix] = useState<VisualMatrixV2>(() => {
+    const cfg = normalizeVisualConfigV2(visualConfigV2)
+    const parsed = tryParseMatrixFromVisualConfig(cfg)
+    if (parsed) {
+      return {
+        ...parsed,
+        dimensions: parsed.dimensions.map((d) => ({
+          ...d,
+          id: d.id || newDimensionId(),
+        })),
+      }
+    }
+    return createEmptyMatrix()
+  })
+
+  // Forward every change up to the parent as a regenerated VisualConfigV2.
+  // Always preserve the incoming preConsumeEstimate from the parent so the
+  // shared PreConsumeEstimateRow (rendered above this editor) survives matrix
+  // edits — the matrix state itself doesn't track it.
+  const applyMatrix = (next: VisualMatrixV2) => {
+    setMatrix(next)
+    const parentCfg = normalizeVisualConfigV2(visualConfigV2)
+    const generated = matrixToVisualConfigV2(next)
+    onChange({
+      ...generated,
+      preConsumeTokensPerSecond: parentCfg.preConsumeTokensPerSecond,
+      preConsumeTokens: parentCfg.preConsumeTokens,
+      preConsumeEstimate: parentCfg.preConsumeEstimate,
+    })
+  }
+
+  const handleAddDimension = () => {
+    // Pick a source that's not already used, defaulting to resolution.
+    const usedKeys = new Set(
+      matrix.dimensions.map((d) => dimSourceKey(d.source))
+    )
+    const nextOption =
+      V2_DIM_SOURCE_OPTIONS.find((o) => !usedKeys.has(o.value)) ??
+      V2_DIM_SOURCE_OPTIONS[0]
+    applyMatrix({
+      ...matrix,
+      dimensions: [
+        ...matrix.dimensions,
+        {
+          id: newDimensionId(),
+          source: nextOption.build(),
+          values: [...nextOption.defaultValues],
+        },
+      ],
+    })
+  }
+
+  const handleRemoveDimension = (id: string) => {
+    applyMatrix({
+      ...matrix,
+      dimensions: matrix.dimensions.filter((d) => d.id !== id),
+      cells: {}, // clear cells so stale keys don't leak in
+    })
+  }
+
+  const handleDimensionSourceChange = (id: string, nextKey: string) => {
+    const option = V2_DIM_SOURCE_OPTIONS.find((o) => o.value === nextKey)
+    if (!option) return
+    applyMatrix({
+      ...matrix,
+      dimensions: matrix.dimensions.map((d) =>
+        d.id === id
+          ? {
+              ...d,
+              source: option.build(),
+              values:
+                option.defaultValues.length > 0
+                  ? [...option.defaultValues]
+                  : d.values,
+            }
+          : d
+      ),
+      cells: {},
+    })
+  }
+
+  const handleParamPathChange = (id: string, path: string) => {
+    applyMatrix({
+      ...matrix,
+      dimensions: matrix.dimensions.map((d) => {
+        if (d.id !== id) return d
+        if (
+          d.source.kind === 'param_string' ||
+          d.source.kind === 'param_bool'
+        ) {
+          return { ...d, source: { ...d.source, path } }
+        }
+        return d
+      }),
+      cells: {},
+    })
+  }
+
+  const handleAddDimensionValue = (id: string, value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    applyMatrix({
+      ...matrix,
+      dimensions: matrix.dimensions.map((d) =>
+        d.id === id && !d.values.includes(trimmed)
+          ? { ...d, values: [...d.values, trimmed] }
+          : d
+      ),
+    })
+  }
+
+  const handleRemoveDimensionValue = (id: string, value: string) => {
+    applyMatrix({
+      ...matrix,
+      dimensions: matrix.dimensions.map((d) =>
+        d.id === id ? { ...d, values: d.values.filter((v) => v !== value) } : d
+      ),
+    })
+  }
+
+  const handleCostUnitChange = (unit: MatrixCostUnit) => {
+    // Preserve numeric values across unit change — semantics differ but the
+    // admin is explicitly picking so we don't lose their input.
+    applyMatrix({ ...matrix, costUnit: unit })
+  }
+
+  const handleCellChange = (key: string, value: number) => {
+    applyMatrix({
+      ...matrix,
+      cells: { ...matrix.cells, [key]: value },
+    })
+  }
+
+  const validDimensions = matrix.dimensions.filter((d) => {
+    if (d.values.length === 0) return false
+    if (
+      (d.source.kind === 'param_string' || d.source.kind === 'param_bool') &&
+      d.source.path.trim() === ''
+    ) {
+      return false
+    }
+    return true
+  })
+
+  return (
+    <div className='space-y-4'>
+      <div className='space-y-2'>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Matrix view generates one tier per (dim × dim × …) combination. Add up to 4 dimensions; each dimension has an enumerated value list. Fill the cell prices below to complete the matrix. Every edit regenerates the underlying v2 expression.'
+          )}
+        </p>
+      </div>
+
+      {/* Dimensions */}
+      <div className='space-y-2 rounded-lg border p-3'>
+        <div className='flex items-center justify-between'>
+          <Label className='text-sm font-semibold'>{t('Dimensions')}</Label>
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8 text-xs'
+            onClick={handleAddDimension}
+            disabled={matrix.dimensions.length >= 4}
+          >
+            <Plus className='mr-1 h-3 w-3' />
+            {t('Add dimension')}
+          </Button>
+        </div>
+        {matrix.dimensions.length === 0 ? (
+          <p className='text-muted-foreground text-xs'>
+            {t('No dimensions yet. Add one to build a price matrix.')}
+          </p>
+        ) : (
+          matrix.dimensions.map((dim) => (
+            <MatrixDimensionRow
+              key={dim.id}
+              dimension={dim}
+              onSourceChange={(nextKey) =>
+                handleDimensionSourceChange(dim.id, nextKey)
+              }
+              onPathChange={(path) => handleParamPathChange(dim.id, path)}
+              onAddValue={(v) => handleAddDimensionValue(dim.id, v)}
+              onRemoveValue={(v) => handleRemoveDimensionValue(dim.id, v)}
+              onRemove={() => handleRemoveDimension(dim.id)}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Cost unit */}
+      <div className='flex items-center gap-3'>
+        <Label className='text-sm font-medium'>{t('Cost unit')}</Label>
+        <Select
+          items={[
+            { value: 'flat', label: t('Flat $/call') },
+            { value: 'per_second', label: t('$ × seconds') },
+            { value: 'per_n', label: t('$ × n') },
+            { value: 'per_mtok', label: t('$ / 1M tokens') },
+          ]}
+          value={matrix.costUnit}
+          onValueChange={(v) =>
+            v !== null && handleCostUnitChange(v as MatrixCostUnit)
+          }
+        >
+          <SelectTrigger className='w-48' size='sm'>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            <SelectGroup>
+              <SelectItem value='flat'>{t('Flat $/call')}</SelectItem>
+              <SelectItem value='per_second'>{t('$ × seconds')}</SelectItem>
+              <SelectItem value='per_n'>{t('$ × n')}</SelectItem>
+              <SelectItem value='per_mtok'>{t('$ / 1M tokens')}</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Cell price table */}
+      {validDimensions.length === 0 ? (
+        <Alert>
+          <AlertDescription className='text-xs'>
+            {t(
+              'Add at least one dimension with values to see the price cells below.'
+            )}
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <MatrixCellTable
+          dimensions={validDimensions}
+          cells={matrix.cells}
+          onCellChange={handleCellChange}
+        />
+      )}
+    </div>
+  )
+}
+
+type MatrixDimensionRowProps = {
+  dimension: MatrixDimension
+  onSourceChange: (nextKey: string) => void
+  onPathChange: (path: string) => void
+  onAddValue: (value: string) => void
+  onRemoveValue: (value: string) => void
+  onRemove: () => void
+}
+
+function MatrixDimensionRow({
+  dimension,
+  onSourceChange,
+  onPathChange,
+  onAddValue,
+  onRemoveValue,
+  onRemove,
+}: MatrixDimensionRowProps) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState('')
+  const isParam =
+    dimension.source.kind === 'param_string' ||
+    dimension.source.kind === 'param_bool'
+  const isBool =
+    dimension.source.kind === 'v2_bool' ||
+    dimension.source.kind === 'param_bool'
+
+  const handleAddDraft = () => {
+    if (!draft.trim()) return
+    onAddValue(draft.trim())
+    setDraft('')
+  }
+
+  return (
+    <div className='space-y-2 rounded-md border p-2'>
+      <div className='flex flex-wrap items-center gap-2'>
+        <Badge variant='outline' className='shrink-0'>
+          {dimensionDisplayLabel(dimension)}
+        </Badge>
+        <Select
+          items={V2_DIM_SOURCE_OPTIONS.map((o) => ({
+            value: o.value,
+            label: t(o.labelKey),
+          }))}
+          value={dimSourceKey(dimension.source)}
+          onValueChange={(v) => v !== null && onSourceChange(v)}
+        >
+          <SelectTrigger className='w-48' size='sm'>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            <SelectGroup>
+              {V2_DIM_SOURCE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {t(o.labelKey)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        {isParam && (
+          <Input
+            value={(dimension.source as { path: string }).path || ''}
+            onChange={(event) => onPathChange(event.target.value)}
+            placeholder='metadata.quality'
+            className='h-8 w-48 font-mono text-xs'
+          />
+        )}
+        <Button
+          variant='ghost'
+          size='icon'
+          onClick={onRemove}
+          aria-label={t('Remove dimension')}
+          className='ml-auto'
+        >
+          <Trash2 className='text-destructive h-4 w-4' />
+        </Button>
+      </div>
+
+      <div className='flex flex-wrap items-center gap-1.5'>
+        {dimension.values.map((v) => (
+          <Badge
+            key={v}
+            variant='secondary'
+            className='gap-1 pr-1 pl-2 text-xs'
+          >
+            {v}
+            {!isBool && (
+              <button
+                type='button'
+                onClick={() => onRemoveValue(v)}
+                aria-label={t('Remove value')}
+                className='text-muted-foreground hover:text-destructive'
+              >
+                <Trash2 className='h-3 w-3' />
+              </button>
+            )}
+          </Badge>
+        ))}
+        {!isBool && (
+          <div className='flex items-center gap-1'>
+            <Input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleAddDraft()
+                }
+              }}
+              placeholder={t('Add value…')}
+              className='h-7 w-32 text-xs'
+            />
+            <Button
+              variant='ghost'
+              size='sm'
+              onClick={handleAddDraft}
+              className='h-7 px-2 text-xs'
+              disabled={!draft.trim()}
+            >
+              {t('Add')}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+type MatrixCellTableProps = {
+  dimensions: MatrixDimension[]
+  cells: Record<string, number>
+  onCellChange: (key: string, value: number) => void
+}
+
+function MatrixCellTable({
+  dimensions,
+  cells,
+  onCellChange,
+}: MatrixCellTableProps) {
+  const { t } = useTranslation()
+  // Cartesian product enumeration for rendering — mirrors the generator so
+  // the visual table matches the produced tier list 1:1.
+  const combos: string[][] = useMemo(() => {
+    const step = (dims: MatrixDimension[]): string[][] => {
+      if (dims.length === 0) return [[]]
+      const [first, ...rest] = dims
+      const restCombos = step(rest)
+      const out: string[][] = []
+      for (const v of first.values) {
+        for (const combo of restCombos) {
+          out.push([v, ...combo])
+        }
+      }
+      return out
+    }
+    return step(dimensions)
+  }, [dimensions])
+
+  return (
+    <div className='rounded-lg border'>
+      <div
+        className='bg-muted/50 grid gap-2 border-b p-2 text-xs font-medium'
+        style={{
+          gridTemplateColumns: `repeat(${dimensions.length}, minmax(90px, 1fr)) minmax(140px, 200px)`,
+        }}
+      >
+        {dimensions.map((d) => (
+          <div key={d.id} className='truncate'>
+            {dimensionDisplayLabel(d)}
+          </div>
+        ))}
+        <div className='text-right'>{t('Price')}</div>
+      </div>
+      <div className='divide-y'>
+        {combos.map((combo) => {
+          const key = cellKeyFromCoords(dimensions, combo)
+          const value = cells[key] ?? 0
+          return (
+            <div
+              key={key}
+              className='grid items-center gap-2 p-2'
+              style={{
+                gridTemplateColumns: `repeat(${dimensions.length}, minmax(90px, 1fr)) minmax(140px, 200px)`,
+              }}
+            >
+              {combo.map((v, i) => (
+                <span key={dimensions[i].id} className='truncate text-xs'>
+                  {v}
+                </span>
+              ))}
+              <div className='flex justify-end'>
+                <DraftNumberInput
+                  min={0}
+                  step={0.0001}
+                  value={value}
+                  onValueChange={(next) => onCellChange(key, next)}
+                  className='h-8 w-32 text-right'
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -967,12 +2316,12 @@ function RuleConditionRow({
         return timeFunc
     }
   }
-  const sourceLabel =
-    condition.source === SOURCE_PARAM
-      ? t('Body param')
-      : condition.source === SOURCE_HEADER
-        ? t('Header')
-        : t('Time')
+  let sourceLabel = t('Time')
+  if (condition.source === SOURCE_PARAM) {
+    sourceLabel = t('Body param')
+  } else if (condition.source === SOURCE_HEADER) {
+    sourceLabel = t('Header')
+  }
 
   const handleSourceChange = (source: string) => {
     if (source === SOURCE_TIME) {
@@ -992,12 +2341,10 @@ function RuleConditionRow({
   const renderTimeCondition = (timeCond: TimeCondition) => (
     <>
       <Select
-        items={[
-          ...TIME_FUNCS.map((fn) => ({
-            value: fn,
-            label: getTimeFuncLabel(fn),
-          })),
-        ]}
+        items={TIME_FUNCS.map((fn) => ({
+          value: fn,
+          label: getTimeFuncLabel(fn),
+        }))}
         value={timeCond.timeFunc}
         onValueChange={(value) =>
           onChange({ ...timeCond, timeFunc: value as TimeFunc })
@@ -1017,12 +2364,10 @@ function RuleConditionRow({
         </SelectContent>
       </Select>
       <Select
-        items={[
-          ...COMMON_TIMEZONES.map((tz) => ({
-            value: tz.value,
-            label: tz.label,
-          })),
-        ]}
+        items={COMMON_TIMEZONES.map((tz) => ({
+          value: tz.value,
+          label: tz.label,
+        }))}
         value={timeCond.timezone}
         onValueChange={(value) =>
           value !== null && onChange({ ...timeCond, timezone: value })
@@ -1045,12 +2390,10 @@ function RuleConditionRow({
         </SelectContent>
       </Select>
       <Select
-        items={[
-          ...matchOptions.map((option) => ({
-            value: option.value,
-            label: getMatchLabel(option.value),
-          })),
-        ]}
+        items={matchOptions.map((option) => ({
+          value: option.value,
+          label: getMatchLabel(option.value),
+        }))}
         value={timeCond.mode}
         onValueChange={(v) => v !== null && handleModeChange(v)}
       >
@@ -1111,12 +2454,10 @@ function RuleConditionRow({
         className='w-44'
       />
       <Select
-        items={[
-          ...matchOptions.map((option) => ({
-            value: option.value,
-            label: getMatchLabel(option.value),
-          })),
-        ]}
+        items={matchOptions.map((option) => ({
+          value: option.value,
+          label: getMatchLabel(option.value),
+        }))}
         value={phCond.mode}
         onValueChange={(v) => v !== null && handleModeChange(v)}
       >
@@ -1241,7 +2582,7 @@ function RuleGroupCard({
       <div className='space-y-2'>
         {group.conditions.map((condition, conditionIndex) => (
           <RuleConditionRow
-            key={conditionIndex}
+            key={getStableRenderKey(condition)}
             condition={condition}
             onChange={(next) => handleConditionChange(conditionIndex, next)}
             onRemove={() =>
@@ -1376,12 +2717,24 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
     () => exprUsesExtraVars(effectiveExpr),
     [effectiveExpr]
   )
+  const isTaskExpr = isV2Expression(effectiveExpr)
 
-  const result = useMemo(
-    () =>
-      evalExprLocally(effectiveExpr, promptTokens, completionTokens, extras),
-    [effectiveExpr, promptTokens, completionTokens, extras]
-  )
+  const result = useMemo(() => {
+    if (isTaskExpr) {
+      return evalExprLocallyV2(effectiveExpr, {
+        ...createDefaultEvalInputs(),
+        promptTokens,
+        completionTokens,
+        ...extras,
+      })
+    }
+    return evalExprLocally(
+      effectiveExpr,
+      promptTokens,
+      completionTokens,
+      extras
+    )
+  }, [effectiveExpr, promptTokens, completionTokens, extras, isTaskExpr])
 
   return (
     <div className='bg-muted/30 space-y-3 rounded-md border p-3'>
@@ -1562,7 +2915,7 @@ function LlmPromptHelper({ modelName }: LlmPromptHelperProps) {
 
   const prompt = useMemo(() => {
     if (modelName) {
-      return LLM_PROMPT_TEMPLATE + `\n\nCurrent model: ${modelName}`
+      return `${LLM_PROMPT_TEMPLATE}\n\nCurrent model: ${modelName}`
     }
     return LLM_PROMPT_TEMPLATE
   }, [modelName])
@@ -1627,9 +2980,10 @@ export type TieredPricingEditorProps = {
   requestRuleExpr: string
   onBillingExprChange: (next: string) => void
   onRequestRuleExprChange: (next: string) => void
+  onValidationChange?: (isValid: boolean) => void
 }
 
-type EditorMode = 'visual' | 'raw'
+type EditorMode = 'visual-chat' | 'visual-task' | 'raw'
 
 export const TieredPricingEditor = memo(function TieredPricingEditor({
   modelName,
@@ -1637,11 +2991,24 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   requestRuleExpr: currentRequestRuleExpr,
   onBillingExprChange,
   onRequestRuleExprChange,
+  onValidationChange,
 }: TieredPricingEditorProps) {
   const { t } = useTranslation()
-  const [editorMode, setEditorMode] = useState<EditorMode>('visual')
+  const [editorMode, setEditorMode] = useState<EditorMode>(() => {
+    if (tryParseVisualConfigV2(currentExpr)) return 'visual-task'
+    if (
+      currentExpr &&
+      (isV2Expression(currentExpr) || !tryParseVisualConfig(currentExpr))
+    ) {
+      return 'raw'
+    }
+    return 'visual-chat'
+  })
   const [visualConfig, setVisualConfig] = useState<VisualConfig | null>(() =>
     tryParseVisualConfig(currentExpr)
+  )
+  const [visualConfigV2, setVisualConfigV2] = useState<VisualConfigV2 | null>(
+    () => tryParseVisualConfigV2(currentExpr)
   )
   const [rawExpr, setRawExpr] = useState(() =>
     combineBillingExpr(currentExpr || '', currentRequestRuleExpr || '')
@@ -1650,20 +3017,40 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
     RequestRuleGroup[]
   >(() => tryParseRequestRuleExpr(currentRequestRuleExpr) || [])
   const initRef = useRef(false)
+  const skipNextExprSyncRef = useRef(false)
 
   useEffect(() => {
     if (initRef.current) return
+    // Only mark init as done when we have a meaningful expression. Without
+    // this guard, a first-render pass where the parent's billingExpr state
+    // hasn't propagated yet (empty string) would burn the initRef and any
+    // later expression update would be short-circuited — the editor would
+    // stay empty even though data was eventually available.
+    if (!currentExpr && !currentRequestRuleExpr) return
     initRef.current = true
-    const parsedConfig = tryParseVisualConfig(currentExpr)
-    if (parsedConfig) {
+    // State updates below take effect on the next render. Until then,
+    // effectiveExpr still reflects the previous/default editor mode.
+    skipNextExprSyncRef.current = true
+    const parsedV2 = tryParseVisualConfigV2(currentExpr)
+    if (parsedV2) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setVisualConfig(parsedConfig)
-      setEditorMode('visual')
-    } else if (currentExpr) {
-      setVisualConfig(null)
+      setVisualConfigV2(parsedV2)
+      setEditorMode('visual-task')
+    } else if (isV2Expression(currentExpr)) {
+      // v2 prefix but visual round-trip failed — fall back to raw.
+      setVisualConfigV2(null)
       setEditorMode('raw')
     } else {
-      setVisualConfig(createDefaultVisualConfig())
+      const parsedConfig = tryParseVisualConfig(currentExpr)
+      if (parsedConfig) {
+        setVisualConfig(parsedConfig)
+        setEditorMode('visual-chat')
+      } else if (currentExpr) {
+        setVisualConfig(null)
+        setEditorMode('raw')
+      } else {
+        setVisualConfig(createDefaultVisualConfig())
+      }
     }
     setRawExpr(
       combineBillingExpr(currentExpr || '', currentRequestRuleExpr || '')
@@ -1671,31 +3058,53 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
     setRequestRuleGroups(tryParseRequestRuleExpr(currentRequestRuleExpr) || [])
   }, [currentExpr, currentRequestRuleExpr])
 
-  useEffect(() => {
-    initRef.current = false
-  }, [modelName])
-
   const canUseVisualRules = useMemo(() => {
     if (!currentRequestRuleExpr) return true
     return tryParseRequestRuleExpr(currentRequestRuleExpr) !== null
   }, [currentRequestRuleExpr])
 
   const effectiveExpr = useMemo(() => {
-    if (editorMode === 'visual') {
+    if (editorMode === 'visual-chat') {
       return generateExprFromVisualConfig(visualConfig)
+    }
+    if (editorMode === 'visual-task') {
+      return generateExprFromVisualConfigV2(visualConfigV2)
     }
     const { billingExpr } = splitBillingExprAndRequestRules(rawExpr)
     return billingExpr
-  }, [editorMode, visualConfig, rawExpr])
+  }, [editorMode, visualConfig, visualConfigV2, rawExpr])
+
+  const isPreConsumeValid = useMemo(() => {
+    const config = tryParseVisualConfigV2(effectiveExpr)
+    if (!config) return true
+    const usesPerMillionTokenPricing = config.tiers.some(
+      (tier) => tier.per_mtok_cost > 0
+    )
+    return (
+      !usesPerMillionTokenPricing ||
+      (config.preConsumeTokensPerSecond ?? 0) > 0 ||
+      (config.preConsumeTokens ?? 0) > 0 ||
+      (config.preConsumeEstimate ?? 0) > 0
+    )
+  }, [effectiveExpr])
 
   useEffect(() => {
+    onValidationChange?.(isPreConsumeValid)
+  }, [isPreConsumeValid, onValidationChange])
+
+  useEffect(() => {
+    if (skipNextExprSyncRef.current) {
+      skipNextExprSyncRef.current = false
+      return
+    }
     if (effectiveExpr !== currentExpr) {
       onBillingExprChange(effectiveExpr)
     }
   }, [effectiveExpr, currentExpr, onBillingExprChange])
 
   useEffect(() => {
-    if (editorMode !== 'visual') return
+    // Request-rule multiplier only applies in visual modes (both variants).
+    if (editorMode === 'raw') return
     const ruleExpr = buildRequestRuleExpr(requestRuleGroups)
     if (ruleExpr !== currentRequestRuleExpr) {
       onRequestRuleExprChange(ruleExpr)
@@ -1711,6 +3120,10 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
     setVisualConfig(next)
   }, [])
 
+  const handleVisualV2Change = useCallback((next: VisualConfigV2) => {
+    setVisualConfigV2(next)
+  }, [])
+
   const handleRawChange = useCallback(
     (value: string) => {
       setRawExpr(value)
@@ -1723,7 +3136,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
 
   const handleModeChange = useCallback(
     (next: EditorMode) => {
-      if (next === 'visual') {
+      if (next === 'visual-chat') {
         const { billingExpr, requestRuleExpr: ruleStr } =
           splitBillingExprAndRequestRules(rawExpr)
         const parsed = tryParseVisualConfig(billingExpr)
@@ -1735,14 +3148,39 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
         const parsedGroups = tryParseRequestRuleExpr(ruleStr)
         setRequestRuleGroups(parsedGroups || [])
         onRequestRuleExprChange(ruleStr)
+      } else if (next === 'visual-task') {
+        const { billingExpr, requestRuleExpr: ruleStr } =
+          splitBillingExprAndRequestRules(rawExpr)
+        const parsedV2 = tryParseVisualConfigV2(billingExpr)
+        if (parsedV2) {
+          setVisualConfigV2(parsedV2)
+        } else {
+          setVisualConfigV2(createDefaultVisualConfigV2())
+        }
+        const parsedGroups = tryParseRequestRuleExpr(ruleStr)
+        setRequestRuleGroups(parsedGroups || [])
+        onRequestRuleExprChange(ruleStr)
       } else {
-        const expr = generateExprFromVisualConfig(visualConfig)
+        // Switching to raw: serialize whichever visual mode was active.
+        let expr = ''
+        if (editorMode === 'visual-task') {
+          expr = generateExprFromVisualConfigV2(visualConfigV2)
+        } else {
+          expr = generateExprFromVisualConfig(visualConfig)
+        }
         const ruleExpr = buildRequestRuleExpr(requestRuleGroups)
         setRawExpr(combineBillingExpr(expr, ruleExpr) || expr)
       }
       setEditorMode(next)
     },
-    [rawExpr, visualConfig, requestRuleGroups, onRequestRuleExprChange]
+    [
+      rawExpr,
+      visualConfig,
+      visualConfigV2,
+      requestRuleGroups,
+      editorMode,
+      onRequestRuleExprChange,
+    ]
   )
 
   const applyPreset = useCallback(
@@ -1751,13 +3189,23 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       const ruleExpr = buildRequestRuleExpr(presetGroups)
       const combined = combineBillingExpr(preset.expr, ruleExpr) || preset.expr
       setRawExpr(combined)
-      const parsed = tryParseVisualConfig(preset.expr)
-      if (parsed) {
-        setVisualConfig(parsed)
-        setEditorMode('visual')
-      } else {
+      const parsedV2 = tryParseVisualConfigV2(preset.expr)
+      if (parsedV2) {
+        setVisualConfigV2(parsedV2)
+        setEditorMode('visual-task')
+      } else if (isV2Expression(preset.expr)) {
+        // v2 preset but not visually representable → raw
+        setVisualConfigV2(null)
         setEditorMode('raw')
-        setVisualConfig(null)
+      } else {
+        const parsed = tryParseVisualConfig(preset.expr)
+        if (parsed) {
+          setVisualConfig(parsed)
+          setEditorMode('visual-chat')
+        } else {
+          setEditorMode('raw')
+          setVisualConfig(null)
+        }
       }
       setRequestRuleGroups(presetGroups)
       onRequestRuleExprChange(ruleExpr)
@@ -1776,18 +3224,27 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
           <FieldLabel>{t('Editor mode')}</FieldLabel>
           <Select
             items={[
-              { value: 'visual', label: t('Visual editor') },
+              { value: 'visual-chat', label: t('Visual editor (chat)') },
+              {
+                value: 'visual-task',
+                label: t('Visual editor (video / task)'),
+              },
               { value: 'raw', label: t('Expression editor') },
             ]}
             value={editorMode}
             onValueChange={(value) => handleModeChange(value as EditorMode)}
           >
-            <SelectTrigger className='w-full sm:w-56' size='sm'>
+            <SelectTrigger className='w-full sm:w-64' size='sm'>
               <SelectValue />
             </SelectTrigger>
             <SelectContent alignItemWithTrigger={false}>
               <SelectGroup>
-                <SelectItem value='visual'>{t('Visual editor')}</SelectItem>
+                <SelectItem value='visual-chat'>
+                  {t('Visual editor (chat)')}
+                </SelectItem>
+                <SelectItem value='visual-task'>
+                  {t('Visual editor (video / task)')}
+                </SelectItem>
                 <SelectItem value='raw'>{t('Expression editor')}</SelectItem>
               </SelectGroup>
             </SelectContent>
@@ -1803,16 +3260,23 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       <PresetSection applyPreset={applyPreset} />
 
       <div className='bg-muted/30 space-y-3 rounded-md border p-3'>
-        {editorMode === 'visual' ? (
+        {editorMode === 'visual-chat' && (
           <VisualEditor
             visualConfig={visualConfig}
             onChange={handleVisualChange}
           />
-        ) : (
+        )}
+        {editorMode === 'visual-task' && (
+          <TaskVisualEditor
+            visualConfigV2={visualConfigV2}
+            onChange={handleVisualV2Change}
+          />
+        )}
+        {editorMode === 'raw' && (
           <RawExprEditor exprString={rawExpr} onChange={handleRawChange} />
         )}
 
-        {editorMode === 'visual' && (
+        {editorMode !== 'raw' && (
           <div className='space-y-3 border-t pt-3'>
             <div className='space-y-1'>
               <h4 className='text-sm font-medium'>
@@ -1837,7 +3301,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
               <>
                 {requestRuleGroups.map((group, groupIndex) => (
                   <RuleGroupCard
-                    key={groupIndex}
+                    key={getStableRenderKey(group)}
                     group={group}
                     index={groupIndex}
                     onChange={(next) => {

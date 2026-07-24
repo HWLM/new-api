@@ -224,7 +224,7 @@ This matches the per-call billing pattern: `quota = modelPrice * QuotaPerUnit * 
 
 ### Expression Versioning
 
-Expressions can carry a version prefix: `v1:tier(...)`. No prefix = v1.
+Expressions can carry a version prefix: `v1:tier(...)`, `v2:tier(...)`. No prefix = v1.
 
 Version controls:
 - Compile environment (available variables and functions)
@@ -232,6 +232,87 @@ Version controls:
 - Quota conversion formula
 
 This enables future evolution without breaking existing expressions.
+
+---
+
+## Version 2 — Per-call task/video billing
+
+### When to use v2
+
+Use `v2:` for task-style models where price is naturally expressed **per generation** rather than per token: video generation (doubao / ali / sora / gemini Veo / vertex / Byteplus / kling), image generation, audio generation. v1 remains the right choice for chat/text where per-token pricing is authoritative.
+
+### v2 additions (all optional, default to zero-values)
+
+| Variable | Type | Meaning |
+|----------|------|---------|
+| `seconds` | float | Video/audio duration in seconds. Saturated to `MaxTaskDurationSeconds=3600`. |
+| `resolution` | string | Normalized `"480p"` / `"720p"` / `"1080p"` / `"4k"`. Extracted from `metadata.resolution` first, then falling back to a `WxH` mapping of `req.Size`. |
+| `size` | string | Raw size string (e.g. `"1920x1080"`, `"720P"`). Untouched. |
+| `has_video` | bool | Input contains a video URL (i2v / v2v discrimination). |
+| `has_image` | bool | Input contains an image. |
+| `n` | float | Requested generation count (metadata.n, metadata.sampleCount, or 1). |
+| `mode` | string | Provider-specific mode (`"std"` / `"pro"` for kling, etc.). |
+
+All v1 token variables (`p, c, len, cr, cc, cc1h, img, img_o, ai, ao`) remain available in v2, so a token-billed task variant (e.g. kling `FinalUnitDeduction`) can still use them.
+
+### v2 quota conversion
+
+```
+quota = exprOutput × QuotaPerUnit × groupRatio
+```
+
+**`exprOutput` is USD per call**, not per million tokens. This matches `ModelPrice` semantics: `expr = 0.30` charges $0.30 per generation (before group ratio). Contrast v1's `exprOutput / 1_000_000 × QuotaPerUnit × groupRatio` where coefficients are $/M tokens.
+
+### v2 examples
+
+```
+# Flat per-call
+v2:tier("flat", 0.30)
+
+# Per-second by resolution, with i2v surcharge
+v2:has_video
+  ? tier("i2v_" + resolution, 0.10 + 0.06 * seconds)
+  : resolution == "4k"
+      ? tier("4k",    0.15 * seconds)
+      : resolution == "1080p"
+        ? tier("1080p", 0.06 * seconds)
+        : tier("sd",    0.04 * seconds)
+
+# Multi-count image generation
+v2:tier("img_" + resolution, 0.05 * n)
+
+# Time-of-day discount for off-peak batch runs
+v2:hour("Asia/Shanghai") >= 2 && hour("Asia/Shanghai") <= 6
+  ? tier("night", 0.20 * seconds)
+  : tier("day",   0.30 * seconds)
+```
+
+### v2 semantics on the task path
+
+Once a model has `BillingMode = tiered_expr` and a v2 (or v1) expression:
+
+1. **Pre-consume**: `ModelPriceHelperPerCall` dispatches to `modelPriceHelperTieredPerCall`, which extracts `TaskExprVars` via `taskcommon.ExtractTaskExprVars`, runs the expression, and freezes `BillingSnapshot` + vars + raw request body onto `TaskBillingContext`.
+2. **Submit orchestration**: `RelayTaskSubmit` skips `adaptor.EstimateBilling`, the OtherRatios multiplication, and `adaptor.AdjustBillingOnSubmit`. Adaptor-specific price tables (like `doubao.videoPriceTable`) are effectively ignored for that model.
+3. **Settle**: `settleTaskBillingOnComplete` sees `bc.TieredSnapshot != nil` and calls `settleTaskTieredExpr`, which overlays upstream-reported `resolution` / `duration_seconds` / tokens onto the frozen vars and re-runs the expression via `billingexpr.ComputeTieredQuotaWithRequest`. Delta vs pre-consumed quota is refunded or charged through `RecalculateTaskQuota`.
+
+**"One expression, one truth."** For a model wired to tiered_expr, the expression alone determines both pre-consume and settle amounts. This is intentional — mixing tiered_expr with legacy `videoPriceTable` / `AdjustBillingRatiosOnComplete` would silently double-count.
+
+For task models priced per million upstream tokens, the expression may provide
+an explicit pre-consume estimate while keeping final settlement token-based.
+The Seedance 2.0 preset mirrors the legacy duration estimate with
+`p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)`: requested duration
+reserves 50,000 tokens per second, missing or automatic duration uses the
+bounded 3600-second fallback, and upstream `total_tokens` replaces the estimate
+during settlement.
+
+### What does *not* work in v2
+
+- **Upstream-provided quota fields** (kling `FinalUnitDeduction`) are ignored when a model uses tiered_expr. If you need to pass upstream cost through verbatim, keep the model on `ratio` billing.
+- **`AdjustBillingOnComplete` returning a fixed quota** is also ignored for tiered_expr models.
+
+### Safety invariants (parity with v1)
+
+Quota conversion in v2 goes through the same central path (`quotaConversion` → `common.QuotaRoundChecked`), so int32 saturation is clamped and audited via `admin_info.quota_saturation` on the consume log — no bespoke float→int casts anywhere in the task pipeline. A negative expression output is rejected up-front in `modelPriceHelperTieredPerCall` and again by `settleTaskTieredExpr` before any billing action.
 
 ---
 

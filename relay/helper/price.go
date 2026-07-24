@@ -2,12 +2,14 @@ package helper
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -172,6 +174,12 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
 
+	// tiered_expr 完全接管：EstimateBilling / AdjustBillingRatiosOnComplete
+	// 的 OtherRatios 会在 RelayTaskSubmit 里被短路，避免与表达式重复计费。
+	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
+		return modelPriceHelperTieredPerCall(c, info, groupRatioInfo)
+	}
+
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
 	usePrice := success
 	var modelRatio float64
@@ -308,4 +316,114 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 
 	info.PriceData = priceData
 	return priceData, nil
+}
+
+// modelPriceHelperTieredPerCall handles the task/video pre-consume side of
+// tiered_expr. It mirrors modelPriceHelperTiered but:
+//   - extracts task-shaped variables (seconds/resolution/has_video/…) via
+//     taskcommon.ExtractTaskExprVars so the expression sees canonical values;
+//   - uses quota-per-call semantics (BillingSnapshot.ExprVersion drives the
+//     conversion in billingexpr.quotaConversion — v2 = $ per call);
+//   - marks the returned PriceData with UsePrice=true so RelayTaskSubmit does
+//     not walk any legacy OtherRatios path (short-circuit guarded on
+//     info.TieredBillingSnapshot != nil is the primary defense).
+func modelPriceHelperTieredPerCall(c *gin.Context, info *relaycommon.RelayInfo, groupRatioInfo types.GroupRatioInfo) (types.PriceData, error) {
+	exprStr, ok := billing_setting.GetBillingExpr(info.OriginModelName)
+	if !ok {
+		return types.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
+	}
+
+	requestInput, err := ResolveIncomingBillingExprRequestInput(c, info)
+	if err != nil {
+		return types.PriceData{}, err
+	}
+
+	req, _ := relaycommon.GetTaskRequest(c) // absent request is not fatal — vars default to zero
+	vars := taskcommon.ExtractTaskExprVars(req, info, requestInput.Body)
+
+	params := billingexpr.TokenParams{
+		Seconds:    vars.Seconds,
+		Resolution: vars.Resolution,
+		Size:       vars.Size,
+		HasVideo:   vars.HasVideo,
+		HasImage:   vars.HasImage,
+		N:          vars.N,
+		Mode:       vars.Mode,
+	}
+
+	rawCost, trace, err := billingexpr.RunExprWithRequest(exprStr, params, requestInput)
+	if err != nil {
+		return types.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", info.OriginModelName, err)
+	}
+	if rawCost < 0 {
+		return types.PriceData{}, fmt.Errorf("model %s tiered expr produced negative cost %f", info.OriginModelName, rawCost)
+	}
+	frozenRequestMultiplier, _, err := billingexpr.RunExprRequestMultiplierWithRequest(exprStr, params, requestInput)
+	if err != nil {
+		return types.PriceData{}, fmt.Errorf("model %s tiered request multiplier failed: %w", info.OriginModelName, err)
+	}
+	if math.IsNaN(frozenRequestMultiplier) || math.IsInf(frozenRequestMultiplier, 0) || frozenRequestMultiplier < 0 {
+		return types.PriceData{}, fmt.Errorf("model %s tiered request multiplier is invalid: %f", info.OriginModelName, frozenRequestMultiplier)
+	}
+
+	version := billingexpr.ExprVersion(exprStr)
+	snapshot := &billingexpr.BillingSnapshot{
+		BillingMode:  billing_setting.BillingModeTieredExpr,
+		ModelName:    info.OriginModelName,
+		ExprString:   exprStr,
+		ExprHash:     billingexpr.ExprHashString(exprStr),
+		GroupRatio:   groupRatioInfo.GroupRatio,
+		QuotaPerUnit: common.QuotaPerUnit,
+		ExprVersion:  version,
+	}
+	if trace.MatchedTier != "" {
+		snapshot.FrozenRequestMultiplier = &frozenRequestMultiplier
+	}
+
+	// Reuse the central conversion + saturation logic so pre-consume, settle,
+	// and clamp semantics stay identical to the chat path. The normal run above
+	// already includes the frozen multiplier, so avoid evaluating the expression
+	// a third time here.
+	tr := billingexpr.ComputeTieredQuotaFromCost(snapshot, rawCost, trace)
+	snapshot.EstimatedQuotaBeforeGroup = tr.ActualQuotaBeforeGroup
+	snapshot.EstimatedQuotaAfterGroup = tr.ActualQuotaAfterGroup
+	snapshot.EstimatedTier = trace.MatchedTier
+
+	preConsumedQuota := tr.ActualQuotaAfterGroup
+	freeModel := false
+	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
+		if groupRatioInfo.GroupRatio == 0 {
+			preConsumedQuota = 0
+			freeModel = true
+		}
+	}
+
+	info.TieredBillingSnapshot = snapshot
+	info.BillingRequestInput = &requestInput
+	noteTaskExprClamp(info, tr.Clamp)
+
+	priceData := types.PriceData{
+		FreeModel:      freeModel,
+		GroupRatioInfo: groupRatioInfo,
+		UsePrice:       true,
+		Quota:          preConsumedQuota,
+	}
+
+	logger.LogDebug(c, "model_price_helper_tiered_per_call: model=%s preConsume=%d quotaBeforeGroup=%.2f groupRatio=%.2f tier=%s vars=%+v",
+		info.OriginModelName, preConsumedQuota, tr.ActualQuotaBeforeGroup, groupRatioInfo.GroupRatio, trace.MatchedTier, vars)
+
+	info.PriceData = priceData
+	return priceData, nil
+}
+
+// noteTaskExprClamp records an int32-saturation event from the v2 tiered_expr
+// pre-consume onto RelayInfo, so downstream billing helpers surface it under
+// admin_info.quota_saturation in the consume log (parity with the chat path).
+func noteTaskExprClamp(info *relaycommon.RelayInfo, clamp *common.QuotaClamp) {
+	if clamp == nil || info == nil {
+		return
+	}
+	if info.QuotaClamp == nil {
+		info.QuotaClamp = clamp
+	}
 }

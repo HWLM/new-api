@@ -69,7 +69,9 @@ import { cn } from "@/lib/utils";
 
 import { DEFAULT_TOKEN_UNIT, QUOTA_TYPE_VALUES } from "../constants";
 import { usePricingData } from "../hooks/use-pricing-data";
+import { splitBillingExprAndRequestRules } from "../lib/billing-expr";
 import {
+  getDynamicDisplayGroupRatio,
   getDynamicPriceEntries,
   getDynamicPricingSummary,
   getDynamicPricingTiers,
@@ -78,6 +80,7 @@ import {
 import { parseTags } from "../lib/filters";
 import { getAvailableGroups, isTokenBasedModel } from "../lib/model-helpers";
 import { formatFixedPrice, formatGroupPrice } from "../lib/price";
+import { isV2Expression } from "../lib/tier-expr-v2";
 import type {
   ModelCapability,
   PriceType,
@@ -87,6 +90,7 @@ import type {
 import { DynamicPricingBreakdown } from "./dynamic-pricing-breakdown";
 import { ModelDetailsApi } from "./model-details-api";
 import { ModelDetailsPerformance } from "./model-details-performance";
+import { V2PricingBreakdown } from "./v2-pricing-breakdown";
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -1007,6 +1011,66 @@ function GroupPricingSection(props: {
     "text-muted-foreground py-2 text-[10px] font-medium tracking-wider uppercase";
 
   if (isDynamicPricingModel(props.model)) {
+    // Keep the group, pricing type, and parameter-price matrix aligned in one
+    // comparison table, with every displayed price adjusted by its group ratio.
+    const { billingExpr: v2BaseExpr } = splitBillingExprAndRequestRules(
+      props.model.billing_expr || "",
+    );
+    if (isV2Expression(v2BaseExpr)) {
+      return (
+        <section>
+          <SectionTitle>{t("Pricing by Group")}</SectionTitle>
+          <AutoGroupChain
+            groups={availableGroups}
+            autoGroups={props.autoGroups}
+          />
+          <div className="overflow-hidden rounded-lg border">
+            <Table className="min-w-[720px] table-fixed">
+              <TableHeader>
+                <TableRow className="bg-muted/20 hover:bg-muted/20">
+                  <TableHead className="w-[22%] px-4 py-2.5">
+                    {t("Group")}
+                  </TableHead>
+                  <TableHead className="w-[24%] px-4 py-2.5">
+                    {t("Pricing Type")}
+                  </TableHead>
+                  <TableHead className="px-0 py-2.5">{t("Price")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {availableGroups.map((group) => {
+                  const ratio = props.groupRatio[group] ?? 1;
+                  return (
+                    <TableRow key={group} className="hover:bg-transparent">
+                      <TableCell className="px-4 py-4 align-top">
+                        <GroupBadge group={group} size="sm" />
+                      </TableCell>
+                      <TableCell className="px-4 py-4 align-top">
+                        <Badge
+                          variant="secondary"
+                          className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
+                        >
+                          {t("Dynamic Pricing")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="p-0 align-top whitespace-normal">
+                        <V2PricingBreakdown
+                          billingExpr={v2BaseExpr}
+                          groupRatioMultiplier={ratio}
+                          compact
+                          embedded
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
+      );
+    }
+
     const dynamicTiers = getDynamicPricingTiers(props.model);
 
     if (dynamicTiers.length === 0) {
@@ -1352,9 +1416,18 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
             />
-            {isDynamic && (
-              <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
-            )}
+            {isDynamic &&
+              !isV2Expression(
+                splitBillingExprAndRequestRules(props.model.billing_expr || "")
+                  .billingExpr,
+              ) && (
+                <DynamicPricingBreakdown
+                  billingExpr={props.model.billing_expr}
+                  groupRatioMultiplier={getDynamicDisplayGroupRatio(
+                    props.model,
+                  )}
+                />
+              )}
 
             <GroupPricingSection
               model={props.model}

@@ -43,6 +43,8 @@ import {
   type RequestRuleGroup,
   type TierCondition,
 } from '../lib/billing-expr'
+import { isV2Expression } from '../lib/tier-expr-v2'
+import { V2PricingBreakdown } from './v2-pricing-breakdown'
 
 type DynamicPricingBreakdownProps = {
   billingExpr: string | null | undefined
@@ -52,6 +54,7 @@ type DynamicPricingBreakdownProps = {
    * the usage-log details dialog to show which tier the engine selected.
    */
   matchedTierLabel?: string | null
+  matchedParams?: Readonly<Record<string, unknown>> | null
   /**
    * Hide cache-pricing columns regardless of the per-tier values. The log
    * details dialog passes this when the actual request did not consume any
@@ -64,6 +67,14 @@ type DynamicPricingBreakdownProps = {
    * icon header and uses the dialog's small text sizes. Defaults to false.
    */
   compact?: boolean
+  /**
+   * Multiplier applied to displayed prices (v2 matrix cells, formula terms).
+   * Callers pass the current viewing group's ratio so the marketplace shows
+   * group-adjusted prices instead of raw base prices. Defaults to 1.
+   * Currently threaded through to V2PricingBreakdown; the v1 tier table still
+   * displays base prices — extend there when per-group v1 display is needed.
+   */
+  groupRatioMultiplier?: number
 }
 
 const VAR_LABELS: Record<string, string> = {
@@ -156,8 +167,10 @@ function describeGroup(
 export function DynamicPricingBreakdown({
   billingExpr,
   matchedTierLabel,
+  matchedParams,
   hideCacheColumns = false,
   compact = false,
+  groupRatioMultiplier = 1,
 }: DynamicPricingBreakdownProps) {
   const { t } = useTranslation()
   const expr = billingExpr || ''
@@ -185,6 +198,33 @@ export function DynamicPricingBreakdown({
       ruleGroups: parsedRules || [],
     }
   }, [expr])
+
+  // v2 expressions have a different variable set (resolution / has_video /
+  // seconds / n / …) and pricing shape (flat/per_second/per_n/per_mtok) than
+  // v1's per-token (p/c/cr/cc/…). Route them to a dedicated renderer so the
+  // marketplace shows the correct dimensions and units, including matrix
+  // layout when the expression was authored via the matrix builder.
+  if (isV2Expression(expr)) {
+    const { billingExpr: baseExpr } = splitBillingExprAndRequestRules(expr)
+    return (
+      <>
+        <V2PricingBreakdown
+          billingExpr={baseExpr}
+          matchedTierLabel={matchedTierLabel ?? null}
+          matchedParams={matchedParams ?? null}
+          compact={compact}
+          groupRatioMultiplier={groupRatioMultiplier}
+        />
+        {ruleGroups.length > 0 && (
+          <ConditionalMultipliersBlock
+            groups={ruleGroups}
+            compact={compact}
+            t={t}
+          />
+        )}
+      </>
+    )
+  }
 
   const hasTiers = tiers.length > 0
   const hasRules = ruleGroups.length > 0
@@ -260,7 +300,7 @@ export function DynamicPricingBreakdown({
             {t('Tiered price table')}
           </div>
           <div className='space-y-1.5 sm:hidden'>
-            {tiers.map((tier, i) => {
+            {tiers.map((tier) => {
               const condSummary = formatConditionSummary(tier.conditions, t)
               const isMatched =
                 matchedTierLabel != null &&
@@ -268,7 +308,7 @@ export function DynamicPricingBreakdown({
                 tier.label === matchedTierLabel
               return (
                 <div
-                  key={`tier-mobile-${i}`}
+                  key={`tier-mobile-${tier.label}-${JSON.stringify(tier.conditions)}`}
                   className={cn(
                     'rounded-md border p-2',
                     isMatched && 'border-emerald-500/40 bg-emerald-500/10'
@@ -414,41 +454,62 @@ export function DynamicPricingBreakdown({
       )}
 
       {hasRules && (
-        <div>
-          <div
-            className={
-              compact
-                ? 'text-muted-foreground mb-1.5 text-xs font-medium'
-                : 'text-foreground mb-2 text-sm font-semibold'
-            }
-          >
-            {t('Conditional multipliers')}
-          </div>
-          <ul className='space-y-1.5'>
-            {ruleGroups.map((group, gi) => (
-              <li
-                key={`group-${gi}`}
-                className='bg-muted/50 flex items-center justify-between gap-3 rounded-md px-3 py-2'
-              >
-                <span
-                  className={cn(
-                    'text-foreground break-all',
-                    compact ? 'text-xs' : 'text-sm'
-                  )}
-                >
-                  {describeGroup(group, t)}
-                </span>
-                <Badge
-                  variant='secondary'
-                  className='shrink-0 bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300'
-                >
-                  {group.multiplier}x
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ConditionalMultipliersBlock
+          groups={ruleGroups}
+          compact={compact}
+          t={t}
+        />
       )}
     </section>
+  )
+}
+
+// Extracted so the v2 breakdown can reuse the same request-rule renderer
+// without duplicating markup or copy-pasting the badge styling.
+export function ConditionalMultipliersBlock({
+  groups,
+  compact,
+  t,
+}: {
+  groups: RequestRuleGroup[]
+  compact: boolean
+  t: (key: string) => string
+}) {
+  if (groups.length === 0) return null
+  return (
+    <div>
+      <div
+        className={
+          compact
+            ? 'text-muted-foreground mb-1.5 text-xs font-medium'
+            : 'text-foreground mb-2 text-sm font-semibold'
+        }
+      >
+        {t('Conditional multipliers')}
+      </div>
+      <ul className='space-y-1.5'>
+        {groups.map((group) => (
+          <li
+            key={JSON.stringify(group)}
+            className='bg-muted/50 flex items-center justify-between gap-3 rounded-md px-3 py-2'
+          >
+            <span
+              className={cn(
+                'text-foreground break-all',
+                compact ? 'text-xs' : 'text-sm'
+              )}
+            >
+              {describeGroup(group, t)}
+            </span>
+            <Badge
+              variant='secondary'
+              className='shrink-0 bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300'
+            >
+              {group.multiplier}x
+            </Badge>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

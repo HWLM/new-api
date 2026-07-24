@@ -108,11 +108,27 @@ export interface ChannelOtherSettings {
   upstream_model_update_last_detected_models?: string[]
   advanced_custom?: AdvancedCustomConfig
   /**
-   * 素材上传/查询专用的上游 base URL。仅对 SD Real Max（type 81）系列渠道生效：
+   * 素材上传/查询专用的上游 base URL。仅对 Byteplus（type 81）系列渠道生效：
    *  - 空：素材接口沿用渠道主 base URL（reseller 同域提供素材接口的场景）
    *  - 非空：素材接口打到该地址，例如直连 wetoken 时配置为 https://asset.wetoken.ai
    */
   asset_base_url?: string
+  seedance_v3_routes?: SeedanceV3Routes
+}
+
+export type SeedanceV3RouteMethod = 'GET' | 'POST' | 'PUT' | 'PATCH'
+
+export interface SeedanceV3Route {
+  method?: SeedanceV3RouteMethod
+  target?: string
+  parameters?: Record<string, unknown>
+  response_mapping?: Record<string, unknown>
+}
+
+export interface SeedanceV3Routes {
+  asset_create?: SeedanceV3Route
+  task_create?: SeedanceV3Route
+  task_get?: SeedanceV3Route
 }
 
 export interface AdvancedCustomConfig {

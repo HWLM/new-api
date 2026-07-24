@@ -31,8 +31,8 @@ type videoPriceKey struct {
 // 其中零值键 {480p/720p, 不含视频} 为基准价，等于管理员应配置的 ModelRatio；
 // 计费时取 实际单价/基准价 作为 OtherRatio。
 //
-// dreamina-seedance-2-0-hc（sdrealmax 渠道 81）在计费时复用 doubao-seedance-2-0
-// 的三档价格表——sdrealmax adapter 直接以 "doubao-seedance-2-0" 为 key 调
+// dreamina-seedance-2-0-hc（Byteplus 渠道 81）在计费时复用 doubao-seedance-2-0
+// 的三档价格表——Byteplus adapter 直接以 "doubao-seedance-2-0" 为 key 调
 // GetVideoInputRatio，价格表本身不为 hc 单独复制一份条目。
 var videoPriceTable = map[string]map[videoPriceKey]float64{
 	"doubao-seedance-2-0-260128": {

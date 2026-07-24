@@ -530,15 +530,30 @@ function unwrapOuterParens(expr: string): string {
   return current
 }
 
+// extractVersionPrefix pulls a leading `v1:` / `v2:` / `v<N>:` tag off the
+// expression so combine/split can operate on the body only. The backend's
+// ParseExprVersion only recognizes the prefix at position 0 of the whole
+// string — if a v2 base gets wrapped as `(v2:tier(...)) * rules`, the prefix
+// ends up inside parens and the engine silently treats the whole expression
+// as v1 (which for a task model produces 0 quota).
+function extractVersionPrefix(expr: string): { prefix: string; body: string } {
+  const trimmed = (expr || '').trim()
+  const match = trimmed.match(/^(v\d+:)([\s\S]*)$/)
+  if (match) return { prefix: match[1], body: match[2].trim() }
+  return { prefix: '', body: trimmed }
+}
+
 export function splitBillingExprAndRequestRules(expr: string): {
   billingExpr: string
   requestRuleExpr: string
 } {
-  const trimmed = (expr || '').trim()
-  if (!trimmed) return { billingExpr: '', requestRuleExpr: '' }
+  const rawTrimmed = (expr || '').trim()
+  if (!rawTrimmed) return { billingExpr: '', requestRuleExpr: '' }
 
-  const parts = splitTopLevelMultiply(trimmed)
-  if (parts.length <= 1) return { billingExpr: trimmed, requestRuleExpr: '' }
+  const { prefix, body } = extractVersionPrefix(rawTrimmed)
+
+  const parts = splitTopLevelMultiply(body)
+  if (parts.length <= 1) return { billingExpr: rawTrimmed, requestRuleExpr: '' }
 
   const ruleParts: string[] = []
   const baseParts: string[] = []
@@ -553,11 +568,11 @@ export function splitBillingExprAndRequestRules(expr: string): {
   })
 
   if (ruleParts.length === 0 || baseParts.length !== 1) {
-    return { billingExpr: trimmed, requestRuleExpr: '' }
+    return { billingExpr: rawTrimmed, requestRuleExpr: '' }
   }
 
   return {
-    billingExpr: unwrapOuterParens(baseParts[0]),
+    billingExpr: prefix + unwrapOuterParens(baseParts[0]),
     requestRuleExpr: ruleParts.join(' * '),
   }
 }
@@ -570,7 +585,10 @@ export function combineBillingExpr(
   const rules = (requestRuleExpr || '').trim()
   if (!base) return ''
   if (!rules) return base
-  return `(${base}) * ${rules}`
+  // Hoist any version prefix outside the parens so the backend still parses
+  // the version tag at position 0 (see extractVersionPrefix above).
+  const { prefix, body } = extractVersionPrefix(base)
+  return `${prefix}(${body}) * ${rules}`
 }
 
 // ---------------------------------------------------------------------------

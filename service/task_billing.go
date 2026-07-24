@@ -9,6 +9,8 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -22,6 +24,13 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	// 支持任务仅按次计费
 	if common.StringsContains(constant.TaskPricePatches, info.OriginModelName) {
 		logContent = fmt.Sprintf("%s，按次计费", logContent)
+	} else if info.TieredBillingSnapshot != nil {
+		// tiered_expr 视频/任务：日志内容标注命中的分档，便于运维排障
+		if tier := info.TieredBillingSnapshot.EstimatedTier; tier != "" {
+			logContent = fmt.Sprintf("%s，tiered_expr(%s)", logContent, tier)
+		} else {
+			logContent = fmt.Sprintf("%s，tiered_expr", logContent)
+		}
 	} else {
 		if len(info.PriceData.OtherRatios) > 0 {
 			var contents []string
@@ -51,6 +60,20 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
 	attachQuotaSaturation(c, info, other)
+	// tiered_expr 视频/任务：把 billing_mode + expr_b64 + estimated_tier 注入日志
+	// other，前端 usage-logs 页面即可复用与 chat tiered 相同的展示组件。
+	InjectTieredBillingInfo(other, info, nil)
+	if snap := info.TieredBillingSnapshot; snap != nil && snap.ExprVersion == 2 {
+		req, _ := relaycommon.GetTaskRequest(c)
+		var body []byte
+		if info.BillingRequestInput != nil {
+			body = info.BillingRequestInput.Body
+		}
+		vars := taskcommon.ExtractTaskExprVars(req, info, body)
+		if matchedParams := taskExprMatchedParams(&vars, snap.ExprString); len(matchedParams) > 0 {
+			other["matched_params"] = matchedParams
+		}
+	}
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
 		ModelName: info.OriginModelName,
@@ -68,6 +91,11 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 // ---------------------------------------------------------------------------
 // 异步任务计费辅助函数
 // ---------------------------------------------------------------------------
+
+type TaskBillingUsage struct {
+	TotalTokens      int
+	CompletionTokens int
+}
 
 // resolveTokenKey 通过 TokenId 运行时获取令牌 Key（用于 Redis 缓存操作）。
 // 如果令牌已被删除或查询失败，返回空字符串。
@@ -131,6 +159,13 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 				other[k] = v
 			}
 		}
+		// tiered_expr 结算/退款日志复用同一套 billing_mode + expr_b64 展示
+		if bc.TieredSnapshot != nil {
+			InjectTieredBillingInfoFromSnapshot(other, bc.TieredSnapshot, nil)
+			if matchedParams := taskExprMatchedParams(bc.TieredExprVars, bc.TieredSnapshot.ExprString); len(matchedParams) > 0 {
+				other["matched_params"] = matchedParams
+			}
+		}
 	}
 	props := task.Properties
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
@@ -138,6 +173,39 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		other["upstream_model_name"] = props.UpstreamModelName
 	}
 	return other
+}
+
+// taskExprMatchedParams records the normalized v2 variables that the billing
+// expression actually references. Boolean false and numeric zero are retained
+// because they can select a distinct pricing tier.
+func taskExprMatchedParams(vars *model.TaskExprVars, expr string) map[string]interface{} {
+	if vars == nil {
+		return nil
+	}
+	usedVars := billingexpr.UsedVars(expr)
+	params := make(map[string]interface{})
+	if usedVars["seconds"] {
+		params["seconds"] = vars.Seconds
+	}
+	if usedVars["resolution"] {
+		params["resolution"] = vars.Resolution
+	}
+	if usedVars["size"] {
+		params["size"] = vars.Size
+	}
+	if usedVars["has_video"] {
+		params["has_video"] = vars.HasVideo
+	}
+	if usedVars["has_image"] {
+		params["has_image"] = vars.HasImage
+	}
+	if usedVars["n"] {
+		params["n"] = vars.N
+	}
+	if usedVars["mode"] {
+		params["mode"] = vars.Mode
+	}
+	return params
 }
 
 // taskModelName 从 BillingContext 或 Properties 中获取模型名称。
@@ -187,6 +255,15 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
 func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
+	recalculateTaskQuota(ctx, task, actualQuota, reason, nil, clamps...)
+}
+
+// RecalculateTaskQuotaWithUsage 在差额结算日志中额外记录上游返回的 token 用量。
+func RecalculateTaskQuotaWithUsage(ctx context.Context, task *model.Task, actualQuota int, reason string, usage TaskBillingUsage, clamps ...*common.QuotaClamp) {
+	recalculateTaskQuota(ctx, task, actualQuota, reason, &usage, clamps...)
+}
+
+func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, usage *TaskBillingUsage, clamps ...*common.QuotaClamp) {
 	if actualQuota <= 0 {
 		return
 	}
@@ -236,6 +313,14 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	other["task_id"] = task.TaskID
 	other["pre_consumed_quota"] = preConsumedQuota
 	other["actual_quota"] = actualQuota
+	if usage != nil {
+		if usage.TotalTokens > 0 {
+			other["task_total_tokens"] = usage.TotalTokens
+		}
+		if usage.CompletionTokens > 0 {
+			other["task_completion_tokens"] = usage.CompletionTokens
+		}
+	}
 	for _, clamp := range clamps {
 		attachQuotaSaturationToOther(other, clamp)
 	}
@@ -306,5 +391,5 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
-	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+	RecalculateTaskQuotaWithUsage(ctx, task, actualQuota, reason, TaskBillingUsage{TotalTokens: totalTokens}, clamp)
 }

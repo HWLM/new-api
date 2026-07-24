@@ -103,7 +103,7 @@ func TestValidateRequestBoundsAndMediaRules(t *testing.T) {
 
 // TestDoRequestForwardsImageURLsWithoutUploading 覆盖“网关不再自动上传素材”的核心不变式：
 // 无论 content 里传的是公网 HTTPS URL 还是 asset://，DoRequest 都应把 body 原样发给
-// /v1/video/generate；SD Real Max 素材接口 /v1/sd/assets 绝不能被调用。
+// /v1/video/generate；Byteplus 素材接口 /v1/sd/assets 绝不能被调用。
 func TestDoRequestForwardsImageURLsWithoutUploading(t *testing.T) {
 	service.InitHttpClient()
 	var assetCalls, videoCalls atomic.Int32
@@ -471,5 +471,50 @@ func TestFetchTaskUsesDocumentedEndpointAndBearerKey(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, response)
+	_ = response.Body.Close()
+}
+
+func TestCustomSeedanceRoutesOverrideByteplusTaskEndpoints(t *testing.T) {
+	service.InitHttpClient()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPut, r.Method)
+		assert.Equal(t, "/custom/tasks/mvt-1", r.URL.Path)
+		assert.Equal(t, "Bearer upstream-key", r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(`{"result":{"id":"mvt-1","state":"processing"}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	routes := &dto.SeedanceV3Routes{
+		TaskCreate: &dto.SeedanceV3Route{Method: http.MethodPatch, Target: "/custom/create"},
+		TaskGet: &dto.SeedanceV3Route{
+			Method: http.MethodPut,
+			Target: "/custom/tasks/{task_id}",
+			ResponseMapping: map[string]any{
+				"task": map[string]any{
+					"id":     "{result.id}",
+					"status": "{result.state}",
+				},
+				"result": nil,
+			},
+		},
+	}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelBaseUrl:       server.URL,
+		ChannelOtherSettings: dto.ChannelOtherSettings{SeedanceV3Routes: routes},
+		ApiKey:               "upstream-key",
+	}}
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+
+	requestURL, err := adaptor.BuildRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, server.URL+"/custom/create", requestURL)
+
+	response, err := adaptor.FetchTask(server.URL, "upstream-key", map[string]any{"task_id": "mvt-1"}, "")
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	responseBody, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"task":{"id":"mvt-1","status":"processing"}}`, string(responseBody))
 	_ = response.Body.Close()
 }

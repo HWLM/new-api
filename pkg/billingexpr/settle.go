@@ -5,9 +5,16 @@ import "github.com/QuantumNous/new-api/common"
 // quotaConversion converts raw expression output to quota based on the
 // expression version. This is the central dispatch point for future versions
 // that may use a different conversion formula.
+//
+// v1: coefficients are $/1M tokens prices — matches chat / per-token billing.
+// v2: expression output is $ per call — matches per-call task billing where
+//
+//	the expression already integrates seconds / resolution / etc.
 func quotaConversion(exprOutput float64, snap *BillingSnapshot) float64 {
 	switch snap.ExprVersion {
-	default: // v1: coefficients are $/1M tokens prices
+	case 2:
+		return exprOutput * snap.QuotaPerUnit
+	default:
 		return exprOutput / 1_000_000 * snap.QuotaPerUnit
 	}
 }
@@ -23,6 +30,16 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 	if err != nil {
 		return TieredResult{}, err
 	}
+	if snap.FrozenRequestMultiplier != nil && trace.MatchedTier != "" {
+		cost = trace.Cost * *snap.FrozenRequestMultiplier
+	}
+	return ComputeTieredQuotaFromCost(snap, cost, trace), nil
+}
+
+// ComputeTieredQuotaFromCost converts an already-evaluated expression result
+// to quota. It is used by pre-consume after the expression and its frozen
+// request multiplier have each been evaluated once.
+func ComputeTieredQuotaFromCost(snap *BillingSnapshot, cost float64, trace TraceResult) TieredResult {
 
 	quotaBeforeGroup := quotaConversion(cost, snap)
 	afterGroup, clamp := common.QuotaRoundChecked(quotaBeforeGroup * snap.GroupRatio)
@@ -34,5 +51,5 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 		MatchedTier:            trace.MatchedTier,
 		CrossedTier:            crossed,
 		Clamp:                  clamp,
-	}, nil
+	}
 }

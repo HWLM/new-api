@@ -23,6 +23,9 @@ func ParseExprVersion(exprStr string) (version int, body string) {
 	if strings.HasPrefix(exprStr, "v1:") {
 		return 1, exprStr[3:]
 	}
+	if strings.HasPrefix(exprStr, "v2:") {
+		return 2, exprStr[3:]
+	}
 	return DefaultExprVersion, exprStr
 }
 
@@ -39,34 +42,76 @@ var (
 
 // compileEnvPrototypeV1 is the v1 type-checking prototype used at compile time.
 var compileEnvPrototypeV1 = map[string]interface{}{
-	"p":    float64(0),
-	"c":    float64(0),
-	"len":  float64(0),
-	"cr":   float64(0),
-	"cc":   float64(0),
-	"cc1h": float64(0),
-	"img":  float64(0),
+	"p":     float64(0),
+	"c":     float64(0),
+	"len":   float64(0),
+	"cr":    float64(0),
+	"cc":    float64(0),
+	"cc1h":  float64(0),
+	"img":   float64(0),
 	"img_o": float64(0),
-	"ai":   float64(0),
-	"ao":   float64(0),
-	"tier":                   func(string, float64) float64 { return 0 },
-	"header":                 func(string) string { return "" },
-	"param":                  func(string) interface{} { return nil },
-	"has":                    func(interface{}, string) bool { return false },
-	"hour":                   func(string) int { return 0 },
-	"minute":                 func(string) int { return 0 },
-	"weekday":                func(string) int { return 0 },
-	"month":                  func(string) int { return 0 },
-	"day":                    func(string) int { return 0 },
-	"max":                    math.Max,
-	"min":                    math.Min,
-	"abs":                    math.Abs,
-	"ceil":                   math.Ceil,
-	"floor":                  math.Floor,
+	"ai":    float64(0),
+	"ao":    float64(0),
+	"tier":    func(string, float64) float64 { return 0 },
+	"header":  func(string) string { return "" },
+	"param":   func(string) interface{} { return nil },
+	"has":     func(interface{}, string) bool { return false },
+	"hour":    func(string) int { return 0 },
+	"minute":  func(string) int { return 0 },
+	"weekday": func(string) int { return 0 },
+	"month":   func(string) int { return 0 },
+	"day":     func(string) int { return 0 },
+	"max":     math.Max,
+	"min":     math.Min,
+	"abs":     math.Abs,
+	"ceil":    math.Ceil,
+	"floor":   math.Floor,
+}
+
+// compileEnvPrototypeV2 extends v1 with task/video-oriented variables.
+// Token variables (p/c/len/…) are retained so a token-billed task variant
+// (e.g. kling FinalUnitDeduction) can still use them.
+var compileEnvPrototypeV2 = map[string]interface{}{
+	// v1 tokens (kept)
+	"p":     float64(0),
+	"c":     float64(0),
+	"len":   float64(0),
+	"cr":    float64(0),
+	"cc":    float64(0),
+	"cc1h":  float64(0),
+	"img":   float64(0),
+	"img_o": float64(0),
+	"ai":    float64(0),
+	"ao":    float64(0),
+	// v2 task/video first-class variables
+	"seconds":    float64(0),
+	"resolution": "",
+	"size":       "",
+	"has_video":  false,
+	"has_image":  false,
+	"n":          float64(0),
+	"mode":       "",
+	// functions (identical to v1)
+	"tier":    func(string, float64) float64 { return 0 },
+	"header":  func(string) string { return "" },
+	"param":   func(string) interface{} { return nil },
+	"has":     func(interface{}, string) bool { return false },
+	"hour":    func(string) int { return 0 },
+	"minute":  func(string) int { return 0 },
+	"weekday": func(string) int { return 0 },
+	"month":   func(string) int { return 0 },
+	"day":     func(string) int { return 0 },
+	"max":     math.Max,
+	"min":     math.Min,
+	"abs":     math.Abs,
+	"ceil":    math.Ceil,
+	"floor":   math.Floor,
 }
 
 func getCompileEnv(version int) map[string]interface{} {
 	switch version {
+	case 2:
+		return compileEnvPrototypeV2
 	default:
 		return compileEnvPrototypeV1
 	}

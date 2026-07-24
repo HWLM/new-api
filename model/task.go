@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 )
 
@@ -106,6 +107,9 @@ type TaskPrivateData struct {
 	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
 	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
 	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	// SeedanceV3TaskGetRoute freezes an opt-in custom polling endpoint at
+	// submission time. Existing tasks and channels without custom routes remain nil.
+	SeedanceV3TaskGetRoute *dto.SeedanceV3Route `json:"seedance_v3_task_get_route,omitempty"`
 }
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
@@ -117,6 +121,27 @@ type TaskBillingContext struct {
 	OriginModelName string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
 	PerCallBilling  bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
 	HasVideoInput   bool               `json:"has_video_input,omitempty"`   // 请求 content 是否含 video_url；供 AdjustBillingRatiosOnComplete 用实际 resolution 重查价格表
+
+	// tiered_expr (v2) 快照 —— 仅当模型 BillingMode = tiered_expr 时填充。
+	// 结算阶段用这些字段重跑表达式，把上游返回的实际 resolution/duration/tokens
+	// 覆盖到 TieredExprVars 后调用 billingexpr.ComputeTieredQuotaWithRequest。
+	TieredSnapshot *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+	TieredExprVars *TaskExprVars                `json:"tiered_expr_vars,omitempty"`
+	RequestBody    []byte                       `json:"request_body,omitempty"` // 原始请求 JSON，供 param() 回读
+}
+
+// TaskExprVars 是 tiered_expr v2 视频/任务分支的一等公民变量集合。
+// 从 TaskSubmitReq 规范化提取（extract 逻辑放在 relay/channel/task/taskcommon 中，
+// 因其依赖 relay 层类型；type 定义放在 model 是为了让 TaskBillingContext 能直接
+// 持有该结构而不引入 model → taskcommon 的反向依赖）。
+type TaskExprVars struct {
+	Seconds    float64 `json:"seconds,omitempty"`
+	Resolution string  `json:"resolution,omitempty"`
+	Size       string  `json:"size,omitempty"`
+	HasVideo   bool    `json:"has_video,omitempty"`
+	HasImage   bool    `json:"has_image,omitempty"`
+	N          float64 `json:"n,omitempty"`
+	Mode       string  `json:"mode,omitempty"`
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）

@@ -49,11 +49,118 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
-	// AssetBaseUrl 素材上传/查询专用的上游 base URL。仅对 SD Real Max（type 81）系列渠道生效：
+	// AssetBaseUrl 素材上传/查询专用的上游 base URL。仅对 Byteplus（type 81）系列渠道生效：
 	// - 空：素材接口沿用渠道主 base URL（reseller 同域提供素材接口的场景）。
 	// - 非空：素材接口打到该地址，例如直连 wetoken 时配置为 https://asset.wetoken.ai，
 	//   而主 base URL 仍为 https://www.wetoken.ai。
 	AssetBaseUrl string `json:"asset_base_url,omitempty"`
+	// SeedanceV3Routes optionally overrides the three upstream HTTP routes used
+	// by the public Seedance V3 API. A nil config keeps every existing adaptor
+	// default unchanged.
+	SeedanceV3Routes *SeedanceV3Routes `json:"seedance_v3_routes,omitempty"`
+}
+
+type SeedanceV3Routes struct {
+	AssetCreate *SeedanceV3Route `json:"asset_create,omitempty"`
+	TaskCreate  *SeedanceV3Route `json:"task_create,omitempty"`
+	TaskGet     *SeedanceV3Route `json:"task_get,omitempty"`
+}
+
+type SeedanceV3Route struct {
+	Method          string         `json:"method,omitempty"`
+	Target          string         `json:"target,omitempty"`
+	Parameters      map[string]any `json:"parameters,omitempty"`
+	ResponseMapping map[string]any `json:"response_mapping,omitempty"`
+}
+
+func (r *SeedanceV3Route) IsConfigured() bool {
+	return r != nil && strings.TrimSpace(r.Target) != ""
+}
+
+func (c *SeedanceV3Routes) Validate() error {
+	if c == nil {
+		return nil
+	}
+	routes := []struct {
+		name  string
+		route *SeedanceV3Route
+	}{
+		{name: "asset_create", route: c.AssetCreate},
+		{name: "task_create", route: c.TaskCreate},
+		{name: "task_get", route: c.TaskGet},
+	}
+	for _, item := range routes {
+		if item.route == nil {
+			continue
+		}
+		target := strings.TrimSpace(item.route.Target)
+		method := strings.ToUpper(strings.TrimSpace(item.route.Method))
+		if target == "" {
+			return fmt.Errorf("seedance_v3_routes.%s.target is required", item.name)
+		}
+		if !IsSeedanceV3RouteMethodAllowed(method) {
+			return fmt.Errorf("seedance_v3_routes.%s.method is invalid: %s", item.name, item.route.Method)
+		}
+		if err := validateSeedanceV3Target(item.name, target); err != nil {
+			return err
+		}
+		if item.name == "task_get" && (method == "" || method == "GET") &&
+			!strings.Contains(target, "{task_id}") && !seedanceV3ParametersContainTaskID(item.route.Parameters) {
+			return fmt.Errorf("seedance_v3_routes.task_get target or parameters must contain {task_id} for GET")
+		}
+	}
+	return nil
+}
+
+func seedanceV3ParametersContainTaskID(parameters map[string]any) bool {
+	for _, value := range parameters {
+		if seedanceV3ParameterContainsTaskID(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func seedanceV3ParameterContainsTaskID(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.Contains(typed, "{task_id}")
+	case map[string]any:
+		return seedanceV3ParametersContainTaskID(typed)
+	case []any:
+		for _, item := range typed {
+			if seedanceV3ParameterContainsTaskID(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func IsSeedanceV3RouteMethodAllowed(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case "", "GET", "POST", "PUT", "PATCH":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateSeedanceV3Target(name, target string) error {
+	if strings.HasPrefix(target, "/") {
+		if strings.HasPrefix(target, "//") {
+			return fmt.Errorf("seedance_v3_routes.%s.target must be a full URL or a path starting with /", name)
+		}
+		return nil
+	}
+	parsedURL, err := url.Parse(strings.ReplaceAll(target, "{task_id}", "task-id"))
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return fmt.Errorf("seedance_v3_routes.%s.target must be a full URL or a path starting with /", name)
+	}
+	if !strings.EqualFold(parsedURL.Scheme, "http") && !strings.EqualFold(parsedURL.Scheme, "https") {
+		return fmt.Errorf("seedance_v3_routes.%s.target must use http or https", name)
+	}
+	return nil
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

@@ -170,11 +170,20 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	for key, values := range resp.Header {
+		// 跳过 Content-Disposition：上游多以 attachment 返回，会导致浏览器
+		// 下载而不是内联预览；下面统一覆盖为 inline。
+		if strings.EqualFold(key, "Content-Disposition") {
+			continue
+		}
 		for _, value := range values {
 			c.Writer.Header().Add(key, value)
 		}
 	}
 
+	c.Writer.Header().Set("Content-Disposition", "inline")
+	if ct := c.Writer.Header().Get("Content-Type"); ct == "" || strings.HasPrefix(strings.ToLower(ct), "application/octet-stream") {
+		c.Writer.Header().Set("Content-Type", "video/mp4")
+	}
 	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
 	c.Writer.WriteHeader(resp.StatusCode)
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {

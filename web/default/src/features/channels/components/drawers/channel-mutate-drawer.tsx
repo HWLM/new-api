@@ -175,6 +175,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
+import { SeedanceRouteFields } from '../seedance-route-fields'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -2643,32 +2644,10 @@ export function ChannelMutateDrawer({
                               />
                             )}
 
-                            {/* SD Real Max (type 81): optional asset endpoint override */}
-                            {currentType === 81 && (
-                              <FormField
-                                control={form.control}
-                                name='asset_base_url'
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>
-                                      {t('Asset Base URL')}
-                                    </FormLabel>
-                                    <FormControl>
-                                      <Input
-                                        placeholder={t(
-                                          'e.g., https://asset.wetoken.ai'
-                                        )}
-                                        {...field}
-                                      />
-                                    </FormControl>
-                                    <FormDescription>
-                                      {t(
-                                        'Optional. Base URL for /v3/open/CreateAsset and /v3/open/GetAsset. Empty means fall back to the main Base URL (reseller scenario).'
-                                      )}
-                                    </FormDescription>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
+                            {[54, 81].includes(currentType) && (
+                              <SeedanceRouteFields
+                                form={form}
+                                channelType={currentType}
                               />
                             )}
 

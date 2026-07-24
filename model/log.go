@@ -102,6 +102,7 @@ const (
 	LogTypeError   = 5
 	LogTypeRefund  = 6
 	LogTypeLogin   = 7
+	LogTypeAsset   = 8
 )
 
 // OperationType 子类型标记：用于在 LogTypeManage 等大类下进一步区分具体业务动作。
@@ -552,6 +553,44 @@ type RecordConsumeLogParams struct {
 	IsStream         bool                   `json:"is_stream"`
 	Group            string                 `json:"group"`
 	Other            map[string]interface{} `json:"other"`
+}
+
+type RecordAssetLogParams struct {
+	ChannelId      int
+	ModelName      string
+	TokenName      string
+	Content        string
+	TokenId        int
+	UseTimeSeconds int
+	Group          string
+	Other          map[string]interface{}
+}
+
+// RecordAssetLog records a non-billing material upload result in common logs.
+func RecordAssetLog(c *gin.Context, userId int, params RecordAssetLogParams) {
+	if LOG_DB == nil {
+		logger.LogError(c, "failed to record asset log: log database is not initialized")
+		return
+	}
+	log := &Log{
+		UserId:            userId,
+		Username:          c.GetString("username"),
+		CreatedAt:         common.GetTimestamp(),
+		Type:              LogTypeAsset,
+		Content:           params.Content,
+		TokenName:         params.TokenName,
+		ModelName:         params.ModelName,
+		ChannelId:         params.ChannelId,
+		TokenId:           params.TokenId,
+		UseTime:           params.UseTimeSeconds,
+		Group:             params.Group,
+		RequestId:         c.GetString(common.RequestIdKey),
+		UpstreamRequestId: c.GetString(common.UpstreamRequestIdKey),
+		Other:             common.MapToJsonStr(params.Other),
+	}
+	if err := createLog(log); err != nil {
+		logger.LogError(c, "failed to record asset log: "+err.Error())
+	}
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {

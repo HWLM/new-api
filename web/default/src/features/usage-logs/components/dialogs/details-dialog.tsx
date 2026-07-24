@@ -40,7 +40,12 @@ import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatNumber,
+  formatTokens,
+  formatUseTime,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { UsageLog } from '../../data/schema'
@@ -57,6 +62,7 @@ import {
   renderAuditContent,
 } from '../../lib/format'
 import {
+  isDisplayableLogType,
   getLogTypeConfig,
   isPerCallBilling,
   isTimingLogType,
@@ -163,6 +169,8 @@ function BillingBreakdown(props: {
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
   const tieredSummary = getTieredBillingSummary(other)
+  const isTaskRecalculation =
+    other.pre_consumed_quota != null && other.actual_quota != null
 
   const rows: Array<{ label: string; value: string }> = []
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
@@ -317,6 +325,37 @@ function BillingBreakdown(props: {
     })
   }
 
+  if (other.task_total_tokens != null) {
+    rows.push({
+      label: t('Total Tokens'),
+      value: formatTokens(other.task_total_tokens),
+    })
+  }
+  if (other.task_completion_tokens != null) {
+    rows.push({
+      label: t('Output Tokens'),
+      value: formatNumber(other.task_completion_tokens),
+    })
+  }
+  if (isTaskRecalculation) {
+    rows.push(
+      {
+        label: t('Pre-consumed'),
+        value: formatLogQuota(other.pre_consumed_quota ?? 0),
+      },
+      {
+        label: t('Total Cost'),
+        value: formatLogQuota(other.actual_quota ?? 0),
+      },
+      {
+        label: t('Difference'),
+        value: formatLogQuota(
+          (other.actual_quota ?? 0) - (other.pre_consumed_quota ?? 0)
+        ),
+      }
+    )
+  }
+
   if (isAdmin && other.admin_info) {
     rows.push({
       label: t('Billing Source'),
@@ -326,17 +365,24 @@ function BillingBreakdown(props: {
     })
   }
 
-  rows.push({
-    label: t('Total Cost'),
-    value: formatLogQuota(log.quota),
-  })
+  if (!isTaskRecalculation) {
+    rows.push({
+      label: t('Total Cost'),
+      value: formatLogQuota(log.quota),
+    })
+  }
 
   if (rows.length === 0) return null
 
   return (
     <DetailSection label={t('Billing Details')}>
-      {rows.map((row, idx) => (
-        <DetailRow key={idx} label={row.label} value={row.value} mono />
+      {rows.map((row) => (
+        <DetailRow
+          key={`${row.label}-${row.value}`}
+          label={row.label}
+          value={row.value}
+          mono
+        />
       ))}
     </DetailSection>
   )
@@ -401,8 +447,13 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
 
   return (
     <DetailSection label={t('Token Breakdown')}>
-      {rows.map((row, idx) => (
-        <DetailRow key={idx} label={row.label} value={row.value} mono />
+      {rows.map((row) => (
+        <DetailRow
+          key={`${row.label}-${row.value}`}
+          label={row.label}
+          value={row.value}
+          mono
+        />
       ))}
     </DetailSection>
   )
@@ -428,8 +479,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
   const isSubscription = other?.billing_source === 'subscription'
+  const isTaskRecalculation =
+    other?.pre_consumed_quota != null && other.actual_quota != null
   const isTieredBilling =
-    isConsume &&
+    (isConsume || isTaskRecalculation) &&
     !isViolation &&
     other?.billing_mode === 'tiered_expr' &&
     !!other?.expr_b64
@@ -543,6 +596,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
     useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+  let reasoningVariant: 'orange' | 'yellow' | 'green' = 'green'
+  if (other?.reasoning_effort === 'high') reasoningVariant = 'orange'
+  if (other?.reasoning_effort === 'medium') reasoningVariant = 'yellow'
 
   return (
     <Dialog
@@ -805,9 +861,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
             icon={<ShieldCheck className='size-3.5' aria-hidden='true' />}
             label={t('Top-up Audit Info')}
           >
-            {topupAuditFields.map((field, idx) => (
+            {topupAuditFields.map((field) => (
               <DetailRow
-                key={idx}
+                key={`${field.label}-${field.value}`}
                 label={field.label}
                 value={field.value}
                 mono
@@ -894,9 +950,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
             {operationText != null && (
               <DetailRow label={t('Operation')} value={operationText} />
             )}
-            {loginAuditFields.map((field, idx) => (
+            {loginAuditFields.map((field) => (
               <DetailRow
-                key={idx}
+                key={`${field.label}-${field.value}`}
                 label={field.label}
                 value={field.value}
                 mono
@@ -949,13 +1005,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             value={
               <StatusBadge
                 label={other.reasoning_effort}
-                variant={
-                  other.reasoning_effort === 'high'
-                    ? 'orange'
-                    : other.reasoning_effort === 'medium'
-                      ? 'yellow'
-                      : 'green'
-                }
+                variant={reasoningVariant}
                 size='sm'
                 copyable={false}
               />
@@ -995,12 +1045,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Token breakdown (for consume/error types with token data) */}
-        {isDisplayableType(props.log.type) && other && (
+        {isDisplayableLogType(props.log.type) && other && (
           <TokenBreakdown log={props.log} other={other} />
         )}
 
         {/* Billing breakdown (consume type) */}
-        {isConsume && other && !isViolation && (
+        {(isConsume || isTaskRecalculation) && other && !isViolation && (
           <BillingBreakdown
             log={props.log}
             other={other}
@@ -1015,6 +1065,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
               compact
               billingExpr={decodeBillingExprB64(other.expr_b64)}
               matchedTierLabel={other.matched_tier}
+              matchedParams={other.matched_params}
               hideCacheColumns={!hasAnyCacheTokens(other)}
             />
           </DetailSection>
@@ -1141,12 +1192,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
             icon={<Settings2 className='size-3.5' aria-hidden='true' />}
             label={`${t('Param Override')} (${other.po.length})`}
           >
-            {other.po.filter(Boolean).map((line, idx) => {
+            {other.po.filter(Boolean).map((line) => {
               const parsed = parseAuditLine(line)
               if (!parsed) return null
               return (
                 <div
-                  key={idx}
+                  key={line}
                   className='bg-background/60 flex min-w-0 flex-col gap-1.5 rounded border p-2 sm:flex-row sm:items-start sm:gap-2'
                 >
                   <StatusBadge
@@ -1192,8 +1243,4 @@ export function DetailsDialog(props: DetailsDialogProps) {
       </div>
     </Dialog>
   )
-}
-
-function isDisplayableType(type: number): boolean {
-  return [0, 2, 5, 6].includes(type)
 }

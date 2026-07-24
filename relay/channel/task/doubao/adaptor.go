@@ -106,15 +106,17 @@ type responseTask struct {
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	ChannelType int
-	apiKey      string
-	baseURL     string
+	ChannelType    int
+	apiKey         string
+	baseURL        string
+	seedanceRoutes *dto.SeedanceV3Routes
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.ChannelType = info.ChannelType
 	a.baseURL = info.ChannelBaseUrl
 	a.apiKey = info.ApiKey
+	a.seedanceRoutes = info.ChannelOtherSettings.SeedanceV3Routes
 }
 
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
@@ -125,6 +127,13 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
+	if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
+		route, err := taskcommon.NormalizeSeedanceV3Route(a.baseURL, a.seedanceRoutes.TaskCreate, http.MethodPost)
+		if err != nil {
+			return "", err
+		}
+		return route.Target, nil
+	}
 	return fmt.Sprintf("%s/api/v3/contents/generations/tasks", a.baseURL), nil
 }
 
@@ -323,6 +332,17 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 
 // DoRequest delegates to common helper.
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
+		route, err := taskcommon.NormalizeSeedanceV3Route(a.baseURL, a.seedanceRoutes.TaskCreate, http.MethodPost)
+		if err != nil {
+			return nil, err
+		}
+		requestBody, err = taskcommon.ApplySeedanceV3RouteParameters(requestBody, route)
+		if err != nil {
+			return nil, err
+		}
+		return channel.DoTaskApiRequestWithMethod(a, c, info, requestBody, route.Method)
+	}
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
@@ -334,6 +354,13 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return
 	}
 	_ = resp.Body.Close()
+	if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
+		responseBody, err = taskcommon.ApplySeedanceV3RouteResponseMapping(responseBody, a.seedanceRoutes.TaskCreate)
+		if err != nil {
+			taskErr = service.TaskErrorWrapper(err, "seedance_response_mapping_failed", http.StatusInternalServerError)
+			return
+		}
+	}
 
 	// Parse Doubao response
 	var dResp responsePayload
@@ -371,6 +398,31 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	taskID, ok := body["task_id"].(string)
 	if !ok {
 		return nil, fmt.Errorf("invalid task_id")
+	}
+
+	var customRoute *dto.SeedanceV3Route
+	if frozen, ok := body[taskcommon.SeedanceTaskGetRouteBodyKey].(*dto.SeedanceV3Route); ok && frozen.IsConfigured() {
+		customRoute = frozen
+	} else if a.seedanceRoutes != nil && a.seedanceRoutes.TaskGet.IsConfigured() {
+		customRoute = a.seedanceRoutes.TaskGet
+	}
+	if customRoute != nil {
+		req, err := taskcommon.BuildSeedanceV3TaskGetRequest(baseUrl, customRoute, taskID, key)
+		if err != nil {
+			return nil, err
+		}
+		client, err := service.GetHttpClientWithProxy(proxy)
+		if err != nil {
+			return nil, fmt.Errorf("new proxy http client failed: %w", err)
+		}
+		response, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if err := taskcommon.ApplySeedanceV3RouteHTTPResponseMapping(response, customRoute); err != nil {
+			return nil, err
+		}
+		return response, nil
 	}
 
 	uri := fmt.Sprintf("%s/api/v3/contents/generations/tasks/%s", baseUrl, taskID)

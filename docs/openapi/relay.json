@@ -546,7 +546,7 @@
         ]
       }
     },
-    "/v3/open/CreateAsset": {
+    "/api/v3/open/CreateAsset": {
       "post": {
         "summary": "创建 Seedance V3 素材",
         "description": "将公网媒体注册到模型对应的素材库，并统一返回素材 ID。素材 model 必须与后续视频生成请求一致。",

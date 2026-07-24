@@ -976,6 +976,9 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if err := channelOtherSettings.SeedanceV3Routes.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 

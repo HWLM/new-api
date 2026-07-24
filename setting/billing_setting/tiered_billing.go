@@ -91,14 +91,49 @@ func smokeTestExpr(exprStr string) error {
 		},
 	}
 
+	// v2 (task/video) expressions expect task-shaped variables in addition to
+	// token counts; augment each vector with a representative task payload.
+	if billingexpr.ExprVersion(exprStr) == 2 {
+		taskVariants := []struct {
+			seconds    float64
+			resolution string
+			hasVideo   bool
+			hasImage   bool
+			n          float64
+			mode       string
+		}{
+			{0, "", false, false, 0, ""},
+			{5, "480p", false, false, 1, "std"},
+			{10, "1080p", true, true, 1, "pro"},
+			{60, "4k", false, false, 4, ""},
+		}
+		expanded := make([]billingexpr.TokenParams, 0, len(vectors)*len(taskVariants))
+		for _, base := range vectors {
+			for _, t := range taskVariants {
+				v := base
+				v.Seconds = t.seconds
+				v.Resolution = t.resolution
+				v.HasVideo = t.hasVideo
+				v.HasImage = t.hasImage
+				v.N = t.n
+				v.Mode = t.mode
+				expanded = append(expanded, v)
+			}
+		}
+		vectors = expanded
+		requests = append(requests, billingexpr.RequestInput{
+			Body: []byte(`{"model":"video-x","duration":5,"size":"1920x1080","metadata":{"resolution":"1080p","content":[{"type":"video_url"}]}}`),
+		})
+	}
+
 	for _, v := range vectors {
 		for _, request := range requests {
 			result, _, err := billingexpr.RunExprWithRequest(exprStr, v, request)
 			if err != nil {
-				return fmt.Errorf("vector {p=%g, c=%g}: run failed: %w", v.P, v.C, err)
+				return fmt.Errorf("vector {p=%g, c=%g, sec=%g, res=%q}: run failed: %w", v.P, v.C, v.Seconds, v.Resolution, err)
 			}
 			if result < 0 {
-				return fmt.Errorf("vector {p=%g, c=%g}: result %f < 0", v.P, v.C, result)
+				return fmt.Errorf("vector {p=%g, c=%g, sec=%g, res=%q}: result %f < 0", v.P, v.C, v.Seconds, v.Resolution, result)
 			}
 		}
 	}

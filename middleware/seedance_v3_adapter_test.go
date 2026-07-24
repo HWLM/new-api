@@ -61,6 +61,33 @@ func TestSeedanceV3RequestConvertNormalizesDistributorRequest(t *testing.T) {
 	assert.Equal(t, relayconstant.RelayModeVideoSubmit, context.GetInt("relay_mode"))
 }
 
+func TestSeedanceV3AssetRequestConvertAllowsChannelConfiguredModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, modelName := range []string{
+		dto.SeedanceV3DoubaoVersionedModel,
+		dto.SeedanceV3DoubaoVersionedFast,
+		"custom-seedance-model",
+	} {
+		t.Run(modelName, func(t *testing.T) {
+			body := `{"model":"` + modelName + `","url":"https://example.com/frame.png","name":"frame.png","AssetType":"Image"}`
+			request := httptest.NewRequest(http.MethodPost, "/api/v3/open/CreateAsset", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Request = request
+
+			SeedanceV3AssetRequestConvert()(context)
+
+			require.False(t, context.IsAborted())
+			modelRequest, shouldSelectChannel, err := getModelRequest(context)
+			require.NoError(t, err)
+			require.NotNil(t, modelRequest)
+			assert.True(t, shouldSelectChannel)
+			assert.Equal(t, modelName, modelRequest.Model)
+		})
+	}
+}
+
 func TestSeedanceV3RequestConvertPassesThroughInvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	request := httptest.NewRequest(http.MethodPost, "/api/v3/contents/generations/tasks", strings.NewReader(`{"model":`))
@@ -145,6 +172,46 @@ func TestSeedanceV3RequestConvertPassesThroughNonSeedanceModel(t *testing.T) {
 	audioItem, _ := contentAny[3].(map[string]any)
 	require.NotNil(t, audioItem)
 	assert.Equal(t, "audio_url", audioItem["type"])
+}
+
+func TestSeedanceV3RequestConvertAllowsConfiguredDynamicModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := `{
+		"model":"custom-seedance-model",
+		"content":[
+			{"type":"text","text":"animate"},
+			{"type":"image_url","image_url":{"url":"https://example.com/ref.jpg"}}
+		],
+		"duration":5,
+		"ratio":"16:9",
+		"resolution":"720p"
+	}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v3/contents/generations/tasks", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = request
+
+	SeedanceV3RequestConvert()(context)
+
+	require.False(t, context.IsAborted())
+	_, exists := context.Get(string(constant.ContextKeySeedanceV3Request))
+	assert.False(t, exists)
+
+	modelRequest, shouldSelectChannel, err := getModelRequest(context)
+	require.NoError(t, err)
+	require.NotNil(t, modelRequest)
+	assert.True(t, shouldSelectChannel)
+	assert.Equal(t, "custom-seedance-model", modelRequest.Model)
+
+	var normalized relaycommon.TaskSubmitReq
+	require.NoError(t, common.UnmarshalBodyReusable(context, &normalized))
+	assert.Equal(t, "custom-seedance-model", normalized.Model)
+	assert.Equal(t, "animate", normalized.Prompt)
+	assert.Equal(t, []string{"https://example.com/ref.jpg"}, normalized.Images)
+	assert.Equal(t, 5, normalized.Duration)
+	require.NotNil(t, normalized.Metadata)
+	assert.Equal(t, "720p", normalized.Metadata["resolution"])
 }
 
 func TestSeedanceV3RequestConvertPreservesDoubaoAutomaticDuration(t *testing.T) {
