@@ -283,7 +283,8 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 		Select("id, username, display_name, created_at, quota, used_quota").
 		Where("inviter_id = ?", myUserId)
 	if f.UsernameKeyword != "" {
-		tx = tx.Where("username LIKE ?", "%"+f.UsernameKeyword+"%")
+		like := "%" + f.UsernameKeyword + "%"
+		tx = tx.Where("username LIKE ? OR display_name LIKE ?", like, like)
 	}
 	switch f.RemainingOp {
 	case ">=":
@@ -494,7 +495,8 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 		Select("id, username, display_name").
 		Where("inviter_id = ?", myUserId)
 	if f.UsernameKeyword != "" {
-		tx = tx.Where("username LIKE ?", "%"+f.UsernameKeyword+"%")
+		like := "%" + f.UsernameKeyword + "%"
+		tx = tx.Where("username LIKE ? OR display_name LIKE ?", like, like)
 	}
 	if err := tx.Find(&users).Error; err != nil {
 		return nil, err

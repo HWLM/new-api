@@ -31,6 +31,59 @@ func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm
 	return tx.Where(column+" = ?", value), nil
 }
 
+// applyLogUsernameFilter 与 applyExplicitLogTextFilter 语义一致，只是在精确匹配路径上
+// 额外去 users 表按 display_name 反查，让"输入 username 或显示名称都能查到同一个用户"。
+// logs 表只存了 username 快照，没有 display_name 列，只能通过 users 表反查出对应 username 集合再 IN。
+// 用户显式输入 % 通配符时保持模糊匹配语义不变（display_name 反查在这种高级用法下跳过）。
+func applyLogUsernameFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {
+	if value == "" {
+		return tx, nil
+	}
+	if strings.Contains(value, "%") {
+		condition, pattern, err := buildLogLikeCondition(column, value)
+		if err != nil {
+			return nil, err
+		}
+		return tx.Where(condition, pattern), nil
+	}
+	usernames := resolveLogUsernameCandidates(value)
+	if len(usernames) <= 1 {
+		return tx.Where(column+" = ?", value), nil
+	}
+	return tx.Where(column+" IN ?", usernames), nil
+}
+
+// resolveLogUsernameCandidates 返回一个 username 集合：至少包含入参本身，
+// 若主库 users 表中有 display_name 与之精确相等的其他用户，也把它们的 username 一并加入。
+// 主库查询失败时静默降级为只返回入参本身，不影响日志过滤主流程。
+func resolveLogUsernameCandidates(value string) []string {
+	result := []string{value}
+	if DB == nil {
+		return result
+	}
+	var displayMatched []string
+	if err := DB.Model(&User{}).
+		Where("display_name = ?", value).
+		Pluck("username", &displayMatched).Error; err != nil {
+		return result
+	}
+	if len(displayMatched) == 0 {
+		return result
+	}
+	seen := map[string]struct{}{value: {}}
+	for _, name := range displayMatched {
+		if name == "" {
+			continue
+		}
+		if _, has := seen[name]; has {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result
+}
+
 func buildLogLikeCondition(column string, value string) (string, string, error) {
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		pattern, err := sanitizeClickHouseLikePattern(value)
@@ -715,7 +768,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
 	}
-	if tx, err = applyExplicitLogTextFilter(tx, "logs.username", username); err != nil {
+	if tx, err = applyLogUsernameFilter(tx, "logs.username", username); err != nil {
 		return nil, 0, err
 	}
 	if tokenName != "" {
@@ -827,7 +880,7 @@ func GetUserLogs(userIds []int, logType int, startTimestamp int64, endTimestamp 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
 	}
-	if tx, err = applyExplicitLogTextFilter(tx, "logs.username", username); err != nil {
+	if tx, err = applyLogUsernameFilter(tx, "logs.username", username); err != nil {
 		return nil, 0, err
 	}
 	if tokenName != "" {
@@ -977,10 +1030,10 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 	rpmTpmQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
 		Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
 
-	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
+	if tx, err = applyLogUsernameFilter(tx, "username", username); err != nil {
 		return stat, err
 	}
-	if rpmTpmQuery, err = applyExplicitLogTextFilter(rpmTpmQuery, "username", username); err != nil {
+	if rpmTpmQuery, err = applyLogUsernameFilter(rpmTpmQuery, "username", username); err != nil {
 		return stat, err
 	}
 	if tokenName != "" {
@@ -1036,7 +1089,7 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 		subIds = append(subIds, otherSubIds...)
 		subQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
 			Select("COALESCE(SUM(quota), 0) AS sub_quota, " + subTokensExpr(openaiSubIds, otherSubIds))
-		if subQuery, err = applyExplicitLogTextFilter(subQuery, "username", username); err != nil {
+		if subQuery, err = applyLogUsernameFilter(subQuery, "username", username); err != nil {
 			return stat, err
 		}
 		if tokenName != "" {

@@ -436,7 +436,8 @@ func parseChartFilter(c *gin.Context) (*chartFilter, error) {
 
 		tx := model.DB.Model(&model.User{})
 		if f.username != "" {
-			tx = tx.Where("username LIKE ?", "%"+f.username+"%")
+			like := "%" + f.username + "%"
+			tx = tx.Where("username LIKE ? OR display_name LIKE ?", like, like)
 		}
 		if needInviterFilter {
 			tx = tx.Where("inviter_id IN ?", inviterIds)
