@@ -52,11 +52,10 @@ type userStatsCardSection struct {
 	TotalRechargeCny      float64  `json:"total_recharge_cny"`       // 累计充值（¥）
 	TotalConsumedUsd      float64  `json:"total_consumed_usd"`       // 累计消耗（$）
 	TodayRechargeCny      float64  `json:"today_recharge_cny"`       // 今日充值（¥）
-	TodayRechargeCnyDelta *float64 `json:"today_recharge_cny_delta"` // 较昨日百分比；nil 表示无法对比（凌晨 / 昨日为 0）
 	TodayConsumedUsd      float64  `json:"today_consumed_usd"`       // 今日消耗（$）
-	TodayConsumedUsdDelta *float64 `json:"today_consumed_usd_delta"`
-	TodaySubConsumedUsd   float64  `json:"today_sub_consumed_usd"` // 今日 sub 渠道消耗（$），用于卡片细分展示
-	TotalRemainingUsd     float64  `json:"total_remaining_usd"`    // 总剩余额度（$）
+	TodayConsumedUsdDelta *float64 `json:"today_consumed_usd_delta"` // 较昨日百分比；nil 表示无法对比（凌晨 / 昨日为 0）
+	TodaySubConsumedUsd   float64  `json:"today_sub_consumed_usd"`   // 今日 sub 渠道消耗（$），用于卡片细分展示
+	TotalRemainingUsd     float64  `json:"total_remaining_usd"`      // 总剩余额度（$）
 }
 
 type userStatsCardsResp struct {
@@ -67,11 +66,6 @@ type userStatsCardsResp struct {
 // GetUserStatsCards 顶部 12 张卡片。不受筛选区影响 —— 永远返回当前最新值。
 func GetUserStatsCards(c *gin.Context) {
 	now := time.Now()
-	loc := now.Location()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
-	todayEnd := now.Unix()
-	todayStr := now.Format("2006-01-02")
-	yesterdayStr := now.AddDate(0, 0, -1).Format("2006-01-02")
 
 	officialIds, err := model.GetOfficialUserIds()
 	if err != nil {
@@ -79,12 +73,12 @@ func GetUserStatsCards(c *gin.Context) {
 		return
 	}
 
-	all, err := buildCardSection(todayStart, todayEnd, todayStr, yesterdayStr, nil)
+	all, err := buildCardSection(now, nil)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	official, err := buildCardSection(todayStart, todayEnd, todayStr, yesterdayStr, officialIds)
+	official, err := buildCardSection(now, officialIds)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -109,8 +103,13 @@ func GetUserStatsCards(c *gin.Context) {
 //
 //	officialIds == nil 表示「全用户」（不做 IN 过滤）；
 //	officialIds != nil 表示「正式用户」（按 user_id IN officialIds 过滤；空切片表示没有正式用户，全 0）。
-func buildCardSection(todayStart, todayEnd int64, todayStr, yesterdayStr string, officialIds []int) (userStatsCardSection, error) {
+func buildCardSection(now time.Time, officialIds []int) (userStatsCardSection, error) {
 	var section userStatsCardSection
+	loc := now.Location()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
+	todayEnd := now.Unix()
+	todayStr := now.Format("2006-01-02")
+	yesterdayStr := now.AddDate(0, 0, -1).Format("2006-01-02")
 
 	// 1. 总用户数（全用户走 users 表全量；正式用户由调用方覆盖）
 	if officialIds == nil {
@@ -156,7 +155,7 @@ func buildCardSection(todayStart, todayEnd int64, todayStr, yesterdayStr string,
 	section.TotalRechargeCny = cumRecharge + todayRecharge
 	section.TotalConsumedUsd = quotaToUSD(cumQuota + todayQuota)
 
-	// 5. 今日值 + 较昨日对比
+	// 5. 今日主数值（截止到当前时刻，反映「今天已花 / 已充多少」）
 	section.TodayRechargeCny = todayRecharge
 	section.TodayConsumedUsd = quotaToUSD(todayQuota)
 
@@ -166,27 +165,47 @@ func buildCardSection(todayStart, todayEnd int64, todayStr, yesterdayStr string,
 		section.TodaySubConsumedUsd = quotaToUSD(subQuota)
 	}
 
-	// 昨日整天值：尝试从 daily_summary 拿 stat_date = yesterday 那行
-	yRow, hasY, err := getDailySummaryByDate(yesterdayStr)
-	if err != nil {
-		return section, err
-	}
-	if hasY {
-		var yQuota int64
-		var yRecharge float64
-		if officialIds == nil {
-			yQuota = yRow.Quota
-			yRecharge = yRow.RechargeAmount
-		} else {
-			yQuota = yRow.OfficialQuota
-			yRecharge = yRow.OfficialRechargeAmount
+	// 6. 「今日消耗($)」较昨日 delta 走「同期对齐」口径：今日 [00:00, curHour:00) vs 昨日 [00:00, curHour:00)。
+	//    例：现在 16:10 → 两侧都是 0~15 点这 16 个完整整点；凌晨 00:xx → 无完整小时可比，delta = nil（前端 "--"）。
+	//    「今日充值(¥)」不再展示 delta（管理员充值波动大、跟自然日进度无稳定关系，对比意义不大）。
+	cutHour := now.Hour()
+	if cutHour > 0 {
+		currentHourStart := time.Date(now.Year(), now.Month(), now.Day(), cutHour, 0, 0, 0, loc).Unix()
+		curQuota, _, err := sumTodayConsumeRecharge(todayStart, currentHourStart-1, officialIds)
+		if err != nil {
+			return section, err
 		}
-		section.TodayRechargeCnyDelta = computeDeltaPct(todayRecharge, yRecharge)
-		section.TodayConsumedUsdDelta = computeDeltaPct(float64(todayQuota), float64(yQuota))
+		baseQuota, err := sumHourlyBucketQuota(yesterdayStr, cutHour, officialIds)
+		if err != nil {
+			return section, err
+		}
+		section.TodayConsumedUsdDelta = computeDeltaPct(float64(curQuota), float64(baseQuota))
 	}
-	// 拿不到昨日数据时 delta 保持 nil → 前端显示 "--"
 
 	return section, nil
+}
+
+// sumHourlyBucketQuota 从 vip_hourly_consumption 汇总某天 [00:00, endHour:00) 的完整整点消耗 quota（净口径）。
+// endHour <= 0 表示没有完整整点可比，直接返回 0。
+// userIds == nil 表示全用户不过滤；长度 0 表示明确无匹配用户，返回 0。
+func sumHourlyBucketQuota(date string, endHour int, userIds []int) (int64, error) {
+	if endHour <= 0 {
+		return 0, nil
+	}
+	if userIds != nil && len(userIds) == 0 {
+		return 0, nil
+	}
+	tx := model.DB.Model(&model.VipHourlyConsumption{}).
+		Where("stat_date = ?", date).
+		Where("stat_hour < ?", endHour)
+	if userIds != nil {
+		tx = tx.Where("user_id IN ?", userIds)
+	}
+	var quota int64
+	if err := tx.Select("COALESCE(SUM(quota), 0)").Scan(&quota).Error; err != nil {
+		return 0, err
+	}
+	return quota, nil
 }
 
 func quotaToUSD(quota int64) float64 {
@@ -305,22 +324,6 @@ func sumTodayConsumeRecharge(startTs, endTs int64, userIds []int) (int64, float6
 		}
 	}
 	return quota, recharge, nil
-}
-
-// getDailySummaryByDate 按 stat_date 精确查 daily_summary；不存在返回 (zero, false, nil)。
-func getDailySummaryByDate(date string) (model.DailySummary, bool, error) {
-	var rows []model.DailySummary
-	err := model.DB.Model(&model.DailySummary{}).
-		Where("stat_date = ?", date).
-		Limit(1).
-		Find(&rows).Error
-	if err != nil {
-		return model.DailySummary{}, false, err
-	}
-	if len(rows) == 0 {
-		return model.DailySummary{}, false, nil
-	}
-	return rows[0], true, nil
 }
 
 // =========================================================

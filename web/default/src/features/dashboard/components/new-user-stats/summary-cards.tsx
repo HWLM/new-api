@@ -130,10 +130,6 @@ function buildRow(
     {
       label: labels.todayRecharge,
       value: formatNumber(s.today_recharge_cny, 2),
-      delta: {
-        compareLabel: labels.vsYesterday,
-        value: s.today_recharge_cny_delta,
-      },
     },
     {
       label: labels.todayConsumed,
