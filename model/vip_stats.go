@@ -64,10 +64,10 @@ func CollectVipStat() (*VipStat, error) {
 
 	var sumQuota int64
 	err = LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeConsume).
+		Where("type IN ?", NetQuotaSumTypes()).
 		Where("user_id IN ?", ids).
 		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
-		Select("COALESCE(SUM(quota), 0)").
+		Select(NetQuotaSumExpr()).
 		Scan(&sumQuota).Error
 	if err != nil {
 		return nil, err
@@ -139,7 +139,8 @@ type cronLogAggregate struct {
 // 区别于 sumLogsTodayPerUser：不传 user_ids（cron 任务面向全量用户做 GROUP BY，避免 IN 列表过长）。
 //
 // 两次查询合并：
-//  1. type=consume 的 quota / 请求次数 / tokens
+//  1. quota 走「净口径」：type=LogTypeConsume 计正、type=LogTypeRefund 计负（视频等异步任务差额结算）
+//     request_count / tokens 仍只算 type=LogTypeConsume（退款不算新请求，tokens 恒为 0）
 //  2. type=manage + operation_type=额度 + quota_type=充值 的 SUM(recharge_input_amount)
 //
 // 过滤 user_id > 0，避免脏数据（如系统操作）落到统计表导致 user_id=0 的记录。
@@ -154,10 +155,14 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 	}
 	var consumeRows []consumeRow
 	if err := LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeConsume).
+		Where("type IN ?", NetQuotaSumTypes()).
 		Where("user_id > 0").
 		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
-		Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COUNT(*) AS request_count, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens").
+		Select(fmt.Sprintf(
+			"user_id, %s AS total_quota, "+
+				"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
+				"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens",
+			NetQuotaSumExpr(), LogTypeConsume, LogTypeConsume)).
 		Group("user_id").
 		Scan(&consumeRows).Error; err != nil {
 		return nil, err
@@ -196,7 +201,8 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 }
 
 // sumLogsTodayPerUser 实时聚合 logs 表，返回每个用户今天的 quota / request_count / tokens。
-// 仅统计 type=consume 的记录。
+// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负），
+// request_count 和 tokens 仅统计 type=LogTypeConsume 的记录。
 func sumLogsTodayPerUser(userIds []int, startTs, endTs int64) (map[int]todayLogAggregate, error) {
 	result := make(map[int]todayLogAggregate)
 	if len(userIds) == 0 {
@@ -210,10 +216,14 @@ func sumLogsTodayPerUser(userIds []int, startTs, endTs int64) (map[int]todayLogA
 	}
 	var rows []row
 	err := LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeConsume).
+		Where("type IN ?", NetQuotaSumTypes()).
 		Where("user_id IN ?", userIds).
 		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
-		Select("user_id, COALESCE(SUM(quota), 0) AS total_quota, COUNT(*) AS request_count, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens").
+		Select(fmt.Sprintf(
+			"user_id, %s AS total_quota, "+
+				"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
+				"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens",
+			NetQuotaSumExpr(), LogTypeConsume, LogTypeConsume)).
 		Group("user_id").
 		Scan(&rows).Error
 	if err != nil {

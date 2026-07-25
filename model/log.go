@@ -31,6 +31,59 @@ func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm
 	return tx.Where(column+" = ?", value), nil
 }
 
+// applyLogUsernameFilter 与 applyExplicitLogTextFilter 语义一致，只是在精确匹配路径上
+// 额外去 users 表按 display_name 反查，让"输入 username 或显示名称都能查到同一个用户"。
+// logs 表只存了 username 快照，没有 display_name 列，只能通过 users 表反查出对应 username 集合再 IN。
+// 用户显式输入 % 通配符时保持模糊匹配语义不变（display_name 反查在这种高级用法下跳过）。
+func applyLogUsernameFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {
+	if value == "" {
+		return tx, nil
+	}
+	if strings.Contains(value, "%") {
+		condition, pattern, err := buildLogLikeCondition(column, value)
+		if err != nil {
+			return nil, err
+		}
+		return tx.Where(condition, pattern), nil
+	}
+	usernames := resolveLogUsernameCandidates(value)
+	if len(usernames) <= 1 {
+		return tx.Where(column+" = ?", value), nil
+	}
+	return tx.Where(column+" IN ?", usernames), nil
+}
+
+// resolveLogUsernameCandidates 返回一个 username 集合：至少包含入参本身，
+// 若主库 users 表中有 display_name 与之精确相等的其他用户，也把它们的 username 一并加入。
+// 主库查询失败时静默降级为只返回入参本身，不影响日志过滤主流程。
+func resolveLogUsernameCandidates(value string) []string {
+	result := []string{value}
+	if DB == nil {
+		return result
+	}
+	var displayMatched []string
+	if err := DB.Model(&User{}).
+		Where("display_name = ?", value).
+		Pluck("username", &displayMatched).Error; err != nil {
+		return result
+	}
+	if len(displayMatched) == 0 {
+		return result
+	}
+	seen := map[string]struct{}{value: {}}
+	for _, name := range displayMatched {
+		if name == "" {
+			continue
+		}
+		if _, has := seen[name]; has {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result
+}
+
 func buildLogLikeCondition(column string, value string) (string, string, error) {
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		pattern, err := sanitizeClickHouseLikePattern(value)
@@ -114,6 +167,28 @@ const (
 	QuotaTypeRecharge  = "充值"
 	QuotaTypeGift      = "赠送"
 )
+
+// NetQuotaSumTypes 返回"净消耗"统计涉及的日志 type 列表。
+// 视频等异步任务在完成时若实际扣费小于预扣，会写一条 LogTypeRefund 抵消差额；
+// 因此运营向的消耗统计需要同时纳入 LogTypeConsume 和 LogTypeRefund，再靠符号累加。
+func NetQuotaSumTypes() []int {
+	return []int{LogTypeConsume, LogTypeRefund}
+}
+
+// NetQuotaSumExpr 返回"净消耗"求和 SQL 表达式（不含别名）：
+//
+//	COALESCE(SUM(CASE WHEN type=LogTypeConsume THEN quota
+//	                  WHEN type=LogTypeRefund  THEN -quota END), 0)
+//
+// 调用方需自行在 WHERE 中限定 type IN NetQuotaSumTypes()，
+// 并配合 request_count/tokens 的 type=LogTypeConsume 过滤（退款日志不算新请求、tokens 恒为 0）。
+// CASE WHEN 是 SQL 标准语法，SQLite/MySQL/PostgreSQL 均支持。
+func NetQuotaSumExpr() string {
+	return fmt.Sprintf(
+		"COALESCE(SUM(CASE WHEN type = %d THEN quota WHEN type = %d THEN -quota ELSE 0 END), 0)",
+		LogTypeConsume, LogTypeRefund,
+	)
+}
 
 func ensureLogRequestId(log *Log) {
 	if log != nil && log.RequestId == "" {
@@ -732,7 +807,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
 	}
-	if tx, err = applyExplicitLogTextFilter(tx, "logs.username", username); err != nil {
+	if tx, err = applyLogUsernameFilter(tx, "logs.username", username); err != nil {
 		return nil, 0, err
 	}
 	if tokenName != "" {
@@ -844,7 +919,7 @@ func GetUserLogs(userIds []int, logType int, startTimestamp int64, endTimestamp 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
 	}
-	if tx, err = applyExplicitLogTextFilter(tx, "logs.username", username); err != nil {
+	if tx, err = applyLogUsernameFilter(tx, "logs.username", username); err != nil {
 		return nil, 0, err
 	}
 	if tokenName != "" {
@@ -994,10 +1069,10 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 	rpmTpmQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
 		Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
 
-	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
+	if tx, err = applyLogUsernameFilter(tx, "username", username); err != nil {
 		return stat, err
 	}
-	if rpmTpmQuery, err = applyExplicitLogTextFilter(rpmTpmQuery, "username", username); err != nil {
+	if rpmTpmQuery, err = applyLogUsernameFilter(rpmTpmQuery, "username", username); err != nil {
 		return stat, err
 	}
 	if tokenName != "" {
@@ -1053,7 +1128,7 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 		subIds = append(subIds, otherSubIds...)
 		subQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
 			Select("COALESCE(SUM(quota), 0) AS sub_quota, " + subTokensExpr(openaiSubIds, otherSubIds))
-		if subQuery, err = applyExplicitLogTextFilter(subQuery, "username", username); err != nil {
+		if subQuery, err = applyLogUsernameFilter(subQuery, "username", username); err != nil {
 			return stat, err
 		}
 		if tokenName != "" {
@@ -1090,6 +1165,101 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 	}
 
 	return stat, nil
+}
+
+// AccountQuotaEntry 单个账号在时间窗内的 quota 聚合结果。
+// 只在 SumUsedQuotaByAccountIDs 返回值里使用,给 sub2api ROI 统计做「按账号看当日实际消耗」用。
+type AccountQuotaEntry struct {
+	AccountID int64 `gorm:"column:account_id" json:"account_id"`
+	Quota     int64 `gorm:"column:quota" json:"quota"`
+}
+
+// statByAccountsChunkSize 单批查询的 account_id 上限。
+// 避免超大 IN 列表让 PG 优化器变慢、同时规避 pgx 单条 SQL 参数上限;
+// sub2api 侧一次调用可能传几千甚至上万个 id,内部分批更稳。
+const statByAccountsChunkSize = 1000
+
+// SumUsedQuotaByAccountIDs 按 account_id 集合聚合 [start, end] 时间窗内的消耗 quota。
+// 返回 (总 quota, 每个账号的 quota) — 后者只包含 quota > 0 的账号(对齐 sub2api HAVING SUM > 0 语义)。
+//
+// 只统计 type = LogTypeConsume 的日志,与 SumUsedQuota 保持一致。
+// startTimestamp / endTimestamp 传 0 表示不加下/上界。
+//
+// 内部按 statByAccountsChunkSize 分批查库;不同 chunk 的 account_id 天然互不相交(sub2api 传的是
+// 唯一集合),Go 层直接 append 无需 dedup。
+func SumUsedQuotaByAccountIDs(ctx context.Context, accountIDs []int64, startTimestamp, endTimestamp int64) (int64, []AccountQuotaEntry, error) {
+	if len(accountIDs) == 0 {
+		return 0, nil, nil
+	}
+
+	perAccount := make([]AccountQuotaEntry, 0, len(accountIDs))
+	var total int64
+
+	for i := 0; i < len(accountIDs); i += statByAccountsChunkSize {
+		end := i + statByAccountsChunkSize
+		if end > len(accountIDs) {
+			end = len(accountIDs)
+		}
+		batch := accountIDs[i:end]
+
+		tx := LOG_DB.WithContext(ctx).Table("logs").
+			Select("account_id, COALESCE(SUM(quota), 0) AS quota").
+			Where("account_id IN ?", batch).
+			Where("type = ?", LogTypeConsume)
+		if startTimestamp != 0 {
+			tx = tx.Where("created_at >= ?", startTimestamp)
+		}
+		if endTimestamp != 0 {
+			tx = tx.Where("created_at <= ?", endTimestamp)
+		}
+		tx = tx.Group("account_id").Having("COALESCE(SUM(quota), 0) > 0")
+
+		var batchRows []AccountQuotaEntry
+		if err := tx.Scan(&batchRows).Error; err != nil {
+			return 0, nil, fmt.Errorf("stat by accounts chunk offset=%d n=%d: %w", i, len(batch), err)
+		}
+		for _, r := range batchRows {
+			total += r.Quota
+			perAccount = append(perAccount, r)
+		}
+	}
+	return total, perAccount, nil
+}
+
+// SumChannelQuota 按 channel_id + type + 时间窗聚合 logs.quota。
+//
+// **type 参数在这里真正生效**,与老对外接口 SumUsedQuota 的行为不同 —— 那个函数
+// 声明了 logType 参数但函数体里被 [line 989] 硬编码 `WHERE type = LogTypeConsume` 覆盖,
+// 参数是死代码;本函数按传入的 logType 精确过滤,供 sub2api ROI 上游分支分别拉:
+//
+//	consume = SumChannelQuota(ctx, channelID, LogTypeConsume, ...)
+//	refund  = SumChannelQuota(ctx, channelID, LogTypeRefund,  ...)
+//	净收入 = consume - refund
+//
+// 入参约束:controller 层已经校验 channelID > 0 且 logType > 0,这里再做一层防御性,
+// 传 0 视为"参数缺失,直接返回 0" —— 避免 GORM `Where("channel_id = ?", 0)` 在某些版本
+// 里被误优化成"不过滤"导致全库聚合。
+//
+// startTimestamp / endTimestamp 传 0 表示不加下/上界,与 SumUsedQuotaByAccountIDs 一致。
+func SumChannelQuota(ctx context.Context, channelID int, logType int, startTimestamp, endTimestamp int64) (int64, error) {
+	if channelID <= 0 || logType <= 0 {
+		return 0, nil
+	}
+	tx := LOG_DB.WithContext(ctx).Table("logs").
+		Select("COALESCE(SUM(quota), 0)").
+		Where("channel_id = ?", channelID).
+		Where("type = ?", logType)
+	if startTimestamp != 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+	var quota int64
+	if err := tx.Scan(&quota).Error; err != nil {
+		return 0, fmt.Errorf("sum channel quota (channel=%d type=%d): %w", channelID, logType, err)
+	}
+	return quota, nil
 }
 
 func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string) (token int) {

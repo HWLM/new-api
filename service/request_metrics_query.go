@@ -266,18 +266,36 @@ type UserMetricsRow struct {
 }
 
 type UserMetricsFilter struct {
-	Username    string // 模糊匹配 username(ILIKE %?%)
+	Username    string // 模糊匹配 username(ILIKE %?%)；同时会去 users 表按 display_name 反查 user_id 并 OR。
 	ChannelType int    // 0 = 不限;否则只看该 channel_type 的请求
+}
+
+// appendUsernameConds 处理请求-响应统计里的用户名过滤：
+// 除对 request_metrics_logs.username 做 ILIKE 外，还去主库 users 表按 display_name 模糊匹配
+// 反查出对应的 user_id，让"输入 username 或显示名称都能查到同一个用户"生效。
+// request_metrics_logs 里没有 display_name 列，只能通过 user_id 关联。
+func appendUsernameConds(conds []string, args []any, username string) ([]string, []any) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return conds, args
+	}
+	like := "%" + username + "%"
+	var displayMatchedIds []int
+	_ = model.DB.Model(&model.User{}).
+		Where("display_name LIKE ?", like).
+		Pluck("id", &displayMatchedIds).Error
+	if len(displayMatchedIds) == 0 {
+		return append(conds, "username ILIKE ?"), append(args, like)
+	}
+	return append(conds, "(username ILIKE ? OR user_id IN ?)"),
+		append(args, like, displayMatchedIds)
 }
 
 // QueryUserMetricsCount 返回符合过滤条件的用户总数(用于分页)。
 func QueryUserMetricsCount(ctx context.Context, from, to int64, filter UserMetricsFilter) (int64, error) {
 	conds := []string{"created_at >= ?", "created_at < ?"}
 	args := []any{from, to}
-	if username := strings.TrimSpace(filter.Username); username != "" {
-		conds = append(conds, "username ILIKE ?")
-		args = append(args, "%"+username+"%")
-	}
+	conds, args = appendUsernameConds(conds, args, filter.Username)
 	if filter.ChannelType > 0 {
 		conds = append(conds, "channel_type = ?")
 		args = append(args, filter.ChannelType)
@@ -332,10 +350,7 @@ func queryUserMetricsSingle(ctx context.Context, from, to int64, page, size int,
 	// 动态 WHERE
 	conds := []string{"created_at >= ?", "created_at < ?"}
 	args := []any{th.SlowResponseMs, th.SlowTTFTMs, from, to}
-	if username := strings.TrimSpace(filter.Username); username != "" {
-		conds = append(conds, "username ILIKE ?")
-		args = append(args, "%"+username+"%")
-	}
+	conds, args = appendUsernameConds(conds, args, filter.Username)
 	if filter.ChannelType > 0 {
 		conds = append(conds, "channel_type = ?")
 		args = append(args, filter.ChannelType)

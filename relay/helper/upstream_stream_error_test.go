@@ -145,3 +145,60 @@ func TestUpstreamStreamErrorToAPIError_NilContextIsSafe(t *testing.T) {
 
 	assert.NotNil(t, UpstreamStreamErrorToAPIError(nil, s))
 }
+
+// TestUpstreamStreamErrorToAPIError_ClientGoneRaceRescue 是本次修复引入的
+// 兜底路径回归：scanner 收到 event: error 并 RecordError，但 EndReason 被
+// context.Done 抢跑成 ClientGone（endOnce.Do 已被占用，SetEndReason(UpstreamError)
+// 变 no-op）。此时 ObservedUpstreamError() 仍然为 true，UpstreamStreamErrorToAPIError
+// 应识别并走退款，避免因时序竞争漏放。
+//
+// 实测线上 7 天：upstream_error 端因计数 0（全部被 client_gone 抢跑），
+// 该路径修补后 upstream_stream_error 退款理由应大量出现。
+func TestUpstreamStreamErrorToAPIError_ClientGoneRaceRescue(t *testing.T) {
+	t.Parallel()
+
+	c := newTestGinContext()
+	s := relaycommon.NewStreamStatus()
+
+	// 模拟真实竞态时序：
+	//   1) scanner 处理上游 event: error 帧 → RecordError（错误已记录）
+	//   2) 客户端断连 → context.Done → SetEndReason(ClientGone) 抢先固化
+	//   3) scanner 继续处理 → 尝试 SetEndReason(UpstreamError) 但 endOnce 已用，no-op
+	s.RecordError("upstream boom (raced with client_gone)")
+	s.SetEndReason(relaycommon.StreamEndReasonClientGone, nil)
+	// 二次尝试固化为 UpstreamError（模拟 scanner 处理错误帧的 no-op）
+	s.SetEndReason(relaycommon.StreamEndReasonUpstreamError, nil)
+	require.Equal(t, relaycommon.StreamEndReasonClientGone, s.EndReason,
+		"预期 endOnce 已被 ClientGone 占用，UpstreamError 覆盖不上 —— 这就是要兜底的情况")
+
+	apiErr := UpstreamStreamErrorToAPIError(c, s)
+	require.NotNil(t, apiErr,
+		"scanner 观察到过上游错误 → 即使端因是 ClientGone 也必须返回错误以触发退款")
+
+	assert.Equal(t, 502, apiErr.StatusCode,
+		"仍然按 upstream_error 语义走 502，让 controller Refund 逻辑生效")
+	assert.Contains(t, apiErr.Error(), "upstream boom (raced with client_gone)",
+		"错误消息应保留 scanner 记录的原始上游错误 message")
+	assert.Equal(t, constant.RefundReasonUpstreamStreamError,
+		common.GetContextKeyString(c, constant.ContextKeyRefundReason),
+		"refund_reason 归到 upstream_stream_error 而不是 client_aborted_no_data —— "+
+			"跨系统对账时能明确本次是「上游错」而不是「客户端断」")
+}
+
+// TestUpstreamStreamErrorToAPIError_ClientGoneNoErrorsDoesNotRescue
+// 兜底路径的反面：EndReason=ClientGone 且 scanner 从未 RecordError
+// （即真正的客户端主动断开，上游没发过错误帧）→ 不应升级为 upstream_error。
+// 这种情况该走 ClientAbortedBeforeAnyDataAPIError 的判定，refund_reason 会是
+// client_aborted_no_data 而非 upstream_stream_error。
+func TestUpstreamStreamErrorToAPIError_ClientGoneNoErrorsDoesNotRescue(t *testing.T) {
+	t.Parallel()
+
+	c := newTestGinContext()
+	s := relaycommon.NewStreamStatus()
+	s.SetEndReason(relaycommon.StreamEndReasonClientGone, nil)
+
+	assert.Nil(t, UpstreamStreamErrorToAPIError(c, s),
+		"ClientGone 且 scanner 没记录过错误 → 真·客户端断开，不能被误升级为上游错误")
+	assert.Equal(t, "", common.GetContextKeyString(c, constant.ContextKeyRefundReason),
+		"未命中兜底路径不该写 refund_reason，让下游 ClientAborted 判定自己决定")
+}

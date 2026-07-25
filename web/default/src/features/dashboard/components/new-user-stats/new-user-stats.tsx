@@ -71,11 +71,12 @@ export function NewUserStats() {
   const [trendTarget, setTrendTarget] = useState<DetailsRow | null>(null)
 
   // 对比相关 state
-  // 小时段默认：0 ~ 当前小时。比如 16:02 打开页面 → 0~16，避免把「今天还没走完的时段」拉进对比。
+  // 小时段默认：0 ~ 上一个已过完的整点。比如 16:10 打开页面 → 0~15，
+  // 避免把「今天当前未走完的小时」跟昨天完整整点做对比，导致曲线尾巴异常下探。
   const [compareEnabled, setCompareEnabled] = useState(false)
   const [compareStartHour, setCompareStartHour] = useState(0)
   const [compareEndHour, setCompareEndHour] = useState(
-    () => new Date().getHours()
+    () => Math.max(0, new Date().getHours() - 1)
   )
   // 用户手动指定的对比日期；null 表示走自动推算
   const [compareOverride, setCompareOverride] = useState<{

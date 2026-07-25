@@ -121,7 +121,16 @@ type RelayInfo struct {
 	RelayFormat            types.RelayFormat
 	SendResponseCount      int
 	ReceivedResponseCount  int
-	FinalPreConsumedQuota  int // 最终预消耗的配额
+	// SawStreamContentDelta 表示 scanner 至少看到过一条「实质生成内容」帧
+	// （Anthropic content_block_delta.text/thinking/partial_json、OpenAI Responses
+	// response.*.delta、Chat Completions delta.content/tool_calls/reasoning 等）。
+	// 与 ReceivedResponseCount 的区别：后者对 message_start / ping /
+	// content_block_start 等元数据帧也计数，因此不能用来判断上游是否真的开始生成。
+	//
+	// 由 helper.StreamScannerHandler 在数据分发路径按 IsContentBearingFrame 置位；
+	// 供 ClientAbortedBeforeAnyDataAPIError 决定是否豁免 estimation 兜底扣费。
+	SawStreamContentDelta bool
+	FinalPreConsumedQuota int // 最终预消耗的配额
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。

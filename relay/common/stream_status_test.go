@@ -158,6 +158,60 @@ func TestStreamStatus_IsNormalEnd_NilSafe(t *testing.T) {
 	assert.True(t, s.IsNormalEnd())
 }
 
+// TestStreamStatus_ObservedUpstreamError 覆盖 endOnce 竞态兜底路径：
+// scanner 观察到过上游错误终止事件（RecordError），无论 EndReason 是不是
+// 被 ClientGone 抢跑成功，都应返回 true。
+func TestStreamStatus_ObservedUpstreamError(t *testing.T) {
+	t.Parallel()
+
+	// nil 安全
+	var nilS *StreamStatus
+	assert.False(t, nilS.ObservedUpstreamError())
+
+	// 严格路径：EndReason=UpstreamError → true（不管有没有 RecordError）
+	s := NewStreamStatus()
+	s.SetEndReason(StreamEndReasonUpstreamError, nil)
+	assert.True(t, s.ObservedUpstreamError(),
+		"EndReason=UpstreamError 时必须为 true（严格路径）")
+
+	// 严格路径 + RecordError → 仍 true
+	s = NewStreamStatus()
+	s.RecordError("boom")
+	s.SetEndReason(StreamEndReasonUpstreamError, nil)
+	assert.True(t, s.ObservedUpstreamError())
+
+	// 竞态兜底：EndReason=ClientGone 但 scanner 曾 RecordError → true
+	s = NewStreamStatus()
+	s.RecordError("upstream sent event: error")
+	s.SetEndReason(StreamEndReasonClientGone, nil)
+	assert.True(t, s.ObservedUpstreamError(),
+		"ClientGone 抢跑但 scanner 记录过错误 → 视作观察到上游错误，兜底走退款")
+
+	// ClientGone 且无 RecordError → false（真正的客户端主动断开）
+	s = NewStreamStatus()
+	s.SetEndReason(StreamEndReasonClientGone, nil)
+	assert.False(t, s.ObservedUpstreamError(),
+		"ClientGone 且无错误记录 → 真·客户端断开，不能升级为上游错误")
+
+	// 其他端因不该被误升级：EOF / Done / Timeout 等即便 RecordError 过也不算
+	// （EOF 场景的 soft error 是网络抖动重试成功后的残留，不是终止错误）
+	for _, reason := range []StreamEndReason{
+		StreamEndReasonEOF,
+		StreamEndReasonDone,
+		StreamEndReasonHandlerStop,
+		StreamEndReasonTimeout,
+		StreamEndReasonScannerErr,
+		StreamEndReasonPanic,
+		StreamEndReasonPingFail,
+	} {
+		s = NewStreamStatus()
+		s.RecordError("some soft error")
+		s.SetEndReason(reason, nil)
+		assert.False(t, s.ObservedUpstreamError(),
+			"EndReason=%s 有软错误也不能升级为上游错误", reason)
+	}
+}
+
 func TestStreamStatus_Summary(t *testing.T) {
 	t.Parallel()
 
