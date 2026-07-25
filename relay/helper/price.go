@@ -358,6 +358,10 @@ func modelPriceHelperTieredPerCall(c *gin.Context, info *relaycommon.RelayInfo, 
 	if rawCost < 0 {
 		return types.PriceData{}, fmt.Errorf("model %s tiered expr produced negative cost %f", info.OriginModelName, rawCost)
 	}
+	version := billingexpr.ExprVersion(exprStr)
+	if billingexpr.IsUnmatchedMatrixTier(version, trace.MatchedTier, trace.Cost) {
+		return types.PriceData{}, fmt.Errorf("model %s pricing matrix does not match request parameters", info.OriginModelName)
+	}
 	frozenRequestMultiplier, _, err := billingexpr.RunExprRequestMultiplierWithRequest(exprStr, params, requestInput)
 	if err != nil {
 		return types.PriceData{}, fmt.Errorf("model %s tiered request multiplier failed: %w", info.OriginModelName, err)
@@ -366,7 +370,6 @@ func modelPriceHelperTieredPerCall(c *gin.Context, info *relaycommon.RelayInfo, 
 		return types.PriceData{}, fmt.Errorf("model %s tiered request multiplier is invalid: %f", info.OriginModelName, frozenRequestMultiplier)
 	}
 
-	version := billingexpr.ExprVersion(exprStr)
 	snapshot := &billingexpr.BillingSnapshot{
 		BillingMode:  billing_setting.BillingModeTieredExpr,
 		ModelName:    info.OriginModelName,

@@ -297,6 +297,14 @@ Once a model has `BillingMode = tiered_expr` and a v2 (or v1) expression:
 
 **"One expression, one truth."** For a model wired to tiered_expr, the expression alone determines both pre-consume and settle amounts. This is intentional — mixing tiered_expr with legacy `videoPriceTable` / `AdjustBillingRatiosOnComplete` would silently double-count.
 
+Visual price matrices reserve the zero-cost tier label
+`__matrix_unmatched__` for requests that do not match any configured cell.
+Billing rejects that marker before task submission. If it is reached during
+asynchronous settlement, settlement fails closed and retains the pre-consumed
+quota instead of issuing a zero-price refund. The legacy visual-editor output
+`tier("fallback", 0)` follows the same rule for existing saved expressions.
+Other explicitly named zero-cost tiers, such as `tier("free", 0)`, remain valid.
+
 For task models priced per million upstream tokens, the expression may provide
 an explicit pre-consume estimate while keeping final settlement token-based.
 The Seedance 2.0 preset mirrors the legacy duration estimate with

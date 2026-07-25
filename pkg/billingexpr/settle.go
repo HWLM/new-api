@@ -1,6 +1,10 @@
 package billingexpr
 
-import "github.com/QuantumNous/new-api/common"
+import (
+	"fmt"
+
+	"github.com/QuantumNous/new-api/common"
+)
 
 // quotaConversion converts raw expression output to quota based on the
 // expression version. This is the central dispatch point for future versions
@@ -32,6 +36,9 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 	}
 	if snap.FrozenRequestMultiplier != nil && trace.MatchedTier != "" {
 		cost = trace.Cost * *snap.FrozenRequestMultiplier
+	}
+	if IsUnmatchedMatrixTier(snap.ExprVersion, trace.MatchedTier, trace.Cost) {
+		return TieredResult{}, fmt.Errorf("pricing matrix does not match request parameters")
 	}
 	return ComputeTieredQuotaFromCost(snap, cost, trace), nil
 }

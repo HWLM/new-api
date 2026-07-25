@@ -138,3 +138,63 @@ func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
 		})
 	}
 }
+
+func TestModelPriceHelperPerCallMatrixFallbackFailsClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"matrix-unmatched-model":"tiered_expr","legacy-fallback-model":"tiered_expr","explicit-free-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":    `{"matrix-unmatched-model":"v2:resolution == \"1080p\" ? tier(\"paid\", 1) : tier(\"__matrix_unmatched__\", 0)","legacy-fallback-model":"v2:resolution == \"1080p\" ? tier(\"paid\", 1) : tier(\"fallback\", 0)","explicit-free-model":"v2:tier(\"free\", 0)"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+
+	cases := []struct {
+		name        string
+		model       string
+		wantErr     bool
+		matchedTier string
+	}{
+		{name: "new matrix marker is rejected", model: "matrix-unmatched-model", wantErr: true},
+		{name: "legacy fallback is rejected", model: "legacy-fallback-model", wantErr: true},
+		{name: "explicit free tier is allowed", model: "explicit-free-model", matchedTier: "free"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil)
+			ctx.Set("group", "default")
+
+			info := &relaycommon.RelayInfo{
+				OriginModelName: tc.model,
+				UserGroup:       "default",
+				UsingGroup:      "default",
+				BillingRequestInput: &billingexpr.RequestInput{
+					Body: []byte(`{"resolution":"720p"}`),
+				},
+			}
+
+			priceData, err := ModelPriceHelperPerCall(ctx, info)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "pricing matrix does not match request parameters")
+				require.Nil(t, info.TieredBillingSnapshot)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, 0, priceData.Quota)
+			require.NotNil(t, info.TieredBillingSnapshot)
+			require.Equal(t, tc.matchedTier, info.TieredBillingSnapshot.EstimatedTier)
+		})
+	}
+}

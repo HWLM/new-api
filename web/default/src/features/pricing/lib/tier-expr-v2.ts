@@ -37,6 +37,7 @@ For commercial licensing, please contact support@quantumnous.com
 export const TASK_STRING_VARS = ['resolution', 'size', 'mode'] as const
 export const TASK_BOOL_VARS = ['has_video', 'has_image'] as const
 export const TASK_NUMERIC_VARS = ['seconds', 'n'] as const
+export const MATRIX_UNMATCHED_TIER_LABEL = '__matrix_unmatched__'
 
 // Matches the legacy task pre-consume path: one half of a 1M-token billing
 // unit for a 5-second video, scaled linearly by requested duration.
@@ -53,7 +54,7 @@ export const DOUBAO_SEEDANCE_2_PRICING_EXPR =
   `: resolution == "1080p" && !has_video ? tier("1080p_false", 7.7 * ${SEEDANCE_PRECONSUME_TOKEN_EXPR} / 1000000) ` +
   `: resolution == "4k" && has_video ? tier("4k_true", 2.4 * ${SEEDANCE_PRECONSUME_TOKEN_EXPR} / 1000000) ` +
   `: resolution == "4k" && !has_video ? tier("4k_false", 4.0 * ${SEEDANCE_PRECONSUME_TOKEN_EXPR} / 1000000) ` +
-  ': tier("fallback", 0)'
+  `: tier("${MATRIX_UNMATCHED_TIER_LABEL}", 0)`
 
 export type TaskStringVar = (typeof TASK_STRING_VARS)[number]
 export type TaskBoolVar = (typeof TASK_BOOL_VARS)[number]
@@ -1202,8 +1203,8 @@ function costValueForUnit(tier: VisualTierV2, unit: MatrixCostUnit): number {
   }
 }
 
-// Build a VisualConfigV2 from a matrix. The final tier is a fallback with no
-// conditions (safety net if the request doesn't match any cell — bills 0).
+// Build a VisualConfigV2 from a matrix. The final tier is a reserved control
+// marker that makes unmatched requests fail closed in backend billing.
 export function matrixToVisualConfigV2(matrix: VisualMatrixV2): VisualConfigV2 {
   const preConsumeTokensPerSecond =
     Number(matrix.preConsumeTokensPerSecond) || 0
@@ -1216,7 +1217,12 @@ export function matrixToVisualConfigV2(matrix: VisualMatrixV2): VisualConfigV2 {
   )
   if (validDims.length === 0) {
     return {
-      tiers: [normalizeVisualTierV2({ label: 'empty_matrix', conditions: [] })],
+      tiers: [
+        normalizeVisualTierV2({
+          label: MATRIX_UNMATCHED_TIER_LABEL,
+          conditions: [],
+        }),
+      ],
       preConsumeTokensPerSecond,
       preConsumeTokens,
       preConsumeEstimate,
@@ -1239,11 +1245,12 @@ export function matrixToVisualConfigV2(matrix: VisualMatrixV2): VisualConfigV2 {
       })
     )
   }
-  // Always append a zero-cost fallback so accidental mismatches (e.g. an
-  // unexpected resolution string) don't hit an uncovered branch.
+  // The final zero-cost tier is a control marker. Backend billing rejects it
+  // before upstream submission and retains pre-consume if settlement reaches
+  // it, so an unexpected dimension value can never become a free generation.
   tiers.push(
     normalizeVisualTierV2({
-      label: 'fallback',
+      label: MATRIX_UNMATCHED_TIER_LABEL,
       conditions: [],
       flat_cost: 0,
       per_second_cost: 0,

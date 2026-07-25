@@ -135,6 +135,57 @@ func TestV2_FrozenRequestMultiplierIsReusedAtSettlement(t *testing.T) {
 	assert.Equal(t, int(16*3*common.QuotaPerUnit), settled.ActualQuotaAfterGroup)
 }
 
+func TestV2_MatrixFallbackSettlementFailsClosed(t *testing.T) {
+	cases := []struct {
+		name string
+		expr string
+	}{
+		{name: "matrix unmatched marker", expr: `v2:tier("__matrix_unmatched__", 0)`},
+		{name: "legacy zero cost fallback", expr: `v2:tier("fallback", 0)`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := &billingexpr.BillingSnapshot{
+				BillingMode:  "tiered_expr",
+				ExprString:   tc.expr,
+				ExprHash:     billingexpr.ExprHashString(tc.expr),
+				GroupRatio:   1,
+				QuotaPerUnit: common.QuotaPerUnit,
+				ExprVersion:  billingexpr.ExprVersion(tc.expr),
+			}
+
+			_, err := billingexpr.ComputeTieredQuotaWithRequest(
+				snap,
+				billingexpr.TokenParams{},
+				billingexpr.RequestInput{},
+			)
+			require.ErrorContains(t, err, "pricing matrix does not match request parameters")
+		})
+	}
+}
+
+func TestV2_ExplicitFreeTierSettlementRemainsValid(t *testing.T) {
+	const expr = `v2:tier("free", 0)`
+	snap := &billingexpr.BillingSnapshot{
+		BillingMode:  "tiered_expr",
+		ExprString:   expr,
+		ExprHash:     billingexpr.ExprHashString(expr),
+		GroupRatio:   1,
+		QuotaPerUnit: common.QuotaPerUnit,
+		ExprVersion:  billingexpr.ExprVersion(expr),
+	}
+
+	result, err := billingexpr.ComputeTieredQuotaWithRequest(
+		snap,
+		billingexpr.TokenParams{},
+		billingexpr.RequestInput{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ActualQuotaAfterGroup)
+	assert.Equal(t, "free", result.MatchedTier)
+}
+
 func TestV1_QuotaConversionIsPerMillion(t *testing.T) {
 	// v1: expression coefficients are $ per 1M tokens; RunExpr returns the raw
 	// cost in $ (already scaled by tokens). Conversion multiplies by

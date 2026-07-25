@@ -21,12 +21,14 @@ import { describe, expect, it } from 'bun:test'
 import {
   DOUBAO_SEEDANCE_2_PRICING_EXPR,
   LEGACY_TASK_PRECONSUME_TOKENS_PER_SECOND,
+  MATRIX_UNMATCHED_TIER_LABEL,
   cellKeyFromCoords,
   cellKeyFromMatchedParams,
   cellKeyFromTierConditions,
   createDefaultEvalInputs,
   evalExprLocallyV2,
   generateExprFromVisualConfigV2,
+  matrixToVisualConfigV2,
   tryParseMatrixFromVisualConfig,
   tryParseVisualConfigV2,
 } from './tier-expr-v2'
@@ -80,6 +82,11 @@ describe('Doubao Seedance 2.0 pricing preset', () => {
         has_image: true,
       })
     ).toBe(cellKeyFromCoords(matrix.dimensions, ['1080p', 'false']))
+
+    const regenerated = generateExprFromVisualConfigV2(
+      matrixToVisualConfigV2(matrix)
+    )
+    expect(regenerated).toContain(`tier("${MATRIX_UNMATCHED_TIER_LABEL}", 0)`)
   })
 
   it('automatically estimates pre-consume tokens from requested duration', () => {
@@ -121,5 +128,28 @@ describe('Doubao Seedance 2.0 pricing preset', () => {
     })
     expect(settled.error).toBeNull()
     expect(settled.cost).toBeCloseTo(7.7)
+
+    const unmatched = evalExprLocallyV2(DOUBAO_SEEDANCE_2_PRICING_EXPR, {
+      ...createDefaultEvalInputs(),
+      resolution: '8k',
+      has_video: false,
+    })
+    expect(unmatched.error).toBeNull()
+    expect(unmatched.matchedTier).toBe(MATRIX_UNMATCHED_TIER_LABEL)
+    expect(unmatched.cost).toBe(0)
+  })
+
+  it('marks an empty matrix as unmatched instead of free', () => {
+    const config = matrixToVisualConfigV2({
+      dimensions: [],
+      costUnit: 'flat',
+      cells: {},
+    })
+
+    expect(config.tiers).toHaveLength(1)
+    expect(config.tiers[0].label).toBe(MATRIX_UNMATCHED_TIER_LABEL)
+    expect(generateExprFromVisualConfigV2(config)).toContain(
+      `tier("${MATRIX_UNMATCHED_TIER_LABEL}", 0)`
+    )
   })
 })
