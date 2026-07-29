@@ -17,21 +17,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
-import { useCallback, useMemo } from 'react'
+import { BellRing } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import type { NavGroup } from '@/components/layout/types'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CacheStatsDialog } from '@/features/system-settings/general/channel-affinity/cache-stats-dialog'
 import { useSidebarConfig } from '@/hooks/use-sidebar-config'
 
+import { ErrorLogAlertDialog } from './components/dialogs/error-log-alert-dialog'
 import { UserInfoDialog } from './components/dialogs/user-info-dialog'
 import {
   UsageLogsProvider,
   useUsageLogsContext,
 } from './components/usage-logs-provider'
 import { UsageLogsTable } from './components/usage-logs-table'
+import { useUsageLogAccess } from './hooks/use-usage-log-access'
 import {
   isUsageLogsSectionId,
   USAGE_LOGS_DEFAULT_SECTION,
@@ -69,6 +73,8 @@ function UsageLogsContent() {
     affinityDialogOpen,
     setAffinityDialogOpen,
   } = useUsageLogsContext()
+  const { isAdmin } = useUsageLogAccess()
+  const [alertDialogOpen, setAlertDialogOpen] = useState(false)
   const tabNavGroups = useMemo<NavGroup[]>(
     () => [
       {
@@ -116,6 +122,18 @@ function UsageLogsContent() {
         <SectionPageLayout.Title>
           {t(pageMeta.titleKey)}
         </SectionPageLayout.Title>
+        {activeCategory === 'common' && isAdmin && (
+          <SectionPageLayout.Actions>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setAlertDialogOpen(true)}
+            >
+              <BellRing className='me-1 h-4 w-4' />
+              {t('Error Log Alert Settings')}
+            </Button>
+          </SectionPageLayout.Actions>
+        )}
         <SectionPageLayout.Content>
           <div className='flex h-full min-h-0 flex-col gap-4'>
             {showTaskSwitcher && (
@@ -158,6 +176,11 @@ function UsageLogsContent() {
               }
             : null
         }
+      />
+
+      <ErrorLogAlertDialog
+        open={alertDialogOpen}
+        onOpenChange={setAlertDialogOpen}
       />
     </>
   )

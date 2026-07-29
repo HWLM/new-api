@@ -71,6 +71,27 @@ func SetApiRouter(router *gin.Engine) {
 				adminMetrics.POST("/alert-test", controller.TestAlertNotification)
 			}
 		}
+		// ==============================
+		// 错误日志告警:/api/error-log-alerts/*
+		// 注意:前缀不能以 "log" 开头,否则会与 /api/log/ 路由共享 httprouter trie
+		// 前缀节点,导致 /api/log 的 trailing-slash 自动重定向失效(404)。
+		// ==============================
+		// 匿名 ack 端点:企微群里点链接触发,靠 event 内的 token 校验身份
+		apiRouter.GET("/error-log-alerts/events/:id/ack", controller.AckLogAlertEvent)
+		logAlertsRoute := apiRouter.Group("/error-log-alerts")
+		logAlertsRoute.Use(middleware.AdminAuth())
+		{
+			logAlertsRoute.GET("/rules", controller.ListLogAlertRules)
+			logAlertsRoute.GET("/rules/:id", controller.GetLogAlertRule)
+			logAlertsRoute.POST("/rules", controller.CreateLogAlertRule)
+			logAlertsRoute.PUT("/rules/:id", controller.UpdateLogAlertRule)
+			logAlertsRoute.PUT("/rules/:id/toggle", controller.ToggleLogAlertRule)
+			logAlertsRoute.DELETE("/rules/:id", controller.DeleteLogAlertRule)
+			logAlertsRoute.POST("/rules/:id/test", controller.TestLogAlertRule)
+			logAlertsRoute.GET("/events", controller.ListLogAlertEvents)
+			logAlertsRoute.GET("/lookup/users", controller.LookupUsersForLogAlert)
+			logAlertsRoute.GET("/lookup/tokens", controller.LookupTokensForLogAlert)
+		}
 		apiRouter.GET("/rankings", middleware.HeaderNavModuleAuth("rankings"), controller.GetRankings)
 		apiRouter.GET("/verification", middleware.EmailVerificationRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)

@@ -311,6 +311,8 @@ func migrateDB() error {
 		&RequestAlertRule{},
 		&RequestAlertEvent{},
 		&RequestMetricsLog{},
+		&LogAlertRule{},
+		&LogAlertEvent{},
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},

@@ -158,6 +158,9 @@ func main() {
 	// 4. 告警评估器(每 60s 跑一次,仅 master 节点)
 	service.StartRequestAlertEvaluator(context.Background())
 
+	// 错误日志告警评估器(每 60s tick,按每条规则的告警频率触发扫描;仅 master 节点)
+	service.StartLogAlertEvaluator(context.Background())
+
 	// Token exhausting snapshot task: refresh token_exhausting_snapshot every 5 min
 	service.StartTokenExhaustingSnapshotTask()
 
