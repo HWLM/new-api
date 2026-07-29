@@ -5591,7 +5591,7 @@
     "Alert Rule": "告警规则",
     "Alert Frequency (minutes)": "告警频率（分钟）",
     "Filter Alert Content": "过滤告警内容",
-    "Multiple rows OR; within a row error code + keywords AND; keywords are OR (comma separated); empty means no filter.": "多行之间为「或」；同一行错误码 + 关键词为「且」；一行内多个关键词为「或」（用逗号分隔）；全部为空则不过滤。",
+    "Multiple rows OR; within a row error code + keywords AND; keywords are OR (comma separated); empty means no filter.": "可配置多个，命中任一条即过滤；同一行错误码 + 关键词都填 = 都要满足；只填其一 = 单个满足即可",
     "Error code, e.g. 502": "错误码，如 502",
     "Keywords, comma separated (e.g. overloaded,timeout)": "关键词，多个用逗号隔开（如 overloaded,timeout）",
     "Monitor Target Type": "监控对象配置方式",

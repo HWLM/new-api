@@ -159,7 +159,9 @@ func evalLogAlertRule(ctx context.Context, rule *model.LogAlertRule, now time.Ti
 		FindInBatches(&batch, logAlertBatchSize, func(_ *gorm.DB, _ int) error {
 			for i := range batch {
 				lg := &batch[i]
-				if !matchLogAlertFilters(lg.Content, filters) {
+				// 排除语义：命中任一 filter 行 = 用户想屏蔽的噪音，跳过不告警；
+				// 只有"没命中任何 filter"的日志才计入告警桶。
+				if matchLogAlertFilters(lg.Content, filters) {
 					continue
 				}
 				sv, sl := scopeKeyFor(rule, lg)
@@ -326,14 +328,15 @@ func parseLogAlertFilters(raw string) ([]logAlertFilterItem, bool) {
 	return cleaned, true
 }
 
-// matchLogAlertFilters 语义：
-//   - Filters 空 → 全部命中（不过滤）
+// matchLogAlertFilters 返回 true 表示 content 命中了任一 filter 行 = 满足过滤条件。
+// 调用侧的排除语义：命中 → 视为噪音、跳过不告警；未命中 → 计入告警桶。
+//   - Filters 空 → 没有排除条件，全部日志正常参与告警 → 返回 false
 //   - 行匹配 = (code 空 || content 含 "status_code={code},")
 //     && (keywords 空 || 任一 kw 满足 strings.Contains(content, kw))
-//   - 多行 OR
+//   - 多行 OR：任一行命中即视为命中
 func matchLogAlertFilters(content string, items []logAlertFilterItem) bool {
 	if len(items) == 0 {
-		return true
+		return false
 	}
 	for _, it := range items {
 		codeMatched := it.Code == "" || strings.Contains(content, "status_code="+it.Code+",")
