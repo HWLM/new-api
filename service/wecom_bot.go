@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -35,6 +36,11 @@ type weComRespCommon struct {
 // SendWeComMarkdown 向企微群机器人发送 markdown。
 // webhookURL 必须是 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... 格式，
 // 会先走 SSRF 保护校验，禁止指向内网。
+//
+// 传输层用 GetSSRFProtectedHTTPClient 返回的受保护 client：
+// 它的 Transport 会在**每次 dial**（包括重定向后的跳转）解析 IP 并对内网段拉黑，
+// 关掉了"前置字符串校验 + 后置重定向/DNS rebind 绕过"的漏洞。
+// 超时通过 context 传递（15s），避免共享 client 的 Timeout 被本处覆盖影响其他调用方。
 func SendWeComMarkdown(webhookURL string, content string) error {
 	webhookURL = strings.TrimSpace(webhookURL)
 	if webhookURL == "" {
@@ -55,14 +61,16 @@ func SendWeComMarkdown(webhookURL string, content string) error {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewReader(payload))
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := GetSSRFProtectedHTTPClient().Do(req)
 	if err != nil {
 		return err
 	}

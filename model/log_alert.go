@@ -10,10 +10,13 @@ import (
 //
 // 存储在主库（DB），与业务日志（LOG_DB）分离，因 ClickHouse 等只读日志库不能承载配置表。
 type LogAlertRule struct {
-	Id              int    `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name            string `gorm:"type:varchar(128);default:''" json:"name"` // 可选：便于列表识别
-	Enabled         bool   `gorm:"default:true" json:"enabled"`
-	IntervalMinutes int    `gorm:"default:1" json:"interval_minutes"` // 扫描频率(分钟)；同时作为默认冷却 TTL
+	Id   int    `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name string `gorm:"type:varchar(128);default:''" json:"name"` // 可选：便于列表识别
+	// Enabled 默认由业务侧保证（controller Create 硬编码 true）。
+	// 不用 gorm:"default:true" 是因为 MySQL/PostgreSQL 对布尔默认值规范化不同，
+	// AutoMigrate 会在每次启动反复 ALTER TABLE。
+	Enabled         bool `json:"enabled"`
+	IntervalMinutes int  `gorm:"default:1" json:"interval_minutes"` // 扫描频率(分钟)；同时作为默认冷却 TTL
 	WebhookUrl      string `gorm:"type:text" json:"webhook_url"`      // 企微群机器人 URL
 
 	// Filters：JSON 数组 [{code, keywords[]}]。

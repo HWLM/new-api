@@ -76,8 +76,10 @@ func SetApiRouter(router *gin.Engine) {
 		// 注意:前缀不能以 "log" 开头,否则会与 /api/log/ 路由共享 httprouter trie
 		// 前缀节点,导致 /api/log 的 trailing-slash 自动重定向失效(404)。
 		// ==============================
-		// 匿名 ack 端点:企微群里点链接触发,靠 event 内的 token 校验身份
-		apiRouter.GET("/error-log-alerts/events/:id/ack", controller.AckLogAlertEvent)
+		// 匿名 ack 端点:企微群里点链接触发,靠 event 内的 token 校验身份。
+		// 走 CriticalRateLimit:token 是 64bit 熵事实上无法暴力,加限流是为了防
+		// 恶意枚举 event_id + token 造成无节制查库。
+		apiRouter.GET("/error-log-alerts/events/:id/ack", middleware.CriticalRateLimit(), controller.AckLogAlertEvent)
 		logAlertsRoute := apiRouter.Group("/error-log-alerts")
 		logAlertsRoute.Use(middleware.AdminAuth())
 		{
@@ -87,7 +89,8 @@ func SetApiRouter(router *gin.Engine) {
 			logAlertsRoute.PUT("/rules/:id", controller.UpdateLogAlertRule)
 			logAlertsRoute.PUT("/rules/:id/toggle", controller.ToggleLogAlertRule)
 			logAlertsRoute.DELETE("/rules/:id", controller.DeleteLogAlertRule)
-			logAlertsRoute.POST("/rules/:id/test", controller.TestLogAlertRule)
+			// test 会触发一次真实的 webhook 推送,加限流防误点/恶意刷企微机器人被禁言(91300)
+			logAlertsRoute.POST("/rules/:id/test", middleware.CriticalRateLimit(), controller.TestLogAlertRule)
 			logAlertsRoute.GET("/events", controller.ListLogAlertEvents)
 			logAlertsRoute.GET("/lookup/users", controller.LookupUsersForLogAlert)
 			logAlertsRoute.GET("/lookup/tokens", controller.LookupTokensForLogAlert)

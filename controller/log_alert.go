@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -10,12 +11,21 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 )
 
 // 错误日志告警：规则 CRUD + 测试推送 + 匿名 ack 端点。
+
+const (
+	// 规则的合法数值边界：
+	//   - 频率：1 分钟 ~ 1 天。上限防止用户传 math.MaxInt 导致 "永不扫描" / "首扫扫全库"。
+	//   - 单个 scope 目标数：防止 WHERE ... IN (...) 拼出超长语句 / 命中 max_allowed_packet。
+	logAlertMinIntervalMinutes = 1
+	logAlertMaxIntervalMinutes = 24 * 60
+	logAlertMaxScopeValues     = 200
+	logAlertMaxRuleNameLen     = 128
+)
 
 type logAlertRuleReq struct {
 	Name            string `json:"name"`
@@ -43,15 +53,149 @@ func validateLogAlertReq(req *logAlertRuleReq) error {
 	if req.WebhookUrl == "" {
 		return fmt.Errorf("webhook url required")
 	}
-	if req.IntervalMinutes <= 0 {
-		return fmt.Errorf("interval_minutes must be > 0")
+	if len([]rune(req.Name)) > logAlertMaxRuleNameLen {
+		return fmt.Errorf("name too long (max %d characters)", logAlertMaxRuleNameLen)
+	}
+	if req.IntervalMinutes < logAlertMinIntervalMinutes || req.IntervalMinutes > logAlertMaxIntervalMinutes {
+		return fmt.Errorf("interval_minutes must be in [%d, %d]", logAlertMinIntervalMinutes, logAlertMaxIntervalMinutes)
 	}
 	scope := normalizeScopeType(req.ScopeType)
 	if scope == "" {
 		return fmt.Errorf("invalid scope_type")
 	}
 	req.ScopeType = scope
+
+	if err := validateLogAlertFilters(req.Filters); err != nil {
+		return err
+	}
+	if err := validateLogAlertScopeValues(scope, req.ScopeValues); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateLogAlertFilters 提前把 filters 的 JSON 结构走一遍，防止 DB 里存进非法 JSON：
+// evaluator 一旦解析失败会"保守跳过本 tick"，规则等于永远不告警——用户察觉不到。
+// 空字符串合法（等价于"不过滤"）。
+func validateLogAlertFilters(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var items []struct {
+		Code     string   `json:"code"`
+		Keywords []string `json:"keywords"`
+	}
+	if err := common.UnmarshalJsonStr(raw, &items); err != nil {
+		return fmt.Errorf("filters must be a JSON array of {code, keywords[]}: %s", err.Error())
+	}
+	return nil
+}
+
+// validateLogAlertScopeValues 校验 scope_values 与 scope_type 组合合法：
+//   - all    → 必须为空
+//   - user   → JSON 字符串数组，非空
+//   - channel→ JSON 数字数组（或字符串数字），正数、非空
+//   - token  → 扁平数字数组 或 [{user_id, token_ids[]}]，展平后非空
+//
+// 同时限制单个 scope 目标数不超过 logAlertMaxScopeValues。
+func validateLogAlertScopeValues(scope, raw string) error {
+	raw = strings.TrimSpace(raw)
+	switch scope {
+	case "all":
+		if raw != "" && raw != "[]" && raw != "null" {
+			return fmt.Errorf("scope_values must be empty when scope_type=all")
+		}
+		return nil
+	case "user":
+		var arr []string
+		if err := common.UnmarshalJsonStr(raw, &arr); err != nil {
+			return fmt.Errorf("scope_values for user must be a JSON array of usernames: %s", err.Error())
+		}
+		clean := 0
+		for _, s := range arr {
+			if strings.TrimSpace(s) != "" {
+				clean++
+			}
+		}
+		if clean == 0 {
+			return fmt.Errorf("scope_values must not be empty when scope_type=user")
+		}
+		if clean > logAlertMaxScopeValues {
+			return fmt.Errorf("scope_values too many (max %d)", logAlertMaxScopeValues)
+		}
+		return nil
+	case "channel":
+		var ids []int
+		if err := common.UnmarshalJsonStr(raw, &ids); err != nil {
+			var strArr []string
+			if e := common.UnmarshalJsonStr(raw, &strArr); e != nil {
+				return fmt.Errorf("scope_values for channel must be a JSON array of channel ids: %s", err.Error())
+			}
+			ids = ids[:0]
+			for _, s := range strArr {
+				var v int
+				if _, e := fmt.Sscanf(strings.TrimSpace(s), "%d", &v); e == nil {
+					ids = append(ids, v)
+				}
+			}
+		}
+		clean := 0
+		for _, id := range ids {
+			if id > 0 {
+				clean++
+			}
+		}
+		if clean == 0 {
+			return fmt.Errorf("scope_values must contain at least one positive channel id")
+		}
+		if clean > logAlertMaxScopeValues {
+			return fmt.Errorf("scope_values too many (max %d)", logAlertMaxScopeValues)
+		}
+		return nil
+	case "token":
+		// 先试扁平
+		var flat []int
+		if err := common.UnmarshalJsonStr(raw, &flat); err == nil {
+			total := 0
+			for _, id := range flat {
+				if id > 0 {
+					total++
+				}
+			}
+			if total == 0 {
+				return fmt.Errorf("scope_values must contain at least one positive token id")
+			}
+			if total > logAlertMaxScopeValues {
+				return fmt.Errorf("scope_values too many (max %d)", logAlertMaxScopeValues)
+			}
+			return nil
+		}
+		// 再试对象数组
+		var groups []struct {
+			UserId   int   `json:"user_id"`
+			TokenIds []int `json:"token_ids"`
+		}
+		if err := common.UnmarshalJsonStr(raw, &groups); err != nil {
+			return fmt.Errorf("scope_values for token must be a flat id array or [{user_id, token_ids[]}]: %s", err.Error())
+		}
+		total := 0
+		for _, g := range groups {
+			for _, id := range g.TokenIds {
+				if id > 0 {
+					total++
+				}
+			}
+		}
+		if total == 0 {
+			return fmt.Errorf("scope_values must contain at least one positive token id")
+		}
+		if total > logAlertMaxScopeValues {
+			return fmt.Errorf("scope_values too many (max %d)", logAlertMaxScopeValues)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported scope_type: %s", scope)
 }
 
 func ListLogAlertRules(c *gin.Context) {
@@ -187,7 +331,7 @@ func ToggleLogAlertRule(c *gin.Context) {
 		if interval <= 0 {
 			interval = 1
 		}
-		rule.LastScanAt = time.Now().Unix() - int64(interval*60)
+		rule.LastScanAt = time.Now().Unix() - int64(interval)*60
 	}
 	rule.UpdatedAt = time.Now().Unix()
 	if err := model.UpdateLogAlertRule(c.Request.Context(), rule); err != nil {
@@ -310,14 +454,12 @@ func AckLogAlertEvent(c *gin.Context) {
 	// 延长冷却到 15 分钟
 	_ = service.LogAlertCooldownExtend(ev.ScopeKey, service.LogAlertAckedCooldown)
 
-	// 302 跳转到通用日志页，携带 request_id 用于前端定位/过滤
-	base := strings.TrimRight(strings.TrimSpace(system_setting.ServerAddress), "/")
-	if base == "" {
-		base = "http://localhost:3000"
-	}
+	// 302 跳转到通用日志页，携带 request_id 用于前端定位/过滤。
+	// base 复用 ResolveLogAlertBaseURL()：与告警链接自身的 base 一致，
+	// 避免"链接指向 A 域名 → 302 跳到 B 域名（或 localhost）"这类割裂。
 	// 前端通用日志页面路由（web/default）：/usage-logs/common
-	// 附带 request_id 参数供前端过滤条读取（前端不实现该参数解析也不影响：至少打开了日志页）
-	redirect := fmt.Sprintf("%s/usage-logs/common?request_id=%s", base, ev.SampleRequest)
-	common.SysLog(fmt.Sprintf("log alert acked: event=%d rule=%d scope=%s → %s", ev.Id, ev.RuleId, ev.ScopeKey, redirect))
+	base := service.ResolveLogAlertBaseURL()
+	redirect := fmt.Sprintf("%s/usage-logs/common?request_id=%s", base, url.QueryEscape(ev.SampleRequest))
+	common.SysLog(fmt.Sprintf("log alert acked: event=%d rule=%d scope=%s", ev.Id, ev.RuleId, ev.ScopeKey))
 	c.Redirect(http.StatusFound, redirect)
 }

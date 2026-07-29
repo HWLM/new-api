@@ -11,6 +11,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 // 错误日志告警评估器：每 60s tick 一次，仅 master 节点跑。
@@ -19,8 +21,10 @@ import (
 
 const (
 	logAlertEvalInterval = 60 * time.Second
-	// 单次扫描日志数硬上限，防某个规则长时间未跑窗口过大爆内存
-	logAlertMaxScanRows = 5000
+	// 单条规则的处理超时（每 rule 独立，避免慢查询拖垮其他 rule）
+	logAlertRulePerRuleTimeout = 30 * time.Second
+	// 流式扫描单批大小；桶只存聚合值，因此内存与批大小成正比、与总量无关
+	logAlertBatchSize = 1000
 	// 用户点 ack 后的静默时长
 	logAlertAckedCooldown = 15 * time.Minute
 	// 未配 env 时告警链接默认前缀
@@ -53,17 +57,51 @@ func runLogAlertEvaluator(ctx context.Context) {
 }
 
 func evalLogAlertsOnce(parent context.Context) {
-	ctx, cancel := context.WithTimeout(parent, 45*time.Second)
-	defer cancel()
+	// 硬截止：evalOnce 总执行时间必须 < leader TTL，防止即使心跳失败也不会跨节点重叠。
+	// 到点 ctx.Done() 会让 evalLogAlertRule 里的 FindInBatches 自然中止本 rule；
+	// 未处理完的 rule 落到下一 tick 继续，冷却机制保证不会重复告警。
+	onceCtx, cancelOnce := context.WithTimeout(parent, logAlertEvalOnceHardDeadline)
+	defer cancelOnce()
 
-	rules, err := model.ListEnabledLogAlertRules(ctx)
+	// 心跳：evalOnce 期间每 30s 续一次 TTL，避免慢查询把 TTL 拖爆。
+	// 心跳失败 → 立即 cancel 本轮 evalOnce，让 rule 循环退出，本节点主动让位。
+	heartbeatCtx, cancelHeartbeat := context.WithCancel(onceCtx)
+	defer cancelHeartbeat()
+	go func() {
+		t := time.NewTicker(logAlertLeaderHeartbeat)
+		defer t.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-t.C:
+				if !renewLogAlertLeader() {
+					common.SysError("log alert leader: renew returned false, cancel evalOnce to yield")
+					cancelOnce()
+					return
+				}
+			}
+		}
+	}()
+	// evalOnce 结束后主动释放锁，正常路径下别的节点无需等 TTL 就能接手。
+	defer releaseLogAlertLeader()
+
+	// 用 parent 拉规则列表；每条规则的执行走独立 timeout，避免一条慢查询拖死其他规则
+	listCtx, cancel := context.WithTimeout(onceCtx, 10*time.Second)
+	rules, err := model.ListEnabledLogAlertRules(listCtx)
+	cancel()
 	if err != nil {
 		common.SysError("log alert: load rules failed: " + err.Error())
 		return
 	}
 	now := time.Now()
 	for i := range rules {
-		evalLogAlertRule(ctx, &rules[i], now)
+		if onceCtx.Err() != nil {
+			return
+		}
+		ruleCtx, ruleCancel := context.WithTimeout(onceCtx, logAlertRulePerRuleTimeout)
+		evalLogAlertRule(ruleCtx, &rules[i], now)
+		ruleCancel()
 	}
 }
 
@@ -72,53 +110,97 @@ func evalLogAlertRule(ctx context.Context, rule *model.LogAlertRule, now time.Ti
 	if interval <= 0 {
 		interval = 1
 	}
+	nowUnix := now.Unix()
+
+	// 时钟回拨兜底：LastScanAt 若在未来（NTP 回拨、机器/DB 时间不同步），
+	// 差值恒为负会永远小于阈值 → 规则再也不跑。强制把水位拉回最近一个 interval。
+	if rule.LastScanAt > nowUnix {
+		common.SysError(fmt.Sprintf("log alert rule=%d LastScanAt=%d > now=%d, clock skew? clamp to now-interval",
+			rule.Id, rule.LastScanAt, nowUnix))
+		rule.LastScanAt = nowUnix - int64(interval)*60
+	}
+
 	// 频率判定：距上次扫描不足 interval 分钟就跳过
-	if rule.LastScanAt > 0 && now.Unix()-rule.LastScanAt < int64(interval*60) {
+	if rule.LastScanAt > 0 && nowUnix-rule.LastScanAt < int64(interval)*60 {
 		return
 	}
 	windowFrom := rule.LastScanAt
 	if windowFrom <= 0 {
 		// 极端兜底：新规则的 LastScanAt 应由 controller 初始化为 CreatedAt，
 		// 若历史数据出现 0，把窗口限制在最近一个 interval 内以避免扫全库。
-		windowFrom = now.Unix() - int64(interval*60)
+		windowFrom = nowUnix - int64(interval)*60
 	}
-	windowTo := now.Unix()
+	windowTo := nowUnix
 
-	logs, truncated, err := fetchErrorLogsForRule(ctx, rule, windowFrom, windowTo)
-	if err != nil {
-		common.SysError(fmt.Sprintf("log alert rule=%d fetch failed: %s", rule.Id, err.Error()))
+	q, hasScope := buildLogAlertBaseQuery(ctx, rule, windowFrom, windowTo)
+	if !hasScope {
+		// scope 目标为空 / 非法：本窗口没有可扫的记录，仍推进水位避免下次窗口无限扩大
+		_ = model.TouchLogAlertRuleLastScan(ctx, rule.Id, windowTo)
 		return
 	}
-	if truncated {
-		common.SysError(fmt.Sprintf("log alert rule=%d hit row limit %d, window may be lagging", rule.Id, logAlertMaxScanRows))
+
+	filters, filterOK := parseLogAlertFilters(rule.Filters)
+	if !filterOK {
+		// filters 存在但解析失败：保守不告警（返回 false 会让 matchLogAlertFilters 永远不命中），
+		// 避免"损坏配置 → 全量告警风暴"。水位仍推进，下 tick 若配置修好即恢复。
+		common.SysError(fmt.Sprintf("log alert rule=%d filters malformed, skip this tick", rule.Id))
+		_ = model.TouchLogAlertRuleLastScan(ctx, rule.Id, windowTo)
+		return
 	}
 
-	// 过滤 + 分桶
-	filters := parseLogAlertFilters(rule.Filters)
-	buckets := bucketLogsForRule(rule, logs, filters)
+	// 流式聚合：桶只存 O(1) 大小的聚合值，与日志条数无关，天然无内存上限
+	aggs := map[string]*logAlertAgg{}
+	order := make([]string, 0, 16)
+
+	var batch []model.Log
+	err := q.
+		Select("id, user_id, username, token_id, token_name, channel_id, request_id, content").
+		Order("id ASC"). // 升序：批内游标天然递增，SampleId 覆写等于保留最新
+		FindInBatches(&batch, logAlertBatchSize, func(_ *gorm.DB, _ int) error {
+			for i := range batch {
+				lg := &batch[i]
+				if !matchLogAlertFilters(lg.Content, filters) {
+					continue
+				}
+				sv, sl := scopeKeyFor(rule, lg)
+				a, ok := aggs[sv]
+				if !ok {
+					a = &logAlertAgg{ScopeValue: sv, ScopeLabel: sl}
+					aggs[sv] = a
+					order = append(order, sv)
+				}
+				a.HitCount++
+				a.SampleId = lg.Id // 升序扫描：最后写入的即窗口内最新一条
+				a.SampleReq = lg.RequestId
+			}
+			return ctx.Err() // 超时/取消 → 中止本批循环
+		}).Error
+
+	if err != nil {
+		common.SysError(fmt.Sprintf("log alert rule=%d scan failed: %s", rule.Id, err.Error()))
+		// 不推水位：下 tick 从同一 windowFrom 重扫；重复告警由冷却机制拦住
+		return
+	}
 
 	// 逐桶告警
-	for _, b := range buckets {
-		if len(b.Logs) == 0 {
-			continue
-		}
-		cdRaw := BuildLogAlertCooldownKey(rule.Id, rule.ScopeType, b.ScopeValue)
+	for _, sv := range order {
+		a := aggs[sv]
+		cdRaw := BuildLogAlertCooldownKey(rule.Id, rule.ScopeType, a.ScopeValue)
 		if LogAlertCooldownExists(cdRaw) {
 			continue
 		}
-		sample := b.Logs[0] // 已按 id 降序，最新一条
 		event := &model.LogAlertEvent{
 			RuleId:        rule.Id,
 			RuleName:      rule.Name,
 			ScopeType:     rule.ScopeType,
 			ScopeKey:      cdRaw,
-			ScopeLabel:    b.ScopeLabel,
-			HitCount:      len(b.Logs),
-			SampleLogId:   sample.Id,
-			SampleRequest: sample.RequestId,
+			ScopeLabel:    a.ScopeLabel,
+			HitCount:      a.HitCount,
+			SampleLogId:   a.SampleId,
+			SampleRequest: a.SampleReq,
 			WindowFromAt:  windowFrom,
 			WindowToAt:    windowTo,
-			FiredAt:       now.Unix(),
+			FiredAt:       nowUnix,
 			AckToken:      randAckToken(),
 		}
 		if err := model.CreateLogAlertEvent(ctx, event); err != nil {
@@ -132,18 +214,26 @@ func evalLogAlertRule(ctx context.Context, rule *model.LogAlertRule, now time.Ti
 		_ = LogAlertCooldownMark(cdRaw, time.Duration(interval)*time.Minute)
 	}
 
-	// 更新水位（无论有没有告警，都要推进）
-	if err := model.TouchLogAlertRuleLastScan(ctx, rule.Id, now.Unix()); err != nil {
+	// 全部批次跑完 → 推进水位
+	if err := model.TouchLogAlertRuleLastScan(ctx, rule.Id, windowTo); err != nil {
 		common.SysError(fmt.Sprintf("log alert rule=%d touch failed: %s", rule.Id, err.Error()))
 	}
 }
 
-// fetchErrorLogsForRule 走 LOG_DB 拉取 type=5 且落在时间窗内、可选按 scope 粗筛的日志。
-// 只 SELECT 告警需要的最小字段集。返回结果按 id DESC 排序（便于取"最新一条"作为跳转样本）。
-func fetchErrorLogsForRule(ctx context.Context, rule *model.LogAlertRule, from, to int64) ([]model.Log, bool, error) {
+// logAlertAgg 每个 scope 桶的聚合值。桶不再 hold 原始 []Log，因此没有 5000 条硬上限。
+type logAlertAgg struct {
+	ScopeValue string
+	ScopeLabel string
+	HitCount   int
+	SampleId   int
+	SampleReq  string
+}
+
+// buildLogAlertBaseQuery 拼装 rule 对应的 WHERE 子句。
+// 第二个返回值 hasScope=false 表示 scope 目标为空/非法，本 rule 本窗口无可扫记录。
+func buildLogAlertBaseQuery(ctx context.Context, rule *model.LogAlertRule, from, to int64) (*gorm.DB, bool) {
 	q := model.LOG_DB.WithContext(ctx).
 		Model(&model.Log{}).
-		Select("id, user_id, username, token_id, token_name, channel_id, request_id, content, created_at").
 		Where("type = ?", model.LogTypeError).
 		Where("created_at >= ? AND created_at < ?", from, to)
 
@@ -151,87 +241,50 @@ func fetchErrorLogsForRule(ctx context.Context, rule *model.LogAlertRule, from, 
 	case "user":
 		names := parseScopeUsernames(rule.ScopeValues)
 		if len(names) == 0 {
-			return nil, false, nil
+			return nil, false
 		}
 		q = q.Where("username IN ?", names)
 	case "token":
 		ids := parseScopeTokenIds(rule.ScopeValues)
 		if len(ids) == 0 {
-			return nil, false, nil
+			return nil, false
 		}
 		q = q.Where("token_id IN ?", ids)
 	case "channel":
 		ids := parseScopeChannelIds(rule.ScopeValues)
 		if len(ids) == 0 {
-			return nil, false, nil
+			return nil, false
 		}
 		q = q.Where("channel_id IN ?", ids)
 	case "all", "":
 		// 全量
 	default:
-		return nil, false, fmt.Errorf("unsupported scope_type: %s", rule.ScopeType)
+		return nil, false
 	}
-
-	var logs []model.Log
-	if err := q.Order("id DESC").Limit(logAlertMaxScanRows + 1).Find(&logs).Error; err != nil {
-		return nil, false, err
-	}
-	truncated := false
-	if len(logs) > logAlertMaxScanRows {
-		logs = logs[:logAlertMaxScanRows]
-		truncated = true
-	}
-	return logs, truncated, nil
+	return q, true
 }
 
-// bucketLogsForRule 应用过滤条件，按 scope 分桶。
-type logAlertBucket struct {
-	ScopeValue string      // "all" / "42" / channel id
-	ScopeLabel string      // 展示用（用户名 / 密钥名 / 渠道 id）
-	Logs       []model.Log // id DESC
-}
-
-func bucketLogsForRule(rule *model.LogAlertRule, logs []model.Log, filters []logAlertFilterItem) []*logAlertBucket {
-	byKey := make(map[string]*logAlertBucket)
-	order := []string{}
-	for _, lg := range logs {
-		if !matchLogAlertFilters(lg.Content, filters) {
-			continue
+// scopeKeyFor 为一条日志计算所属桶的 (scopeValue, scopeLabel)。
+func scopeKeyFor(rule *model.LogAlertRule, lg *model.Log) (string, string) {
+	switch rule.ScopeType {
+	case "user":
+		v := fmt.Sprintf("%d", lg.UserId)
+		if lg.Username != "" {
+			return v, lg.Username
 		}
-		var scopeValue, scopeLabel string
-		switch rule.ScopeType {
-		case "user":
-			scopeValue = fmt.Sprintf("%d", lg.UserId)
-			scopeLabel = lg.Username
-			if scopeLabel == "" {
-				scopeLabel = scopeValue
-			}
-		case "token":
-			scopeValue = fmt.Sprintf("%d", lg.TokenId)
-			scopeLabel = lg.TokenName
-			if scopeLabel == "" {
-				scopeLabel = scopeValue
-			}
-		case "channel":
-			scopeValue = fmt.Sprintf("%d", lg.ChannelId)
-			scopeLabel = scopeValue
-		default:
-			scopeValue = "all"
-			scopeLabel = "所有"
+		return v, v
+	case "token":
+		v := fmt.Sprintf("%d", lg.TokenId)
+		if lg.TokenName != "" {
+			return v, lg.TokenName
 		}
-		b, ok := byKey[scopeValue]
-		if !ok {
-			b = &logAlertBucket{ScopeValue: scopeValue, ScopeLabel: scopeLabel}
-			byKey[scopeValue] = b
-			order = append(order, scopeValue)
-		}
-		b.Logs = append(b.Logs, lg)
+		return v, v
+	case "channel":
+		v := fmt.Sprintf("%d", lg.ChannelId)
+		return v, v
+	default:
+		return "all", "所有"
 	}
-	out := make([]*logAlertBucket, 0, len(order))
-	for _, k := range order {
-		out = append(out, byKey[k])
-	}
-	return out
 }
 
 // ============== 过滤 ==============
@@ -241,16 +294,19 @@ type logAlertFilterItem struct {
 	Keywords []string `json:"keywords"`
 }
 
-func parseLogAlertFilters(raw string) []logAlertFilterItem {
+// parseLogAlertFilters 返回 (filters, ok)：
+//   - raw == "" → ({}, true)：无过滤器，全量命中，视为合法配置
+//   - JSON 合法 → (cleaned, true)
+//   - JSON 非法 → (nil, false)：调用方应保守跳过本 tick，不能当作"不过滤"
+func parseLogAlertFilters(raw string) ([]logAlertFilterItem, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil
+		return nil, true
 	}
 	var items []logAlertFilterItem
 	if err := common.UnmarshalJsonStr(raw, &items); err != nil {
-		return nil
+		return nil, false
 	}
-	// 清理空白
 	cleaned := make([]logAlertFilterItem, 0, len(items))
 	for _, it := range items {
 		it.Code = strings.TrimSpace(it.Code)
@@ -267,7 +323,7 @@ func parseLogAlertFilters(raw string) []logAlertFilterItem {
 		}
 		cleaned = append(cleaned, it)
 	}
-	return cleaned
+	return cleaned, true
 }
 
 // matchLogAlertFilters 语义：
@@ -478,14 +534,16 @@ func FirstScopeLabelForRule(rule *model.LogAlertRule) string {
 	return ""
 }
 
-// resolveLogAlertBaseURL 统一决策告警链接的 base：
+// ResolveLogAlertBaseURL 统一决策告警链接的 base：
 //
 //	优先级：env LOG_ALERT_BASE_URL > logAlertDefaultBaseURL
 //
 // 面板主域名（system_setting.ServerAddress）与告警链接域名往往需要拆开
 // （例如 API 走 cnapi.xxx，面板走 xxx），所以不再回退到 ServerAddress，
 // 直接落到本文件常量。dev/本地需要不同地址时用 env 覆盖。
-func resolveLogAlertBaseURL() string {
+//
+// 导出后 controller 里 ack 跳转也走同一个 base，避免"告警链接指向 A，302 跳到 B"。
+func ResolveLogAlertBaseURL() string {
 	if v := strings.TrimSpace(os.Getenv("LOG_ALERT_BASE_URL")); v != "" {
 		return strings.TrimRight(v, "/")
 	}
@@ -495,20 +553,21 @@ func resolveLogAlertBaseURL() string {
 // BuildLogAlertPreviewLink 生成"测试推送"用的示例链接，指向系统通用日志页。
 // 不带 ack token；仅用于展示消息结构。
 func BuildLogAlertPreviewLink(rule *model.LogAlertRule) string {
-	return fmt.Sprintf("%s/usage-logs/common?preview_rule=%d", resolveLogAlertBaseURL(), rule.Id)
+	return fmt.Sprintf("%s/usage-logs/common?preview_rule=%d", ResolveLogAlertBaseURL(), rule.Id)
 }
 
 // buildLogAlertAckLink 生成匿名 ack 链接。
 func buildLogAlertAckLink(event *model.LogAlertEvent) string {
-	return fmt.Sprintf("%s/api/error-log-alerts/events/%d/ack?t=%s", resolveLogAlertBaseURL(), event.Id, event.AckToken)
+	return fmt.Sprintf("%s/api/error-log-alerts/events/%d/ack?t=%s", ResolveLogAlertBaseURL(), event.Id, event.AckToken)
 }
 
 // randAckToken 生成 8 字节 hex（16 字符）。
+// crypto/rand 失败时返回空串，让调用方感知并处理（不给可预测 fallback token）。
 func randAckToken() string {
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
-		// 极端兜底：用时间戳
-		return fmt.Sprintf("%016x", time.Now().UnixNano())
+		common.SysError("log alert: crypto/rand failed, ack token empty: " + err.Error())
+		return ""
 	}
 	return hex.EncodeToString(buf)
 }
