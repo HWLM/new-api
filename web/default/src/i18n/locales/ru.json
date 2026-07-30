@@ -5602,6 +5602,7 @@
     "Ctrl / Cmd + click to select multiple tokens.": "Ctrl / Cmd + клик для выбора нескольких токенов.",
     "Search by username or display name": "Поиск по имени пользователя или отображаемому имени",
     "No matching users": "Нет подходящих пользователей",
+    "No more users": "Больше пользователей нет",
     "Daily Active Window": "Ежедневное окно активности",
     "Only alert within this daily window; default 00:00~23:59 = all day": "Оповещать только в этом ежедневном окне; по умолчанию 00:00~23:59 = весь день",
     "Active start must be earlier than or equal to end": "Начало должно быть раньше или равно окончанию"

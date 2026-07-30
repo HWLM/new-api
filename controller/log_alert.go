@@ -405,37 +405,44 @@ func ListLogAlertEvents(c *gin.Context) {
 	responseOK(c, events)
 }
 
-// LookupUsersForLogAlert 按 keyword 搜索用户，供告警规则编辑页做用户下拉。
-// 返回精简的 {id, username}，避免带出敏感字段。
-// 路由：GET /api/error-log-alerts/lookup/users?keyword=xxx&limit=20
+// LookupUsersForLogAlert 用户下拉：支持"打开即列出全量 + 输入 keyword 过滤"两种交互。
+// 用分页模型承载：page/page_size 由前端控制，接口不做上限 clamp，
+// 让前端可自行决定"一次拉多少 / 是否继续加载下一页"。
+// 空 keyword 时走 SearchUsers 传空词（等价于 LIKE '%%'），一并复用其分页与 total 统计。
+// 返回结构 {items, page, page_size, total}，前端据 total 判是否还有下一页。
+// 路由：GET /api/error-log-alerts/lookup/users?keyword=xxx&page=1&page_size=20
 func LookupUsersForLogAlert(c *gin.Context) {
 	keyword := strings.TrimSpace(c.Query("keyword"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	if limit <= 0 || limit > 100 {
-		limit = 20
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
 	}
-	var (
-		users []*model.User
-		err   error
-	)
-	if keyword == "" {
-		users, _, err = model.GetAllUsers(&common.PageInfo{PageSize: limit, Page: 1})
-	} else {
-		users, _, err = model.SearchUsers(keyword, "", nil, nil, nil, nil, nil, nil, 0, limit)
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize <= 0 {
+		pageSize = 20
 	}
+	startIdx := (page - 1) * pageSize
+	users, total, err := model.SearchUsers(keyword, "", nil, nil, nil, nil, nil, nil, startIdx, pageSize)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := make([]gin.H, 0, len(users))
+	items := make([]gin.H, 0, len(users))
 	for _, u := range users {
-		out = append(out, gin.H{"id": u.Id, "username": u.Username, "display_name": u.DisplayName})
+		items = append(items, gin.H{"id": u.Id, "username": u.Username, "display_name": u.DisplayName})
 	}
-	responseOK(c, out)
+	responseOK(c, gin.H{
+		"items":     items,
+		"page":      page,
+		"page_size": pageSize,
+		"total":     total,
+	})
 }
 
-// LookupTokensForLogAlert 列出指定用户下的密钥，供告警规则编辑页做密钥多选。
-// 只返回 {id, name}，不返回密钥明文。
+// LookupTokensForLogAlert 列出指定用户下的**全部密钥**，供告警规则编辑页做密钥多选。
+// 只 SELECT id, name：告警链路用不到密钥明文，避免把 Key 加载进内存
+// （不用 GetAllUserTokens，那个方法返回完整 Token 实体含 Key 字段）。
+// 不做条数上限：Limit(-1) 移除 LIMIT 子句，等价于取全量；避免"密钥数超过 N 就选不到"这种隐式截断。
 // 路由：GET /api/error-log-alerts/lookup/tokens?user_id=xxx
 func LookupTokensForLogAlert(c *gin.Context) {
 	userId, _ := strconv.Atoi(c.Query("user_id"))
@@ -443,14 +450,19 @@ func LookupTokensForLogAlert(c *gin.Context) {
 		responseErr(c, http.StatusBadRequest, "user_id required")
 		return
 	}
-	tokens, err := model.GetAllUserTokens(userId, 0, 200)
+	var out []struct {
+		Id   int    `json:"id"`
+		Name string `json:"name"`
+	}
+	err := model.DB.WithContext(c.Request.Context()).
+		Model(&model.Token{}).
+		Select("id, name").
+		Where("user_id = ?", userId).
+		Order("id desc").
+		Find(&out).Error
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return
-	}
-	out := make([]gin.H, 0, len(tokens))
-	for _, tk := range tokens {
-		out = append(out, gin.H{"id": tk.Id, "name": tk.Name})
 	}
 	responseOK(c, out)
 }

@@ -5602,6 +5602,7 @@
     "Ctrl / Cmd + click to select multiple tokens.": "Ctrl / Cmd + クリックで複数のトークンを選択できます。",
     "Search by username or display name": "ユーザー名または表示名で検索",
     "No matching users": "一致するユーザーはいません",
+    "No more users": "これ以上ユーザーはいません",
     "Daily Active Window": "毎日の有効時間帯",
     "Only alert within this daily window; default 00:00~23:59 = all day": "この時間帯内のみアラート。デフォルト 00:00〜23:59 は終日",
     "Active start must be earlier than or equal to end": "開始時刻は終了時刻以前である必要があります"
