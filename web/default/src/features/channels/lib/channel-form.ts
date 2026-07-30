@@ -65,6 +65,23 @@ function isOptionalModelMapping(value: string | undefined): boolean {
   }
 }
 
+function isOptionalVideoRequestFormatMapping(
+  value: string | undefined
+): boolean {
+  try {
+    const parsed = parseOptionalJson(value)
+    if (parsed === undefined) return true
+    if (!isJsonObjectValue(parsed)) return false
+    return Object.entries(parsed).every(
+      ([model, format]) =>
+        model.trim().length > 0 &&
+        (format === 'openai' || format === 'seedance_v3')
+    )
+  } catch {
+    return false
+  }
+}
+
 function isOptionalStatusCodeMapping(value: string | undefined): boolean {
   try {
     const parsed = parseOptionalJson(value)
@@ -233,6 +250,13 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    video_request_format_by_model: z
+      .string()
+      .optional()
+      .refine(
+        isOptionalVideoRequestFormatMapping,
+        ERROR_MESSAGES.INVALID_JSON
+      ),
     // Field passthrough controls (stored in settings JSON)
     allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
     disable_store: z.boolean().optional(), // OpenAI only
@@ -386,6 +410,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   seedance_task_get_target: '',
   seedance_task_get_parameters: '{}',
   seedance_task_get_response_mapping: '{}',
+  video_request_format_by_model: '{}',
   // Field passthrough controls
   allow_service_tier: false,
   disable_store: false,
@@ -468,6 +493,7 @@ export function transformChannelToFormDefaults(
   let seedanceTaskGetTarget = ''
   let seedanceTaskGetParameters = '{}'
   let seedanceTaskGetResponseMapping = '{}'
+  let videoRequestFormatByModel = '{}'
 
   if (channel.settings) {
     try {
@@ -498,6 +524,17 @@ export function transformChannelToFormDefaults(
       }
       assetBaseUrl = parsed.asset_base_url || ''
       const seedanceRoutes = parsed.seedance_v3_routes
+      if (
+        parsed.video_request_format_by_model &&
+        typeof parsed.video_request_format_by_model === 'object' &&
+        !Array.isArray(parsed.video_request_format_by_model)
+      ) {
+        videoRequestFormatByModel = JSON.stringify(
+          parsed.video_request_format_by_model,
+          null,
+          2
+        )
+      }
       if (seedanceRoutes?.asset_create) {
         seedanceAssetCreateMethod = seedanceRoutes.asset_create.method || 'POST'
         seedanceAssetCreateTarget = seedanceRoutes.asset_create.target || ''
@@ -604,6 +641,7 @@ export function transformChannelToFormDefaults(
     seedance_task_get_target: seedanceTaskGetTarget,
     seedance_task_get_parameters: seedanceTaskGetParameters,
     seedance_task_get_response_mapping: seedanceTaskGetResponseMapping,
+    video_request_format_by_model: videoRequestFormatByModel,
   }
 }
 
@@ -730,6 +768,19 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     }
   } else {
     delete settingsObj.seedance_v3_routes
+  }
+
+  if ([45, 54, 81].includes(formData.type)) {
+    const requestFormats = JSON.parse(
+      formData.video_request_format_by_model?.trim() || '{}'
+    ) as Record<string, 'openai' | 'seedance_v3'>
+    if (Object.keys(requestFormats).length > 0) {
+      settingsObj.video_request_format_by_model = requestFormats
+    } else {
+      delete settingsObj.video_request_format_by_model
+    }
+  } else {
+    delete settingsObj.video_request_format_by_model
   }
 
   // Add enterprise account setting for OpenRouter (type 20)

@@ -3,6 +3,7 @@ package doubao
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/model"
@@ -53,29 +54,51 @@ func TestEstimateBillingAddsVideoInputAndDurationEstimate(t *testing.T) {
 	assert.True(t, info.HasVideoInput)
 }
 
-// TestEstimateBillingDurationSentinelUsesMaxUpperBound 覆盖 duration=-1 / 缺失场景，
-// 应回落到 MaxTaskDurationSeconds/5 作上限估算，保证预扣够扣。
-func TestEstimateBillingDurationSentinelUsesMaxUpperBound(t *testing.T) {
+// TestEstimateBillingDurationSentinelDefaultsToFiveSeconds 覆盖 duration=-1 / 0 / 缺失场景，
+// 应按 5s 基准估算，不添加 duration_estimate 倍率。
+func TestEstimateBillingDurationSentinelDefaultsToFiveSeconds(t *testing.T) {
 	info := &relaycommon.RelayInfo{OriginModelName: "doubao-seedance-2-0-filter-off"}
-	fallback := float64(relaycommon.MaxTaskDurationSeconds) / 5.0
 
 	// duration=-1
 	c := setupTaskRequestContext(t, map[string]any{
 		"resolution": "720p",
 		"duration":   float64(-1),
 	})
-	ratios := (&TaskAdaptor{}).EstimateBilling(c, info)
-	require.NotNil(t, ratios)
-	assert.InDelta(t, fallback, ratios["duration_estimate"], 1e-9)
+	assert.Nil(t, (&TaskAdaptor{}).EstimateBilling(c, info))
+
+	// duration=0
+	c2 := setupTaskRequestContext(t, map[string]any{
+		"resolution": "720p",
+		"duration":   float64(0),
+	})
+	assert.Nil(t, (&TaskAdaptor{}).EstimateBilling(c2, info))
 
 	// duration 缺失
-	c2 := setupTaskRequestContext(t, map[string]any{"resolution": "720p"})
-	ratios2 := (&TaskAdaptor{}).EstimateBilling(c2, info)
-	require.NotNil(t, ratios2)
-	assert.InDelta(t, fallback, ratios2["duration_estimate"], 1e-9)
+	c3 := setupTaskRequestContext(t, map[string]any{"resolution": "720p"})
+	assert.Nil(t, (&TaskAdaptor{}).EstimateBilling(c3, info))
+}
 
-	// 720p + hasVideo=false → GetVideoInputRatio 命中零值键返回 1.0，被 EstimateBilling 过滤
-	assert.NotContains(t, ratios2, "video_input", "resolution=720p 无视频输入时应无 video_input")
+func TestEstimateBillingV1VideoGenerationsDefaultsMissingDurationToFiveSeconds(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := strings.NewReader(`{
+		"model":"doubao-seedance-2-0-filter-off",
+		"prompt":"animate",
+		"metadata":{"resolution":"720p"}
+	}`)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", body)
+	c.Request.Header.Set("Content-Type", "application/json")
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "doubao-seedance-2-0-filter-off",
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+	}
+
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	storedReq, err := relaycommon.GetTaskRequest(c)
+	require.NoError(t, err)
+	assert.Zero(t, storedReq.Duration)
+	assert.Nil(t, adaptor.EstimateBilling(c, info))
 }
 
 // TestEstimateBillingBaselineNoRatios 覆盖 480p / 720p 基准无视频 + duration=5 时
@@ -96,10 +119,10 @@ func TestEstimateBillingUsesTopLevelDuration(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/contents/generations/tasks", nil)
 	c.Set("task_request", relaycommon.TaskSubmitReq{
-		Model:     "doubao-seedance-2-0-filter-off",
-		Prompt:    "animate",
-		Duration:  5,
-		Metadata:  map[string]any{"resolution": "720p"},
+		Model:    "doubao-seedance-2-0-filter-off",
+		Prompt:   "animate",
+		Duration: 5,
+		Metadata: map[string]any{"resolution": "720p"},
 	})
 
 	info := &relaycommon.RelayInfo{OriginModelName: "doubao-seedance-2-0-filter-off"}

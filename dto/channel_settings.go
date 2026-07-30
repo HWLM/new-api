@@ -58,6 +58,41 @@ type ChannelOtherSettings struct {
 	// by the public Seedance V3 API. A nil config keeps every existing adaptor
 	// default unchanged.
 	SeedanceV3Routes *SeedanceV3Routes `json:"seedance_v3_routes,omitempty"`
+	// VideoRequestFormatByModel controls how /v1/video/generations requests are
+	// serialized for individual models on this channel. Exact model names take
+	// precedence over the optional "*" fallback.
+	VideoRequestFormatByModel map[string]VideoRequestFormat `json:"video_request_format_by_model,omitempty"`
+}
+
+type VideoRequestFormat string
+
+const (
+	VideoRequestFormatOpenAI     VideoRequestFormat = "openai"
+	VideoRequestFormatSeedanceV3 VideoRequestFormat = "seedance_v3"
+)
+
+func (s ChannelOtherSettings) ResolveVideoRequestFormat(modelName string) VideoRequestFormat {
+	if len(s.VideoRequestFormatByModel) == 0 {
+		return ""
+	}
+	if format, ok := s.VideoRequestFormatByModel[strings.TrimSpace(modelName)]; ok {
+		return format
+	}
+	return s.VideoRequestFormatByModel["*"]
+}
+
+func (s ChannelOtherSettings) ValidateVideoRequestFormats() error {
+	for modelName, format := range s.VideoRequestFormatByModel {
+		if strings.TrimSpace(modelName) == "" {
+			return fmt.Errorf("video_request_format_by_model contains an empty model name")
+		}
+		switch format {
+		case VideoRequestFormatOpenAI, VideoRequestFormatSeedanceV3:
+		default:
+			return fmt.Errorf("video_request_format_by_model.%s is invalid: %s", modelName, format)
+		}
+	}
+	return nil
 }
 
 type SeedanceV3Routes struct {

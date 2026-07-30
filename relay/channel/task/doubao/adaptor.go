@@ -13,6 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
@@ -183,18 +184,16 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 // estimateDurationRatio 计算 duration_estimate 倍率（相对 5s 基准）。
 //   - 请求 5s → 1.0
 //   - 请求 N s → N/5
-//   - `-1` 或缺失 / 非法 → 用 MaxTaskDurationSeconds/5 作上限估算（宁可超扣，
-//     结算会按真实 tokens 精算并退回）
+//   - `-1` 或缺失 / 非法 → 按 5s 基准估算，即倍率 1.0
 //   - 剪到 [1, MaxTaskDurationSeconds] 后除 5
 func estimateDurationRatio(req *relaycommon.TaskSubmitReq) float64 {
 	const baseSeconds = 5.0
-	fallback := float64(relaycommon.MaxTaskDurationSeconds) / baseSeconds
 	if req == nil {
-		return fallback
+		return 1.0
 	}
 	seconds, ok := resolveTaskDurationSeconds(req)
 	if !ok || seconds <= 0 { // 包含 -1（模型自决）
-		return fallback
+		return 1.0
 	}
 	if seconds > float64(relaycommon.MaxTaskDurationSeconds) {
 		seconds = float64(relaycommon.MaxTaskDurationSeconds)
@@ -313,15 +312,43 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
+	if info.IsModelMapped {
+		req.Model = info.UpstreamModelName
+	} else {
+		info.UpstreamModelName = req.Model
+	}
+
+	requestFormat := info.ChannelOtherSettings.ResolveVideoRequestFormat(info.OriginModelName)
+	if c.Request.URL.Path == "/v1/video/generations" && requestFormat == dto.VideoRequestFormatOpenAI {
+		storage, err := common.GetBodyStorage(c)
+		if err != nil {
+			return nil, errors.Wrap(err, "get request body failed")
+		}
+		originalBody, err := storage.Bytes()
+		if err != nil {
+			return nil, errors.Wrap(err, "read request body failed")
+		}
+		var body map[string]any
+		if err := common.Unmarshal(originalBody, &body); err != nil {
+			return nil, errors.Wrap(err, "unmarshal request body failed")
+		}
+		body["model"] = req.Model
+		data, err := common.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		return bytes.NewReader(data), nil
+	}
 
 	body, err := a.convertToRequestPayload(&req)
 	if err != nil {
 		return nil, errors.Wrap(err, "convert request payload failed")
 	}
-	if info.IsModelMapped {
-		body.Model = info.UpstreamModelName
-	} else {
-		info.UpstreamModelName = body.Model
+	// /v1/video/generations uses 5s as its compatibility default. The native
+	// V3 endpoint applies the same default when duration is absent, so omit the
+	// field instead of turning a compatibility default into an explicit option.
+	if c.Request.URL.Path == "/v1/video/generations" && body.Duration != nil && *body.Duration == 5 {
+		body.Duration = nil
 	}
 	data, err := common.Marshal(body)
 	if err != nil {
@@ -332,6 +359,11 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 
 // DoRequest delegates to common helper.
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	method := http.MethodPost
+	target, err := a.BuildRequestURL(info)
+	if err != nil {
+		return nil, err
+	}
 	if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
 		route, err := taskcommon.NormalizeSeedanceV3Route(a.baseURL, a.seedanceRoutes.TaskCreate, http.MethodPost)
 		if err != nil {
@@ -341,7 +373,17 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 		if err != nil {
 			return nil, err
 		}
-		return channel.DoTaskApiRequestWithMethod(a, c, info, requestBody, route.Method)
+		method = route.Method
+		target = route.Target
+	}
+	body, err := io.ReadAll(requestBody)
+	if err != nil {
+		return nil, errors.Wrap(err, "read upstream request body failed")
+	}
+	logger.LogInfo(c, fmt.Sprintf("temporary Seedance upstream request: method=%s url=%s body=%s", method, target, body))
+	requestBody = bytes.NewReader(body)
+	if method != http.MethodPost {
+		return channel.DoTaskApiRequestWithMethod(a, c, info, requestBody, method)
 	}
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }

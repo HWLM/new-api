@@ -223,12 +223,28 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 	if quota == 0 {
 		return
 	}
+	claimed, err := task.ClaimRefundQuota(quota)
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("领取任务退款额度失败 task %s: %s", task.TaskID, err.Error()))
+		return
+	}
+	if !claimed {
+		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 已退款或退款处理中，跳过重复退款", task.TaskID))
+		return
+	}
 
 	// 1. 退还资金来源（钱包或订阅）
 	if err := taskAdjustFunding(task, -quota); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
+		restored, restoreErr := task.RestoreRefundQuota(quota)
+		if restoreErr != nil {
+			logger.LogError(ctx, fmt.Sprintf("恢复任务退款额度失败 task %s: %s", task.TaskID, restoreErr.Error()))
+		} else if !restored {
+			logger.LogError(ctx, fmt.Sprintf("恢复任务退款额度失败 task %s: quota 已被并发修改", task.TaskID))
+		}
 		return
 	}
+	task.Quota = 0
 
 	// 2. 退还令牌额度
 	taskAdjustTokenQuota(ctx, task, -quota)
@@ -355,26 +371,30 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		return
 	}
 
-	// 获取用户和组的倍率信息
-	group := task.Group
-	if group == "" {
-		user, err := model.GetUserById(task.UserId, false)
-		if err == nil {
-			group = user.Group
-		}
-	}
-	if group == "" {
-		return
-	}
-
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
-
+	// 新任务使用提交时冻结的倍率，避免异步结算受到配置变更或多节点同步延迟影响。
+	// 没有 BillingContext 的历史任务保留原有实时倍率回退逻辑。
 	var finalGroupRatio float64
-	if hasUserGroupRatio {
-		finalGroupRatio = userGroupRatio
+	if billingContext := task.PrivateData.BillingContext; billingContext != nil {
+		finalGroupRatio = billingContext.GroupRatio
 	} else {
-		finalGroupRatio = groupRatio
+		group := task.Group
+		if group == "" {
+			user, err := model.GetUserById(task.UserId, false)
+			if err == nil {
+				group = user.Group
+			}
+		}
+		if group == "" {
+			return
+		}
+
+		groupRatio := ratio_setting.GetGroupRatio(group)
+		userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
+		if hasUserGroupRatio {
+			finalGroupRatio = userGroupRatio
+		} else {
+			finalGroupRatio = groupRatio
+		}
 	}
 
 	// 计算 OtherRatios 乘积（视频折扣、时长等）

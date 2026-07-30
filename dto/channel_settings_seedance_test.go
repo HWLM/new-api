@@ -37,3 +37,19 @@ func TestSeedanceV3RoutesValidate(t *testing.T) {
 		assert.Contains(t, err.Error(), "{task_id}")
 	})
 }
+
+func TestChannelOtherSettingsVideoRequestFormats(t *testing.T) {
+	settings := ChannelOtherSettings{VideoRequestFormatByModel: map[string]VideoRequestFormat{
+		"*":                              VideoRequestFormatOpenAI,
+		"doubao-seedance-2-0-filter-off": VideoRequestFormatSeedanceV3,
+	}}
+
+	require.NoError(t, settings.ValidateVideoRequestFormats())
+	assert.Equal(t, VideoRequestFormatSeedanceV3, settings.ResolveVideoRequestFormat("doubao-seedance-2-0-filter-off"))
+	assert.Equal(t, VideoRequestFormatOpenAI, settings.ResolveVideoRequestFormat("another-model"))
+
+	settings.VideoRequestFormatByModel["invalid-model"] = "invalid"
+	err := settings.ValidateVideoRequestFormats()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid-model")
+}

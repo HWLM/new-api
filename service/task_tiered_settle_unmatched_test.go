@@ -85,6 +85,7 @@ func TestSettleTaskTieredExprExplicitFreeTierStillRefunds(t *testing.T) {
 		QuotaPerUnit: common.QuotaPerUnit,
 		ExprVersion:  billingexpr.ExprVersion(expr),
 	}
+	require.NoError(t, task.Insert())
 
 	settleTaskTieredExpr(ctx, task, &relaycommon.TaskInfo{})
 

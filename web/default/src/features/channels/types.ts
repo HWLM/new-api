@@ -114,7 +114,10 @@ export interface ChannelOtherSettings {
    */
   asset_base_url?: string
   seedance_v3_routes?: SeedanceV3Routes
+  video_request_format_by_model?: Record<string, VideoRequestFormat>
 }
+
+export type VideoRequestFormat = 'openai' | 'seedance_v3'
 
 export type SeedanceV3RouteMethod = 'GET' | 'POST' | 'PUT' | 'PATCH'
 
