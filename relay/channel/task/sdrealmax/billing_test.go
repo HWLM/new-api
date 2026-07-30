@@ -86,9 +86,9 @@ func TestEstimateBillingHC720PNoVideo(t *testing.T) {
 	assert.False(t, info.HasVideoInput)
 }
 
-// TestEstimateBillingHCDurationSentinel 覆盖 duration=nil（用户没传）应回落到
-// MaxTaskDurationSeconds/5 的上限估算。
-func TestEstimateBillingHCDurationSentinel(t *testing.T) {
+// TestEstimateBillingHCDurationDefaultsToFiveSeconds 覆盖 duration=nil（用户没传）时
+// 按 5s 基准估算，不添加 duration_estimate 倍率。
+func TestEstimateBillingHCDurationDefaultsToFiveSeconds(t *testing.T) {
 	req := dto.SeedanceV3VideoRequest{
 		Model:      ModelName,
 		Resolution: "480p",
@@ -104,11 +104,7 @@ func TestEstimateBillingHCDurationSentinel(t *testing.T) {
 
 	adaptor := &TaskAdaptor{}
 	adaptor.Init(info)
-	ratios := adaptor.EstimateBilling(c, info)
-	require.NotNil(t, ratios)
-
-	expected := float64(relaycommon.MaxTaskDurationSeconds) / 5.0
-	assert.InDelta(t, expected, ratios["duration_estimate"], 1e-9)
+	assert.Nil(t, adaptor.EstimateBilling(c, info))
 }
 
 // TestAdjustBillingRatiosOnCompleteHCStripsDurationEstimate 覆盖 hc 分支：

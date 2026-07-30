@@ -26,6 +26,31 @@ import {
 } from './channel-form'
 
 describe('Seedance channel routes', () => {
+  it('stores and restores per-model video request formats', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      type: 54,
+      video_request_format_by_model: JSON.stringify({
+        '*': 'openai',
+        'doubao-seedance-2-0-filter-off': 'seedance_v3',
+      }),
+    })
+
+    const settings = JSON.parse(String(payload.channel.settings))
+    expect(settings.video_request_format_by_model).toEqual({
+      '*': 'openai',
+      'doubao-seedance-2-0-filter-off': 'seedance_v3',
+    })
+
+    const defaults = transformChannelToFormDefaults({
+      ...payload.channel,
+      channel_info: {},
+    } as Channel)
+    expect(JSON.parse(defaults.video_request_format_by_model || '{}')).toEqual(
+      settings.video_request_format_by_model
+    )
+  })
+
   it('stores only configured routes for supported video channels', () => {
     const payload = transformFormDataToCreatePayload({
       ...CHANNEL_FORM_DEFAULT_VALUES,
