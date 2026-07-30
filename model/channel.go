@@ -979,6 +979,9 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelOtherSettings.SeedanceV3Routes.Validate(); err != nil {
 		return err
 	}
+	if err := channelOtherSettings.ValidateVideoRequestFormats(); err != nil {
+		return err
+	}
 	return nil
 }
 

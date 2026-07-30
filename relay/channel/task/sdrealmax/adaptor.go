@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/doubao"
@@ -171,16 +172,15 @@ func containsVideoInput(content []dto.SeedanceV3ContentItem) bool {
 }
 
 // hcDurationRatio 计算 hc 的 duration_estimate 倍率（相对 5s 基准）。
-// 与 doubao.estimateDurationRatio 语义一致：nil / <=0 → 上限估算；否则 seconds/5。
+// 与 doubao.estimateDurationRatio 语义一致：nil / <=0 → 5s 基准；否则 seconds/5。
 func hcDurationRatio(duration *int) float64 {
 	const baseSeconds = 5.0
-	fallback := float64(relaycommon.MaxTaskDurationSeconds) / baseSeconds
 	if duration == nil {
-		return fallback
+		return 1.0
 	}
 	seconds := *duration
 	if seconds <= 0 {
-		return fallback
+		return 1.0
 	}
 	if seconds > relaycommon.MaxTaskDurationSeconds {
 		seconds = relaycommon.MaxTaskDurationSeconds
@@ -243,6 +243,11 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 // URL 由 BuildRequestURL 按模型分发。素材由客户端自行通过 /api/v3/open/CreateAsset 上传，
 // 网关不再扫描 content 里的图片 URL 也不做替换。
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	method := http.MethodPost
+	target, err := a.BuildRequestURL(info)
+	if err != nil {
+		return nil, err
+	}
 	if a.seedanceRoutes != nil && a.seedanceRoutes.TaskCreate.IsConfigured() {
 		route, err := taskcommon.NormalizeSeedanceV3Route(a.baseURL, a.seedanceRoutes.TaskCreate, http.MethodPost)
 		if err != nil {
@@ -252,7 +257,17 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 		if err != nil {
 			return nil, err
 		}
-		return channel.DoTaskApiRequestWithMethod(a, c, info, requestBody, route.Method)
+		method = route.Method
+		target = route.Target
+	}
+	body, err := io.ReadAll(requestBody)
+	if err != nil {
+		return nil, errors.Wrap(err, "read upstream request body failed")
+	}
+	logger.LogInfo(c, fmt.Sprintf("temporary Seedance upstream request: method=%s url=%s body=%s", method, target, body))
+	requestBody = bytes.NewReader(body)
+	if method != http.MethodPost {
+		return channel.DoTaskApiRequestWithMethod(a, c, info, requestBody, method)
 	}
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }

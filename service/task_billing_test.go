@@ -6,12 +6,14 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -229,6 +231,7 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	require.NoError(t, task.Insert())
 
 	RefundTaskQuota(ctx, task, "task failed: upstream error")
 
@@ -262,6 +265,7 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 	seedSubscription(t, subID, userID, subTotal, subUsed)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceSubscription, subID)
+	require.NoError(t, task.Insert())
 
 	RefundTaskQuota(ctx, task, "subscription task failed")
 
@@ -284,6 +288,7 @@ func TestRefundTaskQuota_ZeroQuota(t *testing.T) {
 	seedUser(t, userID, 5000)
 
 	task := makeTask(userID, 0, 0, 0, BillingSourceWallet, 0)
+	require.NoError(t, task.Insert())
 
 	RefundTaskQuota(ctx, task, "zero quota task")
 
@@ -305,6 +310,7 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0) // TokenId=0
+	require.NoError(t, task.Insert())
 
 	RefundTaskQuota(ctx, task, "no token task failed")
 
@@ -315,6 +321,69 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestRefundTaskQuota_ConcurrentCallsRefundOnce(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 5, 5, 5
+	const initQuota, preConsumed = 10000, 2500
+	const tokenRemain = 6000
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-refund-once", tokenRemain)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	require.NoError(t, task.Insert())
+
+	var first, second model.Task
+	require.NoError(t, model.DB.First(&first, task.ID).Error)
+	require.NoError(t, model.DB.First(&second, task.ID).Error)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		RefundTaskQuota(ctx, &first, "concurrent upstream failure")
+	}()
+	go func() {
+		defer wg.Done()
+		RefundTaskQuota(ctx, &second, "concurrent upstream failure")
+	}()
+	wg.Wait()
+
+	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, -preConsumed, getTokenUsedQuota(t, tokenID))
+	assert.Equal(t, int64(1), countLogs(t))
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Zero(t, stored.Quota)
+}
+
+func TestRefundTaskQuota_FundingFailureRestoresClaim(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, channelID = 6, 6
+	const preConsumed = 1800
+
+	seedUser(t, userID, 0)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceSubscription, 999)
+	require.NoError(t, task.Insert())
+
+	RefundTaskQuota(ctx, task, "subscription lookup failed")
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Equal(t, preConsumed, stored.Quota)
+	assert.Equal(t, preConsumed, task.Quota)
+	assert.Equal(t, int64(0), countLogs(t))
 }
 
 // ===========================================================================
@@ -394,6 +463,81 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed-actualQuota, log.Quota)
+}
+
+func TestRecalculateTaskQuotaByTokensUsesFrozenGroupRatio(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	originalModelRatio := ratio_setting.ModelRatio2JSONString()
+	originalGroupRatio := ratio_setting.GroupRatio2JSONString()
+	originalGroupGroupRatio := ratio_setting.GroupGroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalModelRatio))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatio))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(originalGroupGroupRatio))
+	})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":2}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"billing-group":0.5}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{}`))
+
+	const userID, tokenID, channelID = 12, 12, 12
+	const initialQuota, preConsumedQuota, tokenRemainQuota = 10000, 1000, 10000
+	seedUser(t, userID, initialQuota)
+	seedToken(t, tokenID, userID, "sk-frozen-group-ratio", tokenRemainQuota)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, preConsumedQuota, tokenID, BillingSourceWallet, 0)
+	task.Group = "billing-group"
+	task.PrivateData.BillingContext.GroupRatio = 0.75
+
+	RecalculateTaskQuotaByTokens(ctx, task, 1000)
+
+	const actualQuota = 1500 // 1000 tokens * model ratio 2 * frozen group ratio 0.75
+	assert.Equal(t, actualQuota, task.Quota)
+	assert.Equal(t, initialQuota-(actualQuota-preConsumedQuota), getUserQuota(t, userID))
+	assert.Equal(t, tokenRemainQuota-(actualQuota-preConsumedQuota), getTokenRemainQuota(t, tokenID))
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Contains(t, log.Content, "groupRatio=0.75")
+	var other map[string]interface{}
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, 0.75, other["group_ratio"])
+}
+
+func TestRecalculateTaskQuotaByTokensLegacyTaskUsesCurrentGroupRatio(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	originalModelRatio := ratio_setting.ModelRatio2JSONString()
+	originalGroupRatio := ratio_setting.GroupRatio2JSONString()
+	originalGroupGroupRatio := ratio_setting.GroupGroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalModelRatio))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatio))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(originalGroupGroupRatio))
+	})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":2}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"billing-group":0.5}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{}`))
+
+	const userID, tokenID, channelID = 13, 13, 13
+	const initialQuota, preConsumedQuota, tokenRemainQuota = 10000, 1500, 10000
+	seedUser(t, userID, initialQuota)
+	seedToken(t, tokenID, userID, "sk-legacy-group-ratio", tokenRemainQuota)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, preConsumedQuota, tokenID, BillingSourceWallet, 0)
+	task.Group = "billing-group"
+	task.PrivateData.BillingContext = nil
+
+	RecalculateTaskQuotaByTokens(ctx, task, 1000)
+
+	const actualQuota = 1000 // 1000 tokens * model ratio 2 * current group ratio 0.5
+	assert.Equal(t, actualQuota, task.Quota)
+	assert.Equal(t, initialQuota+(preConsumedQuota-actualQuota), getUserQuota(t, userID))
+	assert.Equal(t, tokenRemainQuota+(preConsumedQuota-actualQuota), getTokenRemainQuota(t, tokenID))
 }
 
 func TestRecalculate_ZeroDelta(t *testing.T) {

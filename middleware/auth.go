@@ -223,8 +223,11 @@ func TokenOrUserAuth() func(c *gin.Context) {
 		// Try session auth first (dashboard users)
 		session := sessions.Default(c)
 		if id := session.Get("id"); id != nil {
-			if status, ok := session.Get("status").(int); ok && status == common.UserStatusEnabled {
+			status, statusOK := session.Get("status").(int)
+			role, roleOK := session.Get("role").(int)
+			if statusOK && roleOK && status == common.UserStatusEnabled && common.IsValidateRole(role) {
 				c.Set("id", id)
+				c.Set("role", role)
 				c.Next()
 				return
 			}

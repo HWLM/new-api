@@ -447,6 +447,29 @@ func (t *Task) UpdateQuota() error {
 	return DB.Model(t).Update("quota", t.Quota).Error
 }
 
+// ClaimRefundQuota atomically marks the task's pre-consumed quota as refunded.
+// Only one caller can claim a given non-zero quota, even across multiple nodes.
+func (t *Task) ClaimRefundQuota(quota int) (bool, error) {
+	result := DB.Model(&Task{}).
+		Where("id = ? AND quota = ?", t.ID, quota).
+		Update("quota", 0)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// RestoreRefundQuota releases a refund claim when the funding refund failed.
+func (t *Task) RestoreRefundQuota(quota int) (bool, error) {
+	result := DB.Model(&Task{}).
+		Where("id = ? AND quota = ?", t.ID, 0).
+		Update("quota", quota)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
 // UpdatePrivateData 只写 private_data 列，避免 Save() 覆盖其他并发字段。
 // 在轮询终态用 AdjustBillingRatiosOnComplete 覆盖 BillingContext.OtherRatios 后调用。
 func (t *Task) UpdatePrivateData() error {

@@ -207,6 +207,96 @@ func TestBuildRequestBodyUsesTopLevelDuration(t *testing.T) {
 	assert.EqualValues(t, 5, out["duration"])
 }
 
+func TestBuildRequestBodyV1ConvertsFiveSecondDefaultToNativeV3Payload(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		settings dto.ChannelOtherSettings
+	}{
+		{name: "existing channel default"},
+		{
+			name: "exact model overrides wildcard",
+			settings: dto.ChannelOtherSettings{VideoRequestFormatByModel: map[string]dto.VideoRequestFormat{
+				"*":                              dto.VideoRequestFormatOpenAI,
+				"doubao-seedance-2-0-filter-off": dto.VideoRequestFormatSeedanceV3,
+			}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			body := strings.NewReader(`{
+				"model":"doubao-seedance-2-0-filter-off",
+				"prompt":"4K能力验证",
+				"duration":5,
+				"metadata":{"resolution":"4k"}
+			}`)
+			context, _ := gin.CreateTestContext(httptest.NewRecorder())
+			context.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", body)
+			context.Request.Header.Set("Content-Type", "application/json")
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "doubao-seedance-2-0-filter-off",
+				TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+				ChannelMeta: &relaycommon.ChannelMeta{
+					UpstreamModelName:    "doubao-seedance-2-0-filter-off",
+					ChannelOtherSettings: test.settings,
+				},
+			}
+			adaptor := &TaskAdaptor{}
+			adaptor.Init(info)
+			require.Nil(t, adaptor.ValidateRequestAndSetAction(context, info))
+
+			reader, err := adaptor.BuildRequestBody(context, info)
+			require.NoError(t, err)
+			data, err := io.ReadAll(reader)
+			require.NoError(t, err)
+			assert.JSONEq(t, `{
+				"model":"doubao-seedance-2-0-filter-off",
+				"content":[{"type":"text","text":"4K能力验证"}],
+				"resolution":"4k"
+			}`, string(data))
+		})
+	}
+}
+
+func TestBuildRequestBodyV1PreservesOpenAIFormatForConfiguredModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := strings.NewReader(`{
+		"model":"public-model",
+		"prompt":"4K capability check",
+		"duration":5,
+		"metadata":{"resolution":"4k"},
+		"custom_zero":0
+	}`)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", body)
+	context.Request.Header.Set("Content-Type", "application/json")
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "public-model",
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "upstream-model",
+			IsModelMapped:     true,
+			ChannelOtherSettings: dto.ChannelOtherSettings{VideoRequestFormatByModel: map[string]dto.VideoRequestFormat{
+				"public-model": dto.VideoRequestFormatOpenAI,
+			}},
+		},
+	}
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(context, info))
+
+	reader, err := adaptor.BuildRequestBody(context, info)
+	require.NoError(t, err)
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"model":"upstream-model",
+		"prompt":"4K capability check",
+		"duration":5,
+		"metadata":{"resolution":"4k"},
+		"custom_zero":0
+	}`, string(data))
+}
+
 func TestDoResponseUsesSeedanceV3PublicTaskOnUnifiedRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

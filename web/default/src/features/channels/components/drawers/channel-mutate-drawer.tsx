@@ -176,6 +176,7 @@ import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dial
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
 import { SeedanceRouteFields } from '../seedance-route-fields'
+import { VideoRequestFormatEditor } from '../video-request-format-editor'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -276,6 +277,7 @@ const SENSITIVE_FORM_FIELDS = [
   'aws_key_type',
   'azure_responses_version',
   'asset_base_url',
+  'video_request_format_by_model',
   'force_format',
   'thinking_to_content',
   'proxy',
@@ -3432,6 +3434,38 @@ export function ChannelMutateDrawer({
                               )}
                             />
                           </div>
+
+                          {[45, 54, 81].includes(currentType) && (
+                            <div className='border-border/60 rounded-lg border p-4'>
+                              <FormField
+                                control={form.control}
+                                name='video_request_format_by_model'
+                                render={({ field }) => (
+                                  <FormItem className='space-y-3'>
+                                    <div className='space-y-1'>
+                                      <FormLabel>
+                                        {t('Video request formats')}
+                                      </FormLabel>
+                                      <FormDescription>
+                                        {t(
+                                          'Choose the upstream payload format for each original model. Use * as the fallback for all other models.'
+                                        )}
+                                      </FormDescription>
+                                    </div>
+                                    <FormControl>
+                                      <VideoRequestFormatEditor
+                                        value={field.value || '{}'}
+                                        onChange={field.onChange}
+                                        disabled={isSubmitting}
+                                        modelOptions={currentModelsArray}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          )}
 
                           <div className='border-border/60 rounded-lg border p-4'>
                             <FormField
