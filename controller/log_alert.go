@@ -35,6 +35,11 @@ type logAlertRuleReq struct {
 	Filters         string `json:"filters"`      // 原样 JSON 字符串
 	ScopeType       string `json:"scope_type"`   // all|user|token|channel
 	ScopeValues     string `json:"scope_values"` // 原样 JSON 字符串
+	// 每日活跃时段用指针区分"未传"和"显式零值"：
+	//   老客户端不传字段 → nil → 兜底全天 (0, 1439)
+	//   新客户端传 (0, 0)  → 单点时段（合法配置，不再被静默扩成全天）
+	ActiveStartMinute *int `json:"active_start_minute"`
+	ActiveEndMinute   *int `json:"active_end_minute"`
 }
 
 func normalizeScopeType(t string) string {
@@ -70,6 +75,27 @@ func validateLogAlertReq(req *logAlertRuleReq) error {
 	}
 	if err := validateLogAlertScopeValues(scope, req.ScopeValues); err != nil {
 		return err
+	}
+	// 每日活跃时段：指针字段区分"未传"和"显式零值"。
+	//   老前端/老接口不传 → nil → 兜底填全天 (0, 1439)
+	//   新前端显式 (0, 0)  → 单点时段，合法
+	// 规范化到非 nil 后走统一的 [0, 1439] 与 start<=end 校验，方便下游 deref。
+	if req.ActiveStartMinute == nil && req.ActiveEndMinute == nil {
+		zero, end := 0, 1439
+		req.ActiveStartMinute, req.ActiveEndMinute = &zero, &end
+	} else if req.ActiveStartMinute == nil {
+		zero := 0
+		req.ActiveStartMinute = &zero
+	} else if req.ActiveEndMinute == nil {
+		end := 1439
+		req.ActiveEndMinute = &end
+	}
+	if *req.ActiveStartMinute < 0 || *req.ActiveStartMinute > 1439 ||
+		*req.ActiveEndMinute < 0 || *req.ActiveEndMinute > 1439 {
+		return fmt.Errorf("active_start_minute / active_end_minute must be in [0, 1439]")
+	}
+	if *req.ActiveStartMinute > *req.ActiveEndMinute {
+		return fmt.Errorf("active_start_minute must be <= active_end_minute")
 	}
 	return nil
 }
@@ -233,16 +259,18 @@ func CreateLogAlertRule(c *gin.Context) {
 	}
 	now := time.Now().Unix()
 	rule := &model.LogAlertRule{
-		Name:            req.Name,
-		Enabled:         true, // 规则默认启用，前端不再提供开关
-		IntervalMinutes: req.IntervalMinutes,
-		WebhookUrl:      req.WebhookUrl,
-		Filters:         req.Filters,
-		ScopeType:       req.ScopeType,
-		ScopeValues:     req.ScopeValues,
-		LastScanAt:      now, // 首次扫描窗口 ~ IntervalMinutes 分钟，不会扫全库历史
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		Name:              req.Name,
+		Enabled:           true, // 规则默认启用，前端不再提供开关
+		IntervalMinutes:   req.IntervalMinutes,
+		WebhookUrl:        req.WebhookUrl,
+		Filters:           req.Filters,
+		ScopeType:         req.ScopeType,
+		ScopeValues:       req.ScopeValues,
+		ActiveStartMinute: *req.ActiveStartMinute,
+		ActiveEndMinute:   *req.ActiveEndMinute,
+		LastScanAt:        now, // 首次扫描窗口 ~ IntervalMinutes 分钟，不会扫全库历史
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 	if err := model.CreateLogAlertRule(c.Request.Context(), rule); err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
@@ -278,6 +306,8 @@ func UpdateLogAlertRule(c *gin.Context) {
 	rule.Filters = req.Filters
 	rule.ScopeType = req.ScopeType
 	rule.ScopeValues = req.ScopeValues
+	rule.ActiveStartMinute = *req.ActiveStartMinute
+	rule.ActiveEndMinute = *req.ActiveEndMinute
 	rule.UpdatedAt = time.Now().Unix()
 	if err := model.UpdateLogAlertRule(c.Request.Context(), rule); err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())

@@ -38,6 +38,12 @@ type LogAlertRule struct {
 	//   token   → [{user_id: <int>, token_ids: [<int>...] }]（前端级联展示用；后端只需扁平 token_ids）
 	ScopeValues string `gorm:"type:text" json:"scope_values"`
 
+	// 每日活跃时段（本地时间，分钟为单位）。默认 0~1439 = 全天；
+	// 只有当 now 的 minute-of-day 落在 [ActiveStartMinute, ActiveEndMinute] 时评估器才扫这条规则。
+	// 用 int 而非 "HH:MM" 字符串：跨库 diff 稳、比较简单。start > end 不支持（跨天）。
+	ActiveStartMinute int `gorm:"default:0" json:"active_start_minute"`
+	ActiveEndMinute   int `gorm:"default:1439" json:"active_end_minute"`
+
 	LastScanAt int64 `gorm:"default:0" json:"last_scan_at"`
 	CreatedAt  int64 `gorm:"not null" json:"created_at"`
 	UpdatedAt  int64 `gorm:"not null" json:"updated_at"`

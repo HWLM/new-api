@@ -112,6 +112,13 @@ func evalLogAlertRule(ctx context.Context, rule *model.LogAlertRule, now time.Ti
 	}
 	nowUnix := now.Unix()
 
+	// 每日活跃时段判定：默认 0~1439 = 全天；不活跃时段跳过并推水位，
+	// 避免时段外累积的错误在"下一个活跃时段第一次 tick"被一次性推送。
+	if !isLogAlertRuleActiveNow(rule, now) {
+		_ = model.TouchLogAlertRuleLastScan(ctx, rule.Id, nowUnix)
+		return
+	}
+
 	// 时钟回拨兜底：LastScanAt 若在未来（NTP 回拨、机器/DB 时间不同步），
 	// 差值恒为负会永远小于阈值 → 规则再也不跑。强制把水位拉回最近一个 interval。
 	if rule.LastScanAt > nowUnix {
@@ -264,6 +271,20 @@ func buildLogAlertBaseQuery(ctx context.Context, rule *model.LogAlertRule, from,
 		return nil, false
 	}
 	return q, true
+}
+
+// isLogAlertRuleActiveNow 判定 now 是否落在规则的"每日活跃时段"内。
+// 语义：minute-of-day ∈ [ActiveStartMinute, ActiveEndMinute]。
+//   - 默认 0~1439 → 全天活跃
+//   - 越界（历史脏数据 / 非法配置）→ 视为全天活跃，兼容旧规则
+//   - start > end → 视为全天活跃（不支持跨天，避免语义歧义）
+func isLogAlertRuleActiveNow(rule *model.LogAlertRule, now time.Time) bool {
+	start, end := rule.ActiveStartMinute, rule.ActiveEndMinute
+	if start < 0 || end < 0 || start > 1439 || end > 1439 || start > end {
+		return true
+	}
+	m := now.Hour()*60 + now.Minute()
+	return m >= start && m <= end
 }
 
 // scopeKeyFor 为一条日志计算所属桶的 (scopeValue, scopeLabel)。

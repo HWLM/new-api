@@ -5599,6 +5599,11 @@
     "Alert frequency must be greater than 0": "La fréquence d'alerte doit être supérieure à 0",
     "Please fill monitored targets": "Veuillez renseigner les cibles à surveiller",
     "Please select user": "Veuillez sélectionner un utilisateur",
-    "Ctrl / Cmd + click to select multiple tokens.": "Ctrl / Cmd + clic pour sélectionner plusieurs jetons."
+    "Ctrl / Cmd + click to select multiple tokens.": "Ctrl / Cmd + clic pour sélectionner plusieurs jetons.",
+    "Search by username or display name": "Rechercher par nom d'utilisateur ou nom d'affichage",
+    "No matching users": "Aucun utilisateur correspondant",
+    "Daily Active Window": "Plage horaire quotidienne",
+    "Only alert within this daily window; default 00:00~23:59 = all day": "N'alerter que dans cette plage quotidienne ; par défaut 00:00~23:59 = toute la journée",
+    "Active start must be earlier than or equal to end": "L'heure de début doit être antérieure ou égale à l'heure de fin"
   }
 }

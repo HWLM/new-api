@@ -5599,6 +5599,11 @@
     "Alert frequency must be greater than 0": "Tần suất cảnh báo phải lớn hơn 0",
     "Please fill monitored targets": "Vui lòng điền đối tượng giám sát",
     "Please select user": "Vui lòng chọn người dùng",
-    "Ctrl / Cmd + click to select multiple tokens.": "Ctrl / Cmd + nhấp để chọn nhiều token."
+    "Ctrl / Cmd + click to select multiple tokens.": "Ctrl / Cmd + nhấp để chọn nhiều token.",
+    "Search by username or display name": "Tìm theo tên đăng nhập hoặc tên hiển thị",
+    "No matching users": "Không có người dùng phù hợp",
+    "Daily Active Window": "Khung giờ hoạt động hằng ngày",
+    "Only alert within this daily window; default 00:00~23:59 = all day": "Chỉ cảnh báo trong khung giờ này; mặc định 00:00~23:59 = cả ngày",
+    "Active start must be earlier than or equal to end": "Giờ bắt đầu phải sớm hơn hoặc bằng giờ kết thúc"
   }
 }

@@ -5603,6 +5603,11 @@
     "Alert frequency must be greater than 0": "告警频率必须大于 0",
     "Please fill monitored targets": "请填写监控对象",
     "Please select user": "请选择用户",
-    "Ctrl / Cmd + click to select multiple tokens.": "按住 Ctrl / Cmd 点击可多选密钥。"
+    "Ctrl / Cmd + click to select multiple tokens.": "按住 Ctrl / Cmd 点击可多选密钥。",
+    "Search by username or display name": "按用户名或简称搜索",
+    "No matching users": "无匹配用户",
+    "Daily Active Window": "每日运行时段",
+    "Only alert within this daily window; default 00:00~23:59 = all day": "仅在该时段内触发告警；默认 00:00~23:59 = 全天",
+    "Active start must be earlier than or equal to end": "开始时间必须早于或等于结束时间"
   }
 }

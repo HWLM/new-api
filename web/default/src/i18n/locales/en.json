@@ -5603,6 +5603,11 @@
     "Alert frequency must be greater than 0": "Alert frequency must be greater than 0",
     "Please fill monitored targets": "Please fill monitored targets",
     "Please select user": "Please select user",
-    "Ctrl / Cmd + click to select multiple tokens.": "Ctrl / Cmd + click to select multiple tokens."
+    "Ctrl / Cmd + click to select multiple tokens.": "Ctrl / Cmd + click to select multiple tokens.",
+    "Search by username or display name": "Search by username or display name",
+    "No matching users": "No matching users",
+    "Daily Active Window": "Daily Active Window",
+    "Only alert within this daily window; default 00:00~23:59 = all day": "Only alert within this daily window; default 00:00~23:59 = all day",
+    "Active start must be earlier than or equal to end": "Active start must be earlier than or equal to end"
   }
 }

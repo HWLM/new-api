@@ -22,6 +22,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { api } from '@/lib/api'
 
+import { ErrorLogAlertTokenUserPicker } from './error-log-alert-token-user-picker'
+
 export interface LogAlertRule {
   id: number
   name: string
@@ -31,9 +33,24 @@ export interface LogAlertRule {
   filters: string
   scope_type: 'all' | 'user' | 'token' | 'channel'
   scope_values: string
+  active_start_minute?: number
+  active_end_minute?: number
   last_scan_at?: number
   created_at?: number
   updated_at?: number
+}
+
+// "HH:MM" ↔ 分钟数 互转
+function hmToMinute(hm: string): number {
+  const [h, m] = hm.split(':').map((s) => Number(s))
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return 0
+  return Math.max(0, Math.min(1439, h * 60 + m))
+}
+function minuteToHm(min: number | undefined | null, fallback: string): string {
+  if (min == null || !Number.isFinite(min)) return fallback
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
 interface FilterRow {
@@ -45,12 +62,6 @@ interface TokenGroupRow {
   user_id: number | null
   user_label: string // 展示用（回填时保存 username）
   token_ids: number[]
-}
-
-interface UserOption {
-  id: number
-  username: string
-  display_name?: string
 }
 
 interface TokenOption {
@@ -213,19 +224,13 @@ export function ErrorLogAlertRuleDialog({
   const [tokenGroups, setTokenGroups] = useState<TokenGroupRow[]>([
     { ...EMPTY_TOKEN_GROUP },
   ])
+  // 每日活跃时段（"HH:MM"）；默认 00:00~23:59 = 全天
+  const [activeStart, setActiveStart] = useState<string>('00:00')
+  const [activeEnd, setActiveEnd] = useState<string>('23:59')
   const [saving, setSaving] = useState(false)
 
-  // 用户列表（token 场景使用）
-  const [users, setUsers] = useState<UserOption[]>([])
-  // 每个用户 id 对应的 token 列表缓存
+  // 每个用户 id 对应的 token 列表缓存（token 场景选中用户后按需加载）
   const [tokensByUser, setTokensByUser] = useState<Record<number, TokenOption[]>>({})
-
-  const loadUsers = useCallback(() => {
-    api
-      .get('/api/error-log-alerts/lookup/users', { params: { limit: 100 } })
-      .then((res) => setUsers(res.data?.data ?? []))
-      .catch(() => {})
-  }, [])
 
   const loadTokensFor = useCallback(
     (userId: number) => {
@@ -248,6 +253,8 @@ export function ErrorLogAlertRuleDialog({
       setIntervalMinutes(rule.interval_minutes || '')
       setFilters(parseFiltersJson(rule.filters))
       setScopeType(rule.scope_type ?? 'channel')
+      setActiveStart(minuteToHm(rule.active_start_minute, '00:00'))
+      setActiveEnd(minuteToHm(rule.active_end_minute, '23:59'))
       if (rule.scope_type === 'token') {
         setTokenGroups(parseTokenGroups(rule.scope_values))
         setScopeText('')
@@ -263,19 +270,20 @@ export function ErrorLogAlertRuleDialog({
       setScopeType('channel')
       setScopeText('')
       setTokenGroups([{ ...EMPTY_TOKEN_GROUP }])
+      setActiveStart('00:00')
+      setActiveEnd('23:59')
     }
     setPushMethod('webhook')
     setPushChannel('wecom_group')
   }, [rule, open])
 
-  // 首次打开或切到 token 场景时加载用户 & 预取 tokens
+  // 编辑现有 token 规则时预取每个 group 用户名下的密钥列表
   useEffect(() => {
     if (!open || scopeType !== 'token') return
-    if (users.length === 0) loadUsers()
     for (const g of tokenGroups) {
       if (g.user_id != null) loadTokensFor(g.user_id)
     }
-  }, [open, scopeType, tokenGroups, users.length, loadUsers, loadTokensFor])
+  }, [open, scopeType, tokenGroups, loadTokensFor])
 
   const scopePlaceholder = useMemo(() => {
     switch (scopeType) {
@@ -314,6 +322,13 @@ export function ErrorLogAlertRuleDialog({
       scopeValues = scopeTextToValues(scopeType, scopeText)
     }
 
+    const startM = hmToMinute(activeStart)
+    const endM = hmToMinute(activeEnd)
+    if (startM > endM) {
+      toast.error(t('Active start must be earlier than or equal to end'))
+      return
+    }
+
     setSaving(true)
     const payload = {
       name: name.trim(),
@@ -322,6 +337,8 @@ export function ErrorLogAlertRuleDialog({
       filters: serializeFilters(filters),
       scope_type: scopeType,
       scope_values: scopeValues,
+      active_start_minute: startM,
+      active_end_minute: endM,
     }
     const req = rule
       ? api.put(`/api/error-log-alerts/rules/${rule.id}`, payload)
@@ -435,6 +452,30 @@ export function ErrorLogAlertRuleDialog({
 
             <div>
               <Label className='mb-1 block text-sm'>
+                {t('Daily Active Window')}
+              </Label>
+              <div className='flex items-center gap-2'>
+                <input
+                  type='time'
+                  className='h-9 rounded border bg-background px-2 text-sm'
+                  value={activeStart}
+                  onChange={(e) => setActiveStart(e.target.value || '00:00')}
+                />
+                <span className='text-sm text-muted-foreground'>~</span>
+                <input
+                  type='time'
+                  className='h-9 rounded border bg-background px-2 text-sm'
+                  value={activeEnd}
+                  onChange={(e) => setActiveEnd(e.target.value || '23:59')}
+                />
+                <span className='text-xs text-muted-foreground'>
+                  {t('Only alert within this daily window; default 00:00~23:59 = all day')}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <Label className='mb-1 block text-sm'>
                 {t('Filter Alert Content')}
               </Label>
               <div className='mb-1 text-xs text-muted-foreground'>
@@ -542,31 +583,20 @@ export function ErrorLogAlertRuleDialog({
                 <div className='space-y-2'>
                   {tokenGroups.map((g, idx) => (
                     <div key={idx} className='flex items-start gap-2'>
-                      <select
-                        className='h-9 w-48 rounded border bg-background px-2 text-sm'
-                        value={g.user_id ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          const uid = v === '' ? null : Number(v)
-                          const label = users.find((u) => u.id === uid)?.username ?? ''
+                      <ErrorLogAlertTokenUserPicker
+                        value={g.user_id}
+                        valueLabel={g.user_label || (g.user_id != null ? `#${g.user_id}` : '')}
+                        onChange={(uid, username) => {
                           const next = [...tokenGroups]
                           next[idx] = {
                             user_id: uid,
-                            user_label: label,
+                            user_label: username,
                             token_ids: [], // 切换用户清空已选密钥
                           }
                           setTokenGroups(next)
                           if (uid != null) loadTokensFor(uid)
                         }}
-                      >
-                        <option value=''>{t('Please select user')}</option>
-                        {users.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.username}
-                            {u.display_name ? ` (${u.display_name})` : ''}
-                          </option>
-                        ))}
-                      </select>
+                      />
                       <select
                         multiple
                         disabled={g.user_id == null}
