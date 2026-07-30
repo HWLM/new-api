@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -60,8 +61,9 @@ func LogTokenQuotaData(userId int, tokenId int, tokenName string, group string, 
 	if tokenId <= 0 {
 		return
 	}
-	// 精确到日（UTC 0 点）
-	createdAt = createdAt - (createdAt % 86400)
+	// 精确到服务器本地时区的日零点，与密钥统计的查询口径保持一致。
+	t := time.Unix(createdAt, 0).In(time.Local)
+	createdAt = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).Unix()
 	CacheTokenQuotaDataLock.Lock()
 	defer CacheTokenQuotaDataLock.Unlock()
 	logTokenQuotaDataCache(userId, tokenId, tokenName, group, quota, createdAt, tokenUsed)
