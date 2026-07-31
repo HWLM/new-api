@@ -2,7 +2,23 @@ package model
 
 import (
 	"context"
+	"fmt"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
 )
+
+const (
+	LogAlertPlatformWeComGroup = "wecom_group"
+	LogAlertPlatformTelegram   = "telegram_bot"
+)
+
+type LogAlertPlatformConfig struct {
+	Type       string `json:"type"`
+	WebhookURL string `json:"webhook_url,omitempty"`
+	ChatID     string `json:"chat_id,omitempty"`
+	BotToken   string `json:"bot_token,omitempty"`
+}
 
 // 错误日志告警规则。
 // 目标：定时扫描 logs 表中 type=LogTypeError 的记录，按规则的过滤条件命中后按监控对象
@@ -15,8 +31,8 @@ type LogAlertRule struct {
 	// Enabled 默认由业务侧保证（controller Create 硬编码 true）。
 	// 不用 gorm:"default:true" 是因为 MySQL/PostgreSQL 对布尔默认值规范化不同，
 	// AutoMigrate 会在每次启动反复 ALTER TABLE。
-	Enabled         bool `json:"enabled"`
-	IntervalMinutes int  `gorm:"default:1" json:"interval_minutes"` // 扫描频率(分钟)；同时作为默认冷却 TTL
+	Enabled         bool   `json:"enabled"`
+	IntervalMinutes int    `gorm:"default:1" json:"interval_minutes"` // 扫描频率(分钟)；同时作为默认冷却 TTL
 	WebhookUrl      string `gorm:"type:text" json:"webhook_url"`      // 企微群机器人 URL
 
 	// Filters：JSON 数组 [{code, keywords[]}]。
@@ -44,29 +60,61 @@ type LogAlertRule struct {
 	ActiveStartMinute int `gorm:"default:0" json:"active_start_minute"`
 	ActiveEndMinute   int `gorm:"default:1439" json:"active_end_minute"`
 
-	LastScanAt int64 `gorm:"default:0" json:"last_scan_at"`
-	CreatedAt  int64 `gorm:"not null" json:"created_at"`
-	UpdatedAt  int64 `gorm:"not null" json:"updated_at"`
+	LastScanAt      int64                    `gorm:"default:0" json:"last_scan_at"`
+	CreatedAt       int64                    `gorm:"not null" json:"created_at"`
+	UpdatedAt       int64                    `gorm:"not null" json:"updated_at"`
+	PlatformConfigs string                   `gorm:"type:text" json:"-"`
+	Platforms       []LogAlertPlatformConfig `gorm:"-" json:"platform_configs"`
 }
 
 func (LogAlertRule) TableName() string { return "log_alert_rules" }
 
+func (r *LogAlertRule) AlertPlatforms() ([]LogAlertPlatformConfig, error) {
+	if len(r.Platforms) > 0 {
+		return r.Platforms, nil
+	}
+	if raw := strings.TrimSpace(r.PlatformConfigs); raw != "" {
+		var configs []LogAlertPlatformConfig
+		if err := common.UnmarshalJsonStr(raw, &configs); err != nil {
+			return nil, err
+		}
+		return configs, nil
+	}
+	if webhookURL := strings.TrimSpace(r.WebhookUrl); webhookURL != "" {
+		return []LogAlertPlatformConfig{{
+			Type:       LogAlertPlatformWeComGroup,
+			WebhookURL: webhookURL,
+		}}, nil
+	}
+	return nil, nil
+}
+
+func (r *LogAlertRule) LoadAlertPlatforms() error {
+	platforms, err := r.AlertPlatforms()
+	if err != nil {
+		return err
+	}
+	r.Platforms = platforms
+	return nil
+}
+
 // 每次触发的告警事件；ack 端点通过 event id + token 定位。
 type LogAlertEvent struct {
-	Id            int64  `gorm:"primaryKey;autoIncrement" json:"id"`
-	RuleId        int    `gorm:"index" json:"rule_id"`
-	RuleName      string `gorm:"type:varchar(128);default:''" json:"rule_name"`
-	ScopeType     string `gorm:"type:varchar(16)" json:"scope_type"`
-	ScopeKey      string `gorm:"type:varchar(64);index" json:"scope_key"`   // "all" / "user:42" / ...
-	ScopeLabel    string `gorm:"type:varchar(128);default:''" json:"scope_label"`
-	HitCount      int    `json:"hit_count"`
-	SampleLogId   int    `json:"sample_log_id"`   // 桶里最新一条 log id
-	SampleRequest string `gorm:"type:varchar(64);default:''" json:"sample_request"`
-	WindowFromAt  int64  `json:"window_from_at"`
-	WindowToAt    int64  `json:"window_to_at"`
-	FiredAt       int64  `gorm:"index;not null" json:"fired_at"`
-	AckedAt       int64  `gorm:"default:0" json:"acked_at"`
-	AckToken      string `gorm:"type:varchar(32);default:''" json:"-"` // 匿名端点校验用
+	Id              int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	RuleId          int    `gorm:"index" json:"rule_id"`
+	RuleName        string `gorm:"type:varchar(128);default:''" json:"rule_name"`
+	ScopeType       string `gorm:"type:varchar(16)" json:"scope_type"`
+	ScopeKey        string `gorm:"type:varchar(64);index" json:"scope_key"` // "all" / "user:42" / ...
+	ScopeLabel      string `gorm:"type:varchar(128);default:''" json:"scope_label"`
+	HitCount        int    `json:"hit_count"`
+	SampleLogId     int    `json:"sample_log_id"` // 桶里最新一条 log id
+	SampleRequest   string `gorm:"type:varchar(64);default:''" json:"sample_request"`
+	RelatedRequests string `gorm:"type:text" json:"related_requests"`
+	WindowFromAt    int64  `json:"window_from_at"`
+	WindowToAt      int64  `json:"window_to_at"`
+	FiredAt         int64  `gorm:"index;not null" json:"fired_at"`
+	AckedAt         int64  `gorm:"default:0" json:"acked_at"`
+	AckToken        string `gorm:"type:varchar(32);default:''" json:"-"` // 匿名端点校验用
 }
 
 func (LogAlertEvent) TableName() string { return "log_alert_events" }
@@ -76,18 +124,37 @@ func (LogAlertEvent) TableName() string { return "log_alert_events" }
 func ListLogAlertRules(ctx context.Context) ([]LogAlertRule, error) {
 	var rules []LogAlertRule
 	err := DB.WithContext(ctx).Order("id desc").Find(&rules).Error
+	if err != nil {
+		return nil, err
+	}
+	for i := range rules {
+		if err := rules[i].LoadAlertPlatforms(); err != nil {
+			common.SysError(fmt.Sprintf("log alert rule=%d platform configs malformed: %s", rules[i].Id, err.Error()))
+		}
+	}
 	return rules, err
 }
 
 func ListEnabledLogAlertRules(ctx context.Context) ([]LogAlertRule, error) {
 	var rules []LogAlertRule
 	err := DB.WithContext(ctx).Where("enabled = ?", true).Find(&rules).Error
+	if err != nil {
+		return nil, err
+	}
+	for i := range rules {
+		if err := rules[i].LoadAlertPlatforms(); err != nil {
+			common.SysError(fmt.Sprintf("log alert rule=%d platform configs malformed: %s", rules[i].Id, err.Error()))
+		}
+	}
 	return rules, err
 }
 
 func GetLogAlertRule(ctx context.Context, id int) (*LogAlertRule, error) {
 	var rule LogAlertRule
 	if err := DB.WithContext(ctx).First(&rule, id).Error; err != nil {
+		return nil, err
+	}
+	if err := rule.LoadAlertPlatforms(); err != nil {
 		return nil, err
 	}
 	return &rule, nil

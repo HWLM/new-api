@@ -38,8 +38,9 @@ type logAlertRuleReq struct {
 	// 每日活跃时段用指针区分"未传"和"显式零值"：
 	//   老客户端不传字段 → nil → 兜底全天 (0, 1439)
 	//   新客户端传 (0, 0)  → 单点时段（合法配置，不再被静默扩成全天）
-	ActiveStartMinute *int `json:"active_start_minute"`
-	ActiveEndMinute   *int `json:"active_end_minute"`
+	PlatformConfigs   []model.LogAlertPlatformConfig `json:"platform_configs"`
+	ActiveStartMinute *int                           `json:"active_start_minute"`
+	ActiveEndMinute   *int                           `json:"active_end_minute"`
 }
 
 func normalizeScopeType(t string) string {
@@ -54,9 +55,36 @@ func normalizeScopeType(t string) string {
 }
 
 func validateLogAlertReq(req *logAlertRuleReq) error {
-	req.WebhookUrl = strings.TrimSpace(req.WebhookUrl)
-	if req.WebhookUrl == "" {
-		return fmt.Errorf("webhook url required")
+	if len(req.PlatformConfigs) == 0 && strings.TrimSpace(req.WebhookUrl) != "" {
+		req.PlatformConfigs = []model.LogAlertPlatformConfig{{
+			Type:       model.LogAlertPlatformWeComGroup,
+			WebhookURL: req.WebhookUrl,
+		}}
+	}
+	if len(req.PlatformConfigs) == 0 {
+		return fmt.Errorf("at least one platform configuration is required")
+	}
+	if len(req.PlatformConfigs) > 20 {
+		return fmt.Errorf("too many platform configurations (max 20)")
+	}
+	for i := range req.PlatformConfigs {
+		platform := &req.PlatformConfigs[i]
+		platform.Type = strings.TrimSpace(strings.ToLower(platform.Type))
+		platform.WebhookURL = strings.TrimSpace(platform.WebhookURL)
+		platform.ChatID = strings.TrimSpace(platform.ChatID)
+		platform.BotToken = strings.TrimSpace(platform.BotToken)
+		switch platform.Type {
+		case model.LogAlertPlatformWeComGroup:
+			if platform.WebhookURL == "" {
+				return fmt.Errorf("platform_configs[%d]: webhook_url required", i)
+			}
+		case model.LogAlertPlatformTelegram:
+			if platform.ChatID == "" || platform.BotToken == "" {
+				return fmt.Errorf("platform_configs[%d]: chat_id and bot_token required", i)
+			}
+		default:
+			return fmt.Errorf("platform_configs[%d]: unsupported type", i)
+		}
 	}
 	if len([]rune(req.Name)) > logAlertMaxRuleNameLen {
 		return fmt.Errorf("name too long (max %d characters)", logAlertMaxRuleNameLen)
@@ -98,6 +126,15 @@ func validateLogAlertReq(req *logAlertRuleReq) error {
 		return fmt.Errorf("active_start_minute must be <= active_end_minute")
 	}
 	return nil
+}
+
+func legacyWebhookURL(platforms []model.LogAlertPlatformConfig) string {
+	for _, platform := range platforms {
+		if platform.Type == model.LogAlertPlatformWeComGroup {
+			return platform.WebhookURL
+		}
+	}
+	return ""
 }
 
 // validateLogAlertFilters 提前把 filters 的 JSON 结构走一遍，防止 DB 里存进非法 JSON：
@@ -257,12 +294,19 @@ func CreateLogAlertRule(c *gin.Context) {
 		responseErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	platformConfigs, err := common.Marshal(req.PlatformConfigs)
+	if err != nil {
+		responseErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	now := time.Now().Unix()
 	rule := &model.LogAlertRule{
 		Name:              req.Name,
 		Enabled:           true, // 规则默认启用，前端不再提供开关
 		IntervalMinutes:   req.IntervalMinutes,
-		WebhookUrl:        req.WebhookUrl,
+		WebhookUrl:        legacyWebhookURL(req.PlatformConfigs),
+		PlatformConfigs:   string(platformConfigs),
+		Platforms:         req.PlatformConfigs,
 		Filters:           req.Filters,
 		ScopeType:         req.ScopeType,
 		ScopeValues:       req.ScopeValues,
@@ -299,10 +343,17 @@ func UpdateLogAlertRule(c *gin.Context) {
 		responseErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	platformConfigs, err := common.Marshal(req.PlatformConfigs)
+	if err != nil {
+		responseErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	rule.Name = req.Name
 	// 保持原 Enabled 状态：启用/禁用只通过 /toggle 接口修改，避免编辑规则时被顺带覆盖
 	rule.IntervalMinutes = req.IntervalMinutes
-	rule.WebhookUrl = req.WebhookUrl
+	rule.WebhookUrl = legacyWebhookURL(req.PlatformConfigs)
+	rule.PlatformConfigs = string(platformConfigs)
+	rule.Platforms = req.PlatformConfigs
 	rule.Filters = req.Filters
 	rule.ScopeType = req.ScopeType
 	rule.ScopeValues = req.ScopeValues
@@ -386,12 +437,10 @@ func TestLogAlertRule(c *gin.Context) {
 	}
 	scopeLabel := service.FirstScopeLabelForRule(rule)
 	previewLink := service.BuildLogAlertPreviewLink(rule)
-	msg := service.FormatLogAlertMarkdown(rule.Name, rule.ScopeType, scopeLabel, 0, rule.IntervalMinutes, previewLink, true)
-	if err := service.SendWeComMarkdown(rule.WebhookUrl, msg); err != nil {
-		responseErr(c, http.StatusBadGateway, err.Error())
-		return
-	}
-	responseOK(c, gin.H{"sent": true})
+	weComMsg := service.FormatLogAlertMarkdown(rule.Name, rule.ScopeType, scopeLabel, 0, rule.IntervalMinutes, previewLink, true)
+	telegramMsg := service.FormatLogAlertTelegram(rule.Name, rule.ScopeType, scopeLabel, 0, rule.IntervalMinutes, previewLink, true)
+	failures := service.SendLogAlertPlatforms(rule, weComMsg, telegramMsg)
+	responseOK(c, gin.H{"sent": len(failures) == 0, "failed_platforms": failures})
 }
 
 func ListLogAlertEvents(c *gin.Context) {

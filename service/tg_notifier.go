@@ -34,6 +34,11 @@ type tgSendMessageReq struct {
 	Text   string `json:"text"`
 }
 
+type tgSendMessageResp struct {
+	OK          bool   `json:"ok"`
+	Description string `json:"description"`
+}
+
 // SendTelegramMessage 调用 Telegram Bot API 发送文本消息。
 // 参考: https://core.telegram.org/bots/api#sendmessage
 func SendTelegramMessage(botToken, chatId, text string) error {
@@ -58,9 +63,16 @@ func SendTelegramMessage(botToken, chatId, text string) error {
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("telegram api returned status %d: %s", resp.StatusCode, string(body))
+	}
+	var result tgSendMessageResp
+	if err := common.Unmarshal(body, &result); err != nil {
+		return fmt.Errorf("decode telegram api response: %w", err)
+	}
+	if !result.OK {
+		return fmt.Errorf("telegram api returned ok=false: %s", result.Description)
 	}
 	return nil
 }

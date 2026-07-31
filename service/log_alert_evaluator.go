@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -181,6 +182,7 @@ func evalLogAlertRule(ctx context.Context, rule *model.LogAlertRule, now time.Ti
 				a.HitCount++
 				a.SampleId = lg.Id // 升序扫描：最后写入的即窗口内最新一条
 				a.SampleReq = lg.RequestId
+				addRequestID(&a.RequestIDs, lg.RequestId)
 			}
 			return ctx.Err() // 超时/取消 → 中止本批循环
 		}).Error
@@ -199,18 +201,19 @@ func evalLogAlertRule(ctx context.Context, rule *model.LogAlertRule, now time.Ti
 			continue
 		}
 		event := &model.LogAlertEvent{
-			RuleId:        rule.Id,
-			RuleName:      rule.Name,
-			ScopeType:     rule.ScopeType,
-			ScopeKey:      cdRaw,
-			ScopeLabel:    a.ScopeLabel,
-			HitCount:      a.HitCount,
-			SampleLogId:   a.SampleId,
-			SampleRequest: a.SampleReq,
-			WindowFromAt:  windowFrom,
-			WindowToAt:    windowTo,
-			FiredAt:       nowUnix,
-			AckToken:      randAckToken(),
+			RuleId:          rule.Id,
+			RuleName:        rule.Name,
+			ScopeType:       rule.ScopeType,
+			ScopeKey:        cdRaw,
+			ScopeLabel:      a.ScopeLabel,
+			HitCount:        a.HitCount,
+			SampleLogId:     a.SampleId,
+			SampleRequest:   a.SampleReq,
+			RelatedRequests: strings.Join(a.RequestIDs, ","),
+			WindowFromAt:    windowFrom,
+			WindowToAt:      windowTo,
+			FiredAt:         nowUnix,
+			AckToken:        randAckToken(),
 		}
 		if err := model.CreateLogAlertEvent(ctx, event); err != nil {
 			common.SysError(fmt.Sprintf("log alert rule=%d create event failed: %s", rule.Id, err.Error()))
@@ -236,6 +239,28 @@ type logAlertAgg struct {
 	HitCount   int
 	SampleId   int
 	SampleReq  string
+	RequestIDs []string
+}
+
+var (
+	sendLogAlertWeCom    = SendWeComMarkdown
+	sendLogAlertTelegram = SendTelegramMessage
+)
+
+func addRequestID(ids *[]string, requestID string) {
+	if requestID == "" || len(*ids) >= 10 || containsRequestID(*ids, requestID) {
+		return
+	}
+	*ids = append(*ids, requestID)
+}
+
+func containsRequestID(ids []string, requestID string) bool {
+	for _, id := range ids {
+		if id == requestID {
+			return true
+		}
+	}
+	return false
 }
 
 // buildLogAlertBaseQuery 拼装 rule 对应的 WHERE 子句。
@@ -427,8 +452,8 @@ func parseScopeChannelIds(raw string) []int {
 
 // parseScopeTokenIds 支持两种载荷：
 //
-//	1. 扁平数组 [1,2,3]
-//	2. 前端级联 [{user_id: <int>, token_ids: [<int>...]}] → 展平后返回
+//  1. 扁平数组 [1,2,3]
+//  2. 前端级联 [{user_id: <int>, token_ids: [<int>...]}] → 展平后返回
 func parseScopeTokenIds(raw string) []int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -458,8 +483,70 @@ func parseScopeTokenIds(raw string) []int {
 
 // sendLogAlertNotify 组装文案并推送到企微群机器人。
 func sendLogAlertNotify(rule *model.LogAlertRule, event *model.LogAlertEvent, interval int) error {
-	content := FormatLogAlertMarkdown(rule.Name, rule.ScopeType, event.ScopeLabel, event.HitCount, interval, buildLogAlertAckLink(event), false)
-	return SendWeComMarkdown(rule.WebhookUrl, content)
+	ackLink := buildLogAlertAckLink(event)
+	weComContent := FormatLogAlertMarkdownWithRequests(rule.Name, rule.ScopeType, event.ScopeLabel, event.HitCount, interval, ackLink, event.RelatedRequests, false)
+	telegramContent := FormatLogAlertTelegramWithRequests(rule.Name, rule.ScopeType, event.ScopeLabel, event.HitCount, interval, ackLink, event.RelatedRequests, false)
+	if failures := SendLogAlertPlatforms(rule, weComContent, telegramContent); len(failures) > 0 {
+		return fmt.Errorf("platform sends failed: %s", strings.Join(failures, ","))
+	}
+	return nil
+}
+
+// SendLogAlertPlatforms delivers the same alert to every configured destination.
+// A failed destination is logged but never prevents the remaining sends.
+func SendLogAlertPlatforms(rule *model.LogAlertRule, weComContent, telegramContent string) []string {
+	platforms, err := rule.AlertPlatforms()
+	if err != nil {
+		common.SysError(fmt.Sprintf("log alert rule=%d parse platform configs failed: %s", rule.Id, err.Error()))
+		return []string{"platform config parse failed"}
+	}
+	var wg sync.WaitGroup
+	var failuresMu sync.Mutex
+	failures := make([]string, 0)
+	for i, platform := range platforms {
+		wg.Add(1)
+		go func(index int, destination model.LogAlertPlatformConfig) {
+			defer wg.Done()
+			var sendErr error
+			switch destination.Type {
+			case model.LogAlertPlatformWeComGroup:
+				sendErr = sendLogAlertWeCom(destination.WebhookURL, weComContent)
+			case model.LogAlertPlatformTelegram:
+				sendErr = sendLogAlertTelegram(destination.BotToken, destination.ChatID, telegramContent)
+			default:
+				sendErr = fmt.Errorf("unsupported platform type %q", destination.Type)
+			}
+			if sendErr != nil {
+				common.SysError(fmt.Sprintf("log alert rule=%d platform=%s index=%d send failed: %s", rule.Id, destination.Type, index, sendErr.Error()))
+				failuresMu.Lock()
+				failures = append(failures, fmt.Sprintf("%s[%d]", destination.Type, index))
+				failuresMu.Unlock()
+			}
+		}(i, platform)
+	}
+	wg.Wait()
+	return failures
+}
+
+// FormatLogAlertTelegram emits plain text because Telegram messages are sent without a
+// parse_mode. WeCom's [text](url) syntax would otherwise be shown literally and duplicate URLs.
+func FormatLogAlertTelegram(ruleName, scopeType, scopeLabel string, hitCount, interval int, ackLink string, isTest bool) string {
+	return FormatLogAlertTelegramWithRequests(ruleName, scopeType, scopeLabel, hitCount, interval, ackLink, "", isTest)
+}
+
+func FormatLogAlertTelegramWithRequests(ruleName, scopeType, scopeLabel string, hitCount, interval int, ackLink, relatedRequests string, isTest bool) string {
+	content := FormatLogAlertMarkdownWithRequests(ruleName, scopeType, scopeLabel, hitCount, interval, ackLink, relatedRequests, isTest)
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if ackLink != "" && strings.HasPrefix(line, "链接：") {
+			lines[i] = "链接：" + ackLink
+			continue
+		}
+		if strings.HasPrefix(line, "**") && strings.HasSuffix(line, "**") {
+			lines[i] = strings.TrimSuffix(strings.TrimPrefix(line, "**"), "**")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // FormatLogAlertMarkdown 生成企微群机器人 markdown 文案，供正式告警和测试推送共用。
@@ -481,6 +568,10 @@ func sendLogAlertNotify(rule *model.LogAlertRule, event *model.LogAlertEvent, in
 //
 // isTest=true 时：标题追加"（测试）"，正文替换为固定测试提示；scope_label 与 ackLink 仍按类型展示。
 func FormatLogAlertMarkdown(ruleName, scopeType, scopeLabel string, hitCount, interval int, ackLink string, isTest bool) string {
+	return FormatLogAlertMarkdownWithRequests(ruleName, scopeType, scopeLabel, hitCount, interval, ackLink, "", isTest)
+}
+
+func FormatLogAlertMarkdownWithRequests(ruleName, scopeType, scopeLabel string, hitCount, interval int, ackLink, relatedRequests string, isTest bool) string {
 	title := "**【错误告警】**"
 	if isTest {
 		title = "**【错误告警】（测试）**"
@@ -524,6 +615,9 @@ func FormatLogAlertMarkdown(ruleName, scopeType, scopeLabel string, hitCount, in
 		lines = append(lines, "监控规则："+n)
 	}
 	lines = append(lines, scopeLine, body)
+	if requests := strings.TrimSpace(relatedRequests); requests != "" {
+		lines = append(lines, "相关请求id："+requests)
+	}
 	if scoped && strings.TrimSpace(ackLink) != "" {
 		// 企微机器人 markdown：纯文本 URL 不会被识别，必须走 [text](url)。
 		// 用户希望消息里明文展示完整链接又能点击，因此显示文字与 url 保持一致。

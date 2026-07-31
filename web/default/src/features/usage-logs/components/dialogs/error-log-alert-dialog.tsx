@@ -64,7 +64,13 @@ export function ErrorLogAlertDialog({
   const handleTest = (id: number) => {
     api
       .post(`/api/error-log-alerts/rules/${id}/test`)
-      .then(() => toast.success(t('Test message sent')))
+      .then((res) => {
+        if (res.data?.data?.failed_platforms?.length > 0) {
+          toast.error(t('Test send failed'))
+          return
+        }
+        toast.success(t('Test message sent'))
+      })
       .catch((err) =>
         toast.error(err?.response?.data?.message ?? t('Test send failed'))
       )

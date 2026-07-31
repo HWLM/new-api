@@ -30,6 +30,7 @@ export interface LogAlertRule {
   enabled: boolean
   interval_minutes: number
   webhook_url: string
+  platform_configs?: LogAlertPlatformConfig[]
   filters: string
   scope_type: 'all' | 'user' | 'token' | 'channel'
   scope_values: string
@@ -38,6 +39,14 @@ export interface LogAlertRule {
   last_scan_at?: number
   created_at?: number
   updated_at?: number
+}
+
+export interface LogAlertPlatformConfig {
+  id?: string
+  type: 'wecom_group' | 'telegram_bot'
+  webhook_url?: string
+  chat_id?: string
+  bot_token?: string
 }
 
 // "HH:MM" ↔ 分钟数 互转
@@ -77,12 +86,15 @@ const EMPTY_TOKEN_GROUP: TokenGroupRow = {
 }
 
 // 推送方式 / 推送渠道 —— 保留下拉结构，方便后续扩展类型
-const PUSH_METHOD_OPTIONS = [
-  { value: 'webhook', labelKey: 'Webhook Push' },
-]
-const PUSH_CHANNEL_OPTIONS = [
-  { value: 'wecom_group', labelKey: 'WeCom Group Bot' },
-]
+const DEFAULT_PLATFORM: LogAlertPlatformConfig = {
+  id: '',
+  type: 'wecom_group',
+  webhook_url: '',
+}
+
+function newPlatform(): LogAlertPlatformConfig {
+  return { ...DEFAULT_PLATFORM, id: crypto.randomUUID() }
+}
 
 const SCOPE_OPTIONS: Array<{
   value: LogAlertRule['scope_type']
@@ -213,9 +225,9 @@ export function ErrorLogAlertRuleDialog({
   const { t } = useTranslation()
 
   const [name, setName] = useState('')
-  const [pushMethod, setPushMethod] = useState('webhook')
-  const [pushChannel, setPushChannel] = useState('wecom_group')
-  const [webhookUrl, setWebhookUrl] = useState('')
+  const [platformConfigs, setPlatformConfigs] = useState<LogAlertPlatformConfig[]>([
+    newPlatform(),
+  ])
   const [intervalMinutes, setIntervalMinutes] = useState<number | ''>('')
   const [filters, setFilters] = useState<FilterRow[]>([{ ...DEFAULT_FILTER_ROW }])
   const [scopeType, setScopeType] =
@@ -249,7 +261,14 @@ export function ErrorLogAlertRuleDialog({
     if (!open) return
     if (rule) {
       setName(rule.name ?? '')
-      setWebhookUrl(rule.webhook_url ?? '')
+      setPlatformConfigs(
+        rule.platform_configs?.length
+          ? rule.platform_configs.map((platform) => ({
+              ...platform,
+              id: platform.id ?? crypto.randomUUID(),
+            }))
+          : [{ ...newPlatform(), webhook_url: rule.webhook_url ?? '' }]
+      )
       setIntervalMinutes(rule.interval_minutes || '')
       setFilters(parseFiltersJson(rule.filters))
       setScopeType(rule.scope_type ?? 'channel')
@@ -264,7 +283,7 @@ export function ErrorLogAlertRuleDialog({
       }
     } else {
       setName('')
-      setWebhookUrl('')
+      setPlatformConfigs([newPlatform()])
       setIntervalMinutes('')
       setFilters([{ ...DEFAULT_FILTER_ROW }])
       setScopeType('channel')
@@ -273,8 +292,6 @@ export function ErrorLogAlertRuleDialog({
       setActiveStart('00:00')
       setActiveEnd('23:59')
     }
-    setPushMethod('webhook')
-    setPushChannel('wecom_group')
   }, [rule, open])
 
   // 编辑现有 token 规则时预取每个 group 用户名下的密钥列表
@@ -297,9 +314,25 @@ export function ErrorLogAlertRuleDialog({
   }, [scopeType, t])
 
   const save = () => {
-    const url = (webhookUrl ?? '').trim()
-    if (!url) {
-      toast.error(t('Webhook URL is required'))
+    const normalizedPlatforms = platformConfigs.map((platform) => ({
+      ...platform,
+      webhook_url: platform.webhook_url?.trim(),
+      chat_id: platform.chat_id?.trim(),
+      bot_token: platform.bot_token?.trim(),
+    }))
+    if (normalizedPlatforms.length === 0) {
+      toast.error(t('At least one alert platform is required'))
+      return
+    }
+    if (
+      normalizedPlatforms.some(
+        (platform) =>
+          (platform.type === 'wecom_group' && !platform.webhook_url) ||
+          (platform.type === 'telegram_bot' &&
+            (!platform.chat_id || !platform.bot_token))
+      )
+    ) {
+      toast.error(t('Please complete all platform settings'))
       return
     }
     const interval = Number(intervalMinutes)
@@ -333,7 +366,7 @@ export function ErrorLogAlertRuleDialog({
     const payload = {
       name: name.trim(),
       interval_minutes: interval,
-      webhook_url: url,
+      platform_configs: normalizedPlatforms,
       filters: serializeFilters(filters),
       scope_type: scopeType,
       scope_values: scopeValues,
@@ -384,48 +417,96 @@ export function ErrorLogAlertRuleDialog({
             <div className='text-sm font-semibold'>
               | {t('Alert Group Settings')}
             </div>
-            <div className='grid grid-cols-2 gap-3'>
-              <div>
-                <Label className='mb-1 block text-sm'>{t('Push Method')}</Label>
-                <select
-                  className='h-9 w-full rounded border bg-background px-2 text-sm'
-                  value={pushMethod}
-                  onChange={(e) => setPushMethod(e.target.value)}
-                >
-                  {PUSH_METHOD_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {t(o.labelKey)}
-                    </option>
-                  ))}
-                </select>
+            {platformConfigs.map((platform, index) => (
+              <div key={platform.id} className='space-y-3 rounded border p-3'>
+                <div className='flex items-end gap-2'>
+                  <div className='flex-1'>
+                    <Label className='mb-1 block text-sm'>{t('Alert Platform')}</Label>
+                    <select
+                      className='h-9 w-full rounded border bg-background px-2 text-sm'
+                      value={platform.type}
+                      onChange={(event) => {
+                        const next = [...platformConfigs]
+                        next[index] = {
+                          ...platform,
+                          type: event.target.value as LogAlertPlatformConfig['type'],
+                        }
+                        setPlatformConfigs(next)
+                      }}
+                    >
+                      <option value='wecom_group'>{t('WeCom Group Bot')}</option>
+                      <option value='telegram_bot'>{t('Telegram Bot')}</option>
+                    </select>
+                  </div>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className='text-destructive'
+                    disabled={platformConfigs.length <= 1}
+                    onClick={() =>
+                      setPlatformConfigs(platformConfigs.filter((_, i) => i !== index))
+                    }
+                  >
+                    {t('Delete')}
+                  </Button>
+                </div>
+                {platform.type === 'wecom_group' ? (
+                  <div>
+                    <Label className='mb-1 block text-sm'>
+                      <span className='text-destructive'>*</span> {t('Webhook URL')}
+                    </Label>
+                    <textarea
+                      className='w-full rounded border bg-background p-2 text-sm'
+                      rows={2}
+                      placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx'
+                      value={platform.webhook_url ?? ''}
+                      onChange={(event) => {
+                        const next = [...platformConfigs]
+                        next[index] = { ...platform, webhook_url: event.target.value }
+                        setPlatformConfigs(next)
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                    <div>
+                      <Label className='mb-1 block text-sm'>
+                        <span className='text-destructive'>*</span> {t('Telegram Chat ID')}
+                      </Label>
+                      <Input
+                        value={platform.chat_id ?? ''}
+                        onChange={(event) => {
+                          const next = [...platformConfigs]
+                          next[index] = { ...platform, chat_id: event.target.value }
+                          setPlatformConfigs(next)
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className='mb-1 block text-sm'>
+                        <span className='text-destructive'>*</span> {t('Telegram Bot Token')}
+                      </Label>
+                      <Input
+                        value={platform.bot_token ?? ''}
+                        onChange={(event) => {
+                          const next = [...platformConfigs]
+                          next[index] = { ...platform, bot_token: event.target.value }
+                          setPlatformConfigs(next)
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div>
-                <Label className='mb-1 block text-sm'>{t('Push Channel')}</Label>
-                <select
-                  className='h-9 w-full rounded border bg-background px-2 text-sm'
-                  value={pushChannel}
-                  onChange={(e) => setPushChannel(e.target.value)}
-                >
-                  {PUSH_CHANNEL_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {t(o.labelKey)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div>
-              <Label className='mb-1 block text-sm'>
-                <span className='text-destructive'>*</span> {t('Webhook URL')}
-              </Label>
-              <textarea
-                className='w-full rounded border bg-background p-2 text-sm'
-                rows={2}
-                placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx'
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
-              />
-            </div>
+            ))}
+            <Button
+              size='sm'
+              variant='outline'
+              disabled={platformConfigs.length >= 20}
+              onClick={() => setPlatformConfigs([...platformConfigs, newPlatform()])}
+            >
+              {t('Add Alert Platform')}
+            </Button>
           </div>
 
           {/* 告警规则 */}
