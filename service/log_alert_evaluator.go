@@ -247,6 +247,12 @@ var (
 	sendLogAlertTelegram = SendTelegramMessage
 )
 
+type LogAlertPlatformFailure struct {
+	PlatformType string `json:"platform_type"`
+	Index        int    `json:"index"`
+	Reason       string `json:"reason"`
+}
+
 func addRequestID(ids *[]string, requestID string) {
 	if requestID == "" || len(*ids) >= 10 || containsRequestID(*ids, requestID) {
 		return
@@ -487,22 +493,26 @@ func sendLogAlertNotify(rule *model.LogAlertRule, event *model.LogAlertEvent, in
 	weComContent := FormatLogAlertMarkdownWithRequests(rule.Name, rule.ScopeType, event.ScopeLabel, event.HitCount, interval, ackLink, event.RelatedRequests, false)
 	telegramContent := FormatLogAlertTelegramWithRequests(rule.Name, rule.ScopeType, event.ScopeLabel, event.HitCount, interval, ackLink, event.RelatedRequests, false)
 	if failures := SendLogAlertPlatforms(rule, weComContent, telegramContent); len(failures) > 0 {
-		return fmt.Errorf("platform sends failed: %s", strings.Join(failures, ","))
+		failedPlatforms := make([]string, 0, len(failures))
+		for _, failure := range failures {
+			failedPlatforms = append(failedPlatforms, fmt.Sprintf("%s[%d]", failure.PlatformType, failure.Index))
+		}
+		return fmt.Errorf("platform sends failed: %s", strings.Join(failedPlatforms, ","))
 	}
 	return nil
 }
 
 // SendLogAlertPlatforms delivers the same alert to every configured destination.
 // A failed destination is logged but never prevents the remaining sends.
-func SendLogAlertPlatforms(rule *model.LogAlertRule, weComContent, telegramContent string) []string {
+func SendLogAlertPlatforms(rule *model.LogAlertRule, weComContent, telegramContent string) []LogAlertPlatformFailure {
 	platforms, err := rule.AlertPlatforms()
 	if err != nil {
 		common.SysError(fmt.Sprintf("log alert rule=%d parse platform configs failed: %s", rule.Id, err.Error()))
-		return []string{"platform config parse failed"}
+		return []LogAlertPlatformFailure{{Reason: "platform config parse failed"}}
 	}
 	var wg sync.WaitGroup
 	var failuresMu sync.Mutex
-	failures := make([]string, 0)
+	failures := make([]LogAlertPlatformFailure, 0)
 	for i, platform := range platforms {
 		wg.Add(1)
 		go func(index int, destination model.LogAlertPlatformConfig) {
@@ -519,13 +529,30 @@ func SendLogAlertPlatforms(rule *model.LogAlertRule, weComContent, telegramConte
 			if sendErr != nil {
 				common.SysError(fmt.Sprintf("log alert rule=%d platform=%s index=%d send failed: %s", rule.Id, destination.Type, index, sendErr.Error()))
 				failuresMu.Lock()
-				failures = append(failures, fmt.Sprintf("%s[%d]", destination.Type, index))
+				failures = append(failures, LogAlertPlatformFailure{
+					PlatformType: destination.Type,
+					Index:        index,
+					Reason:       redactLogAlertPlatformError(sendErr.Error(), destination),
+				})
 				failuresMu.Unlock()
 			}
 		}(i, platform)
 	}
 	wg.Wait()
 	return failures
+}
+
+func redactLogAlertPlatformError(reason string, destination model.LogAlertPlatformConfig) string {
+	if destination.WebhookURL != "" {
+		reason = strings.ReplaceAll(reason, destination.WebhookURL, "[redacted]")
+	}
+	if destination.BotToken != "" {
+		reason = strings.ReplaceAll(reason, destination.BotToken, "[redacted]")
+	}
+	if len(reason) > 300 {
+		return reason[:300] + "..."
+	}
+	return reason
 }
 
 // FormatLogAlertTelegram emits plain text because Telegram messages are sent without a

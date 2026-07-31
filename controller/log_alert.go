@@ -440,7 +440,19 @@ func TestLogAlertRule(c *gin.Context) {
 	weComMsg := service.FormatLogAlertMarkdown(rule.Name, rule.ScopeType, scopeLabel, 0, rule.IntervalMinutes, previewLink, true)
 	telegramMsg := service.FormatLogAlertTelegram(rule.Name, rule.ScopeType, scopeLabel, 0, rule.IntervalMinutes, previewLink, true)
 	failures := service.SendLogAlertPlatforms(rule, weComMsg, telegramMsg)
-	responseOK(c, gin.H{"sent": len(failures) == 0, "failed_platforms": failures})
+	failureNames := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		if failure.PlatformType == "" {
+			failureNames = append(failureNames, "platform config")
+			continue
+		}
+		failureNames = append(failureNames, fmt.Sprintf("%s[%d]", failure.PlatformType, failure.Index))
+	}
+	responseOK(c, gin.H{
+		"sent":                    len(failures) == 0,
+		"failed_platforms":        failureNames,
+		"failed_platform_details": failures,
+	})
 }
 
 func ListLogAlertEvents(c *gin.Context) {

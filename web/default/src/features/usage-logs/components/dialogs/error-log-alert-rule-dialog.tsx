@@ -92,8 +92,11 @@ const DEFAULT_PLATFORM: LogAlertPlatformConfig = {
   webhook_url: '',
 }
 
+let nextPlatformID = 0
+
 function newPlatform(): LogAlertPlatformConfig {
-  return { ...DEFAULT_PLATFORM, id: crypto.randomUUID() }
+  nextPlatformID += 1
+  return { ...DEFAULT_PLATFORM, id: `platform-${Date.now()}-${nextPlatformID}` }
 }
 
 const SCOPE_OPTIONS: Array<{
@@ -265,7 +268,7 @@ export function ErrorLogAlertRuleDialog({
         rule.platform_configs?.length
           ? rule.platform_configs.map((platform) => ({
               ...platform,
-              id: platform.id ?? crypto.randomUUID(),
+              id: platform.id ?? newPlatform().id,
             }))
           : [{ ...newPlatform(), webhook_url: rule.webhook_url ?? '' }]
       )

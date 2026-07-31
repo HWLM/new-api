@@ -67,5 +67,26 @@ func TestSendLogAlertPlatformsContinuesAfterPlatformFailure(t *testing.T) {
 	failures := SendLogAlertPlatforms(rule, "wecom", "telegram")
 
 	require.Equal(t, int32(1), telegramCalls.Load())
-	assert.Equal(t, []string{"wecom_group[0]"}, failures)
+	assert.Equal(t, []LogAlertPlatformFailure{{
+		PlatformType: model.LogAlertPlatformWeComGroup,
+		Index:        0,
+		Reason:       "wecom unavailable",
+	}}, failures)
+}
+
+func TestSendLogAlertPlatformsRedactsDestinationSecrets(t *testing.T) {
+	originalWeCom := sendLogAlertWeCom
+	t.Cleanup(func() { sendLogAlertWeCom = originalWeCom })
+	webhookURL := "https://example.com/webhook?key=secret"
+	sendLogAlertWeCom = func(string, string) error {
+		return errors.New("request to " + webhookURL + " failed")
+	}
+
+	failures := SendLogAlertPlatforms(&model.LogAlertRule{Platforms: []model.LogAlertPlatformConfig{{
+		Type:       model.LogAlertPlatformWeComGroup,
+		WebhookURL: webhookURL,
+	}}}, "content", "")
+
+	require.Len(t, failures, 1)
+	assert.Equal(t, "request to [redacted] failed", failures[0].Reason)
 }

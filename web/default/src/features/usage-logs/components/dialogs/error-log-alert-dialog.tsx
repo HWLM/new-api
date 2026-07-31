@@ -25,6 +25,12 @@ import {
   type LogAlertRule,
 } from './error-log-alert-rule-dialog'
 
+interface LogAlertTestFailure {
+  platform_type?: string
+  index?: number
+  reason?: string
+}
+
 export function ErrorLogAlertDialog({
   open,
   onOpenChange,
@@ -65,8 +71,25 @@ export function ErrorLogAlertDialog({
     api
       .post(`/api/error-log-alerts/rules/${id}/test`)
       .then((res) => {
-        if (res.data?.data?.failed_platforms?.length > 0) {
-          toast.error(t('Test send failed'))
+        const failures = (res.data?.data?.failed_platform_details ?? []) as LogAlertTestFailure[]
+        const legacyFailures = (res.data?.data?.failed_platforms ?? []) as string[]
+        const failureDetails = failures.length
+          ? failures
+          : legacyFailures.map((reason) => ({ reason }))
+        if (failureDetails.length > 0) {
+          const details = failureDetails
+            .map((failure) => {
+              const platformName =
+                failure.platform_type === 'wecom_group'
+                  ? t('WeCom Group Bot')
+                  : failure.platform_type === 'telegram_bot'
+                    ? t('Telegram Bot')
+                    : failure.platform_type || t('Alert Platform')
+              const index = Number.isInteger(failure.index) ? ` #${failure.index! + 1}` : ''
+              return `${platformName}${index}: ${failure.reason || t('Test send failed')}`
+            })
+            .join('\n')
+          toast.error(t('Test send failed'), { description: details })
           return
         }
         toast.success(t('Test message sent'))
