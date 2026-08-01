@@ -2,22 +2,24 @@ package model
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-// TokenQuotaData 按 (user_id, token_id, day) 聚合的密钥维度消耗数据
-// CreatedAt 精确到日（0 点时间戳），用于「密钥统计」tab 的汇总卡片、Top 排行、每日明细
+// TokenQuotaData 按 (user_id, token_id, day) 聚合的密钥维度消耗数据。
+// CreatedAt 精确到服务器本地时区的日 0 点；用于「密钥统计」tab 的汇总卡片、
+// Top 排行、每日明细。(user_id, token_id, created_at) 是唯一键，每条消费同步
+// upsert 一行，无内存缓存 —— 进程重启/崩溃不会丢已计数据。
 type TokenQuotaData struct {
 	Id        int    `json:"id"`
-	UserID    int    `json:"user_id" gorm:"index"`
-	TokenID   int    `json:"token_id" gorm:"index:idx_tqd_token_day,priority:1"`
+	UserID    int    `json:"user_id" gorm:"index;uniqueIndex:uidx_tqd_user_token_day,priority:1"`
+	TokenID   int    `json:"token_id" gorm:"index:idx_tqd_token_day,priority:1;uniqueIndex:uidx_tqd_user_token_day,priority:2"`
 	TokenName string `json:"token_name" gorm:"size:64;default:''"`
 	GroupName string `json:"group_name" gorm:"size:64;default:''"`
-	CreatedAt int64  `json:"created_at" gorm:"bigint;index:idx_tqd_token_day,priority:2;index:idx_tqd_user_day,priority:2"`
+	CreatedAt int64  `json:"created_at" gorm:"bigint;index:idx_tqd_token_day,priority:2;index:idx_tqd_user_day,priority:2;uniqueIndex:uidx_tqd_user_token_day,priority:3"`
 	Count     int    `json:"count" gorm:"default:0"`
 	Quota     int    `json:"quota" gorm:"default:0"`
 	TokenUsed int    `json:"token_used" gorm:"default:0"`
@@ -27,88 +29,45 @@ func (TokenQuotaData) TableName() string {
 	return "token_quota_data"
 }
 
-var CacheTokenQuotaData = make(map[string]*TokenQuotaData)
-var CacheTokenQuotaDataLock = sync.Mutex{}
-
-func logTokenQuotaDataCache(userId int, tokenId int, tokenName string, group string, quota int, createdAt int64, tokenUsed int) {
-	key := fmt.Sprintf("%d-%d-%d", userId, tokenId, createdAt)
-	if v, ok := CacheTokenQuotaData[key]; ok {
-		v.Count += 1
-		v.Quota += quota
-		v.TokenUsed += tokenUsed
-		if tokenName != "" {
-			v.TokenName = tokenName
-		}
-		if group != "" {
-			v.GroupName = group
-		}
-		return
-	}
-	CacheTokenQuotaData[key] = &TokenQuotaData{
-		UserID:    userId,
-		TokenID:   tokenId,
-		TokenName: tokenName,
-		GroupName: group,
-		CreatedAt: createdAt,
-		Count:     1,
-		Quota:     quota,
-		TokenUsed: tokenUsed,
-	}
-}
-
-// LogTokenQuotaData 是 LogQuotaData 的姊妹函数，按密钥聚合到「日」粒度
+// LogTokenQuotaData 同步 upsert 一行到 token_quota_data。分桶键取 createdAt
+// 所在的服务器本地时区日 0 点；命中已有行时 count/quota/token_used 增量累加，
+// token_name/group_name 仅在非空时覆盖（与历史行为一致，避免被空值清空）。
 func LogTokenQuotaData(userId int, tokenId int, tokenName string, group string, quota int, createdAt int64, tokenUsed int) {
 	if tokenId <= 0 {
 		return
 	}
-	// 精确到服务器本地时区的日零点，与密钥统计的查询口径保持一致。
 	t := time.Unix(createdAt, 0).In(time.Local)
-	createdAt = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).Unix()
-	CacheTokenQuotaDataLock.Lock()
-	defer CacheTokenQuotaDataLock.Unlock()
-	logTokenQuotaDataCache(userId, tokenId, tokenName, group, quota, createdAt, tokenUsed)
-}
+	dayStart := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).Unix()
 
-func SaveTokenQuotaDataCache() {
-	CacheTokenQuotaDataLock.Lock()
-	defer CacheTokenQuotaDataLock.Unlock()
-	size := len(CacheTokenQuotaData)
-	for _, d := range CacheTokenQuotaData {
-		existing := &TokenQuotaData{}
-		DB.Table("token_quota_data").
-			Where("user_id = ? AND token_id = ? AND created_at = ?", d.UserID, d.TokenID, d.CreatedAt).
-			First(existing)
-		if existing.Id > 0 {
-			increaseTokenQuotaData(d)
-		} else {
-			if err := DB.Table("token_quota_data").Create(d).Error; err != nil {
-				common.SysLog(fmt.Sprintf("SaveTokenQuotaDataCache create error: %s", err))
-			}
-		}
+	row := &TokenQuotaData{
+		UserID:    userId,
+		TokenID:   tokenId,
+		TokenName: tokenName,
+		GroupName: group,
+		CreatedAt: dayStart,
+		Count:     1,
+		Quota:     quota,
+		TokenUsed: tokenUsed,
 	}
-	CacheTokenQuotaData = make(map[string]*TokenQuotaData)
-	if size > 0 {
-		common.SysLog(fmt.Sprintf("保存密钥统计数据成功，共保存%d条数据", size))
-	}
-}
 
-func increaseTokenQuotaData(d *TokenQuotaData) {
-	updates := map[string]interface{}{
-		"count":      gorm.Expr("count + ?", d.Count),
-		"quota":      gorm.Expr("quota + ?", d.Quota),
-		"token_used": gorm.Expr("token_used + ?", d.TokenUsed),
+	assignments := map[string]interface{}{
+		"count":      gorm.Expr("count + ?", 1),
+		"quota":      gorm.Expr("quota + ?", quota),
+		"token_used": gorm.Expr("token_used + ?", tokenUsed),
 	}
-	if d.TokenName != "" {
-		updates["token_name"] = d.TokenName
+	if tokenName != "" {
+		assignments["token_name"] = tokenName
 	}
-	if d.GroupName != "" {
-		updates["group_name"] = d.GroupName
+	if group != "" {
+		assignments["group_name"] = group
 	}
-	err := DB.Table("token_quota_data").
-		Where("user_id = ? AND token_id = ? AND created_at = ?", d.UserID, d.TokenID, d.CreatedAt).
-		Updates(updates).Error
+
+	err := DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "token_id"}, {Name: "created_at"}},
+		DoUpdates: clause.Assignments(assignments),
+	}).Create(row).Error
 	if err != nil {
-		common.SysLog(fmt.Sprintf("increaseTokenQuotaData error: %s", err))
+		common.SysLog(fmt.Sprintf("LogTokenQuotaData upsert error: %s", err))
 	}
 }
 
