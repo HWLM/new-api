@@ -16,6 +16,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import {
   Copy,
   Check,
@@ -36,6 +55,7 @@ import { useTranslation } from 'react-i18next'
 import { Dialog } from '@/components/dialog'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
+import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
@@ -67,7 +87,7 @@ import {
   isPerCallBilling,
   isTimingLogType,
 } from '../../lib/utils'
-import type { LogOtherData } from '../../types'
+import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -114,11 +134,13 @@ function DetailRow(props: {
 
 function DetailSection(props: {
   icon?: React.ReactNode
+  iconTone?: IconBadgeTone
   label: string
   variant?: 'default' | 'danger'
   children: React.ReactNode
 }) {
   const isDanger = props.variant === 'danger'
+  const iconTone = isDanger ? 'destructive' : props.iconTone
   return (
     <div className='min-w-0 space-y-1.5'>
       <Label
@@ -127,7 +149,11 @@ function DetailSection(props: {
           isDanger && 'text-red-500'
         )}
       >
-        {props.icon}
+        {props.icon && (
+          <IconBadge tone={iconTone} size='xs'>
+            {props.icon}
+          </IconBadge>
+        )}
         {props.label}
       </Label>
       <div
@@ -147,6 +173,43 @@ function DetailSection(props: {
 function formatRatio(ratio: number | undefined): string {
   if (ratio == null) return '-'
   return ratio.toFixed(4)
+}
+
+function getUsageBillingPathLabel(
+  t: TFunction,
+  adminInfo: LogOtherData['admin_info']
+): string {
+  switch (adminInfo?.usage_billing_path) {
+    case USAGE_BILLING_PATH.LOCAL:
+      return t('Local Billing')
+    case USAGE_BILLING_PATH.OPENAI:
+      return t('Upstream Response (billing-usage-openai)')
+    case USAGE_BILLING_PATH.OPENAI_ESTIMATED:
+      return t('Upstream Response (billing-usage-openai-estimated)')
+    case USAGE_BILLING_PATH.ANTHROPIC:
+      return t('Upstream Response (billing-usage-anthropic)')
+    case USAGE_BILLING_PATH.ANTHROPIC_ESTIMATED:
+      return t('Upstream Response (billing-usage-anthropic-estimated)')
+    case USAGE_BILLING_PATH.GEMINI:
+      return t('Upstream Response (billing-usage-gemini)')
+    case USAGE_BILLING_PATH.GEMINI_ESTIMATED:
+      return t('Upstream Response (billing-usage-gemini-estimated)')
+    case USAGE_BILLING_PATH.UPSTREAM:
+      return t('Upstream Response')
+    default:
+      return adminInfo?.local_count_tokens
+        ? t('Local Billing')
+        : t('Upstream Response')
+  }
+}
+
+function isUsageBillingPathLocal(
+  adminInfo: LogOtherData['admin_info']
+): boolean {
+  if (adminInfo?.usage_billing_path) {
+    return adminInfo.usage_billing_path === USAGE_BILLING_PATH.LOCAL
+  }
+  return adminInfo?.local_count_tokens === true
 }
 
 function quotaSaturationKindLabel(
@@ -358,10 +421,8 @@ function BillingBreakdown(props: {
 
   if (isAdmin && other.admin_info) {
     rows.push({
-      label: t('Billing Source'),
-      value: other.admin_info.local_count_tokens
-        ? t('Local Billing')
-        : t('Upstream Response'),
+      label: t('Billing Path'),
+      value: getUsageBillingPathLabel(t, other.admin_info),
     })
   }
 
@@ -859,6 +920,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {showTopupAuditSection && (
           <DetailSection
             icon={<ShieldCheck className='size-3.5' aria-hidden='true' />}
+            iconTone='success'
             label={t('Top-up Audit Info')}
           >
             {topupAuditFields.map((field) => (
@@ -903,6 +965,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {showManageAuditSection && (
           <DetailSection
             icon={<ShieldCheck className='size-3.5' aria-hidden='true' />}
+            iconTone='info'
             label={t('Operation Audit Info')}
           >
             {operationText != null && (
@@ -945,6 +1008,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {isLogin && loginAuditFields.length > 0 && (
           <DetailSection
             icon={<LogIn className='size-3.5' aria-hidden='true' />}
+            iconTone='info'
             label={t('Login Info')}
           >
             {operationText != null && (
@@ -965,6 +1029,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {hasAudioTokens && other && (
           <DetailSection
             icon={<Headphones className='size-3.5' aria-hidden='true' />}
+            iconTone='chart-4'
             label={t('Audio Tokens')}
           >
             {other.audio_input != null && other.audio_input > 0 && (
@@ -1077,66 +1142,62 @@ export function DetailsDialog(props: DetailsDialogProps) {
           props.log.type !== 6 &&
           other?.admin_info && (
             <DetailRow
-              label={t('Billing Source')}
+              label={t('Billing Path')}
               value={
                 <span className='flex items-center gap-1'>
-                  {other.admin_info.local_count_tokens ? (
+                  {isUsageBillingPathLocal(other.admin_info) ? (
                     <Monitor className='size-3 text-blue-500' />
                   ) : (
                     <Cloud className='size-3 text-emerald-500' />
                   )}
                   <span className='text-xs'>
-                    {other.admin_info.local_count_tokens
-                      ? t('Local Billing')
-                      : t('Upstream Response')}
+                    {getUsageBillingPathLabel(t, other.admin_info)}
                   </span>
                 </span>
               }
             />
           )}
 
-        {/* Stream status details (admin only) */}
-        {props.isAdmin &&
-          other?.stream_status &&
-          other.stream_status.status !== 'ok' && (
-            <DetailSection label={t('Stream Status')}>
+        {/* Stream status details */}
+        {other?.stream_status && other.stream_status.status !== 'ok' && (
+          <DetailSection label={t('Stream Status')}>
+            <DetailRow
+              label={t('Status')}
+              value={
+                <StatusBadge
+                  label={other.stream_status.status || t('Error')}
+                  variant='red'
+                  size='sm'
+                  copyable={false}
+                />
+              }
+            />
+            {other.stream_status.end_reason && (
               <DetailRow
-                label={t('Status')}
-                value={
-                  <StatusBadge
-                    label={other.stream_status.status || t('Error')}
-                    variant='red'
-                    size='sm'
-                    copyable={false}
-                  />
-                }
+                label={t('End Reason')}
+                value={other.stream_status.end_reason}
               />
-              {other.stream_status.end_reason && (
-                <DetailRow
-                  label={t('End Reason')}
-                  value={other.stream_status.end_reason}
-                />
+            )}
+            {(other.stream_status.error_count ?? 0) > 0 && (
+              <DetailRow
+                label={t('Soft Errors')}
+                value={String(other.stream_status.error_count)}
+              />
+            )}
+            {other.stream_status.end_error && (
+              <DetailRow
+                label={t('End Error')}
+                value={other.stream_status.end_error}
+              />
+            )}
+            {Array.isArray(other.stream_status.errors) &&
+              other.stream_status.errors.length > 0 && (
+                <pre className='bg-background/60 mt-1 max-h-32 overflow-y-auto rounded border p-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap'>
+                  {other.stream_status.errors.join('\n')}
+                </pre>
               )}
-              {(other.stream_status.error_count ?? 0) > 0 && (
-                <DetailRow
-                  label={t('Soft Errors')}
-                  value={String(other.stream_status.error_count)}
-                />
-              )}
-              {other.stream_status.end_error && (
-                <DetailRow
-                  label={t('End Error')}
-                  value={other.stream_status.end_error}
-                />
-              )}
-              {Array.isArray(other.stream_status.errors) &&
-                other.stream_status.errors.length > 0 && (
-                  <pre className='bg-background/60 mt-1 max-h-32 overflow-y-auto rounded border p-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap'>
-                    {other.stream_status.errors.join('\n')}
-                  </pre>
-                )}
-            </DetailSection>
-          )}
+          </DetailSection>
+        )}
 
         {/* Subscription billing details */}
         {isSubscription && other && (
@@ -1190,6 +1251,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {other?.po && Array.isArray(other.po) && other.po.length > 0 && (
           <DetailSection
             icon={<Settings2 className='size-3.5' aria-hidden='true' />}
+            iconTone='chart-3'
             label={`${t('Param Override')} (${other.po.length})`}
           >
             {other.po.filter(Boolean).map((line) => {

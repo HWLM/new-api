@@ -24,6 +24,7 @@ import {
   Boxes,
   CheckCircle2,
   Circle,
+  ClipboardPaste,
   HelpCircle,
   KeyRound,
   Loader2,
@@ -62,6 +63,7 @@ import {
   sideDrawerSectionClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
+import { JsonCodeEditor } from '@/components/json-code-editor'
 import { JsonEditor } from '@/components/json-editor'
 import { MultiSelect } from '@/components/multi-select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -77,6 +79,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -115,6 +118,10 @@ import {
   ADMIN_PERMISSION_RESOURCES,
   hasPermission,
 } from '@/lib/admin-permissions'
+import {
+  parseChannelConnectionInfo,
+  type ChannelConnectionInfo,
+} from '@/lib/channel-connection-info'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
@@ -281,6 +288,8 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'proxy',
+  'http_protocol',
+  'http2_connection_shards',
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
@@ -336,6 +345,9 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
+    (values.http_protocol && values.http_protocol !== 'auto') ||
+    (values.http2_connection_shards != null &&
+      values.http2_connection_shards > 1) ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
@@ -364,25 +376,37 @@ function formatUnixTime(timestamp: unknown): string {
   return new Date(seconds * 1000).toLocaleString()
 }
 
-function CardHeading({ title, icon }: { title: string; icon?: ReactNode }) {
+function CardHeading(props: {
+  title: string
+  icon?: ReactNode
+  iconTone?: IconBadgeTone
+}) {
   return (
     <div className='flex items-center gap-3'>
-      {icon && (
-        <span className='bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md'>
-          {icon}
-        </span>
+      {props.icon && (
+        <IconBadge tone={props.iconTone} size='md'>
+          {props.icon}
+        </IconBadge>
       )}
-      <h3 className='text-sm font-semibold tracking-tight'>{title}</h3>
+      <h3 className='text-sm font-semibold tracking-tight'>{props.title}</h3>
     </div>
   )
 }
 
-function SubHeading({ title, icon }: { title: string; icon?: ReactNode }) {
+function SubHeading(props: {
+  title: string
+  icon?: ReactNode
+  iconTone?: IconBadgeTone
+}) {
   return (
     <div className='flex items-center gap-2'>
-      {icon && <span className='text-muted-foreground'>{icon}</span>}
+      {props.icon && (
+        <IconBadge tone={props.iconTone} size='xs'>
+          {props.icon}
+        </IconBadge>
+      )}
       <h4 className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
-        {title}
+        {props.title}
       </h4>
     </div>
   )
@@ -630,6 +654,8 @@ export function ChannelMutateDrawer({
   const [paramOverrideEditorOpen, setParamOverrideEditorOpen] = useState(false)
   const [advancedCustomEditorOpen, setAdvancedCustomEditorOpen] =
     useState(false)
+  const [clipboardConnectionInfo, setClipboardConnectionInfo] =
+    useState<ChannelConnectionInfo | null>(null)
 
   const isEditing = Boolean(currentRow)
   const channelId = currentRow?.id ?? null
@@ -728,6 +754,8 @@ export function ChannelMutateDrawer({
     'disable_task_polling_sleep'
   )
   const currentProxy = form.watch('proxy')
+  const currentHttpProtocol = form.watch('http_protocol')
+  const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
   const currentSystemPrompt = form.watch('system_prompt')
   const currentSystemPromptOverride = form.watch('system_prompt_override')
   const currentAllowServiceTier = form.watch('allow_service_tier')
@@ -743,6 +771,9 @@ export function ChannelMutateDrawer({
   const currentUpstreamModelUpdateIgnoredModels = form.watch(
     'upstream_model_update_ignored_models'
   )
+  const shouldPreviewUnsavedModels =
+    !isEditing ||
+    (currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && canEditSensitive)
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -760,6 +791,67 @@ export function ChannelMutateDrawer({
       resetDoubaoApiUnlock()
     }
   }, [open, resetDoubaoApiUnlock])
+
+  const applyConnectionInfo = useCallback(
+    (connectionInfo: ChannelConnectionInfo) => {
+      form.setValue('key', connectionInfo.key, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+      form.setValue('base_url', connectionInfo.url, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+      setClipboardConnectionInfo(null)
+      toast.success(t('Connection info filled in'))
+    },
+    [form, t]
+  )
+
+  const pasteConnectionInfoFromClipboard = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+      toast.error(t('Unable to read clipboard'))
+      return
+    }
+
+    try {
+      const text = await navigator.clipboard.readText()
+      const parsed = parseChannelConnectionInfo(text)
+      if (parsed) {
+        applyConnectionInfo(parsed)
+        return
+      }
+      toast.info(t('No connection info found in clipboard'))
+    } catch {
+      toast.error(t('Unable to read clipboard'))
+    }
+  }, [applyConnectionInfo, t])
+
+  useEffect(() => {
+    if (!open || isEditing) {
+      setClipboardConnectionInfo(null)
+      return
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+      return
+    }
+
+    let cancelled = false
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        if (cancelled) return
+        setClipboardConnectionInfo(parseChannelConnectionInfo(text))
+      })
+      .catch(() => {
+        /* Clipboard detection is best-effort on drawer open. */
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isEditing, open])
 
   // Helper computed values
   const isBatchMode =
@@ -933,7 +1025,9 @@ export function ChannelMutateDrawer({
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
-    currentSystemPromptOverride
+    currentSystemPromptOverride ||
+    (currentHttpProtocol && currentHttpProtocol !== 'auto') ||
+    (currentHttp2ConnectionShards != null && currentHttp2ConnectionShards > 1)
   )
   let fieldPassthroughConfigured = false
   if (currentType === 1 || currentType === 57) {
@@ -1261,43 +1355,48 @@ export function ChannelMutateDrawer({
     }
   }
 
-  const fetchChannelKey = useCallback(async () => {
-    if (!channelId) {
-      throw new Error('Channel is not selected')
-    }
-
-    setIsChannelKeyLoading(true)
-    try {
-      const res = await getChannelKey(channelId)
-      if (!res.success) {
-        throw new Error(res.message || t('Failed to fetch channel key'))
+  const fetchChannelKey = useCallback(
+    async (proofToken?: string) => {
+      if (!channelId) {
+        throw new Error('Channel is not selected')
       }
 
-      const keyValue = res.data?.key ?? ''
-      setChannelKey(keyValue)
-      toast.success(t('Channel key unlocked'))
-      return res
-    } finally {
-      setIsChannelKeyLoading(false)
-    }
-  }, [channelId, t])
+      setIsChannelKeyLoading(true)
+      try {
+        const res = await getChannelKey(channelId, proofToken)
+        if (!res.success) {
+          throw new Error(res.message || t('Failed to fetch channel key'))
+        }
+
+        const keyValue = res.data?.key ?? ''
+        setChannelKey(keyValue)
+        toast.success(t('Channel key unlocked'))
+        return res
+      } finally {
+        setIsChannelKeyLoading(false)
+      }
+    },
+    [channelId, t]
+  )
 
   const handleRevealKey = useCallback(async () => {
     if (!channelId) return
 
     try {
       await withVerification(fetchChannelKey, {
+        scope: 'channel.key.read',
         preferredMethod: 'passkey',
-        title: 'Verify to view channel key',
-        description:
-          'Use Passkey or 2FA to confirm your identity before revealing this channel key.',
+        title: t('Verify to view channel key'),
+        description: t(
+          'Use Passkey or 2FA to confirm your identity before revealing this channel key.'
+        ),
       })
     } catch (error) {
       if (error instanceof Error) {
         toast.error(error.message)
       }
     }
-  }, [channelId, withVerification, fetchChannelKey])
+  }, [channelId, withVerification, fetchChannelKey, t])
 
   const handleRefreshCodexCredential = useCallback(async () => {
     if (!channelId) return
@@ -1344,8 +1443,8 @@ export function ChannelMutateDrawer({
       return
     }
 
-    // For creation mode, validate key before opening dialog
-    if (!isEditing) {
+    // Advanced Custom may use a model discovery route with no authentication.
+    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM) {
       const key = form.getValues('key')
       if (!key?.trim()) {
         toast.error(t('Please enter API key first'))
@@ -1356,20 +1455,30 @@ export function ChannelMutateDrawer({
     setFetchModelsDialogOpen(true)
   }, [isEditing, canEditSensitive, form, t])
 
-  const createModeFetcher = useCallback(async (): Promise<string[]> => {
+  const formPreviewFetcher = useCallback(async (): Promise<string[]> => {
     if (!canEditSensitive) {
       throw new Error(t("You don't have necessary permission"))
     }
+    const type = form.getValues('type')
+    const editingAdvancedCustom =
+      isEditing && type === CHANNEL_TYPE_ADVANCED_CUSTOM
+    if (editingAdvancedCustom && channelId === null) {
+      throw new Error(t('No channel selected'))
+    }
     const response = await fetchModels({
-      type: form.getValues('type'),
-      key: form.getValues('key'),
+      type,
+      key: isEditing ? undefined : form.getValues('key'),
+      channel_id: editingAdvancedCustom ? channelId || undefined : undefined,
       base_url: form.getValues('base_url') || '',
+      advanced_custom: form.getValues('advanced_custom'),
+      header_override: form.getValues('header_override'),
+      proxy: form.getValues('proxy'),
     })
     if (response.success && response.data) {
       return response.data
     }
-    throw new Error(response.message || 'No models fetched from upstream')
-  }, [canEditSensitive, form, t])
+    throw new Error(response.message || t('No models fetched from upstream'))
+  }, [canEditSensitive, channelId, form, isEditing, t])
 
   // Handle model operations
   const handleFillRelatedModels = useCallback(() => {
@@ -1745,6 +1854,7 @@ export function ChannelMutateDrawer({
         setActiveEditorSectionId(CHANNEL_EDITOR_SECTION_IDS.identity)
         setExpandedEditorNavItemId(undefined)
         setAdvancedSettingsOpen(false)
+        setClipboardConnectionInfo(null)
       }
     },
     [onOpenChange, form]
@@ -1755,26 +1865,42 @@ export function ChannelMutateDrawer({
       <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent className={sideDrawerContentClassName('sm:max-w-5xl')}>
           <SheetHeader className={sideDrawerHeaderClassName()}>
-            <SheetTitle className='flex items-center gap-3'>
-              <span className='bg-muted flex size-9 shrink-0 items-center justify-center rounded-md'>
-                <ChannelTypeLogo type={currentType} size={22} />
-              </span>
-              <span>
-                {isEditing ? t('Edit Channel') : t('Create Channel')}
-                <span className='text-muted-foreground ml-2 text-sm font-normal'>
-                  {t(currentTypeLabel)}
-                </span>
-              </span>
-            </SheetTitle>
-            <SheetDescription>
-              {isEditing
-                ? t(
-                    "Update channel configuration and click save when you're done."
-                  )
-                : t(
-                    'Add a new channel by providing the necessary information.'
-                  )}
-            </SheetDescription>
+            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+              <div className='min-w-0'>
+                <SheetTitle className='flex items-center gap-3'>
+                  <IconBadge tone='info' size='title'>
+                    <ChannelTypeLogo type={currentType} size={22} />
+                  </IconBadge>
+                  <span>
+                    {isEditing ? t('Edit Channel') : t('Create Channel')}
+                    <span className='text-muted-foreground ml-2 text-sm font-normal'>
+                      {t(currentTypeLabel)}
+                    </span>
+                  </span>
+                </SheetTitle>
+                <SheetDescription className='mt-1'>
+                  {isEditing
+                    ? t(
+                        "Update channel configuration and click save when you're done."
+                      )
+                    : t(
+                        'Add a new channel by providing the necessary information.'
+                      )}
+                </SheetDescription>
+              </div>
+              {!isEditing && (
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='shrink-0'
+                  onClick={pasteConnectionInfoFromClipboard}
+                >
+                  <ClipboardPaste className='size-4' />
+                  <span>{t('Paste Connection Info')}</span>
+                </Button>
+              )}
+            </div>
           </SheetHeader>
 
           {sensitiveLocked && (
@@ -1786,6 +1912,31 @@ export function ChannelMutateDrawer({
                 {t(
                   'You can still edit non-sensitive operations fields such as models, groups, priority, and weight.'
                 )}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {!isEditing && clipboardConnectionInfo && (
+            <Alert>
+              <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                <span>{t('Connection info detected in clipboard')}</span>
+                <span className='flex shrink-0 gap-2'>
+                  <Button
+                    type='button'
+                    size='sm'
+                    onClick={() => applyConnectionInfo(clipboardConnectionInfo)}
+                  >
+                    {t('Fill in')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => setClipboardConnectionInfo(null)}
+                  >
+                    {t('Ignore')}
+                  </Button>
+                </span>
               </AlertDescription>
             </Alert>
           )}
@@ -3516,6 +3667,7 @@ export function ChannelMutateDrawer({
                           <CardHeading
                             title={t('Routing & Overrides')}
                             icon={<Route className='h-4 w-4' />}
+                            iconTone='info'
                           />
                           <div
                             id={ADVANCED_SETTINGS_SECTION_IDS.routingStrategy}
@@ -3527,6 +3679,7 @@ export function ChannelMutateDrawer({
                             <SubHeading
                               title={t('Routing Strategy')}
                               icon={<Route className='h-3.5 w-3.5' />}
+                              iconTone='info'
                             />
                             <div className='grid gap-4 sm:grid-cols-2'>
                               <FormField
@@ -3634,6 +3787,7 @@ export function ChannelMutateDrawer({
                             <SubHeading
                               title={t('Internal Notes')}
                               icon={<FileText className='h-3.5 w-3.5' />}
+                              iconTone='chart-3'
                             />
                             <div className='grid gap-4 sm:grid-cols-2'>
                               <FormField
@@ -3691,6 +3845,7 @@ export function ChannelMutateDrawer({
                             <SubHeading
                               title={t('Override Rules')}
                               icon={<Code className='h-3.5 w-3.5' />}
+                              iconTone='chart-4'
                             />
 
                             <FormField
@@ -3810,17 +3965,18 @@ export function ChannelMutateDrawer({
                                       </div>
                                     </div>
                                     <FormControl>
-                                      <Textarea
+                                      <JsonCodeEditor
                                         value={field.value || ''}
                                         onChange={field.onChange}
+                                        name={field.name}
+                                        onBlur={field.onBlur}
+                                        textareaRef={field.ref}
                                         disabled={
                                           sensitiveLocked || isSubmitting
                                         }
-                                        rows={8}
                                         placeholder={t(
                                           'Override request parameters. Cannot override stream parameter.'
                                         )}
-                                        className='max-h-72 min-h-40 resize-y overflow-auto font-mono text-xs'
                                       />
                                     </FormControl>
                                     <FormMessage />
@@ -3884,25 +4040,6 @@ export function ChannelMutateDrawer({
                                         </Button>
                                         <Button
                                           type='button'
-                                          variant='outline'
-                                          size='sm'
-                                          onClick={() => {
-                                            try {
-                                              const parsed = JSON.parse(
-                                                field.value || '{}'
-                                              )
-                                              field.onChange(
-                                                JSON.stringify(parsed, null, 2)
-                                              )
-                                            } catch {
-                                              /* ignore invalid JSON */
-                                            }
-                                          }}
-                                        >
-                                          {t('Format')}
-                                        </Button>
-                                        <Button
-                                          type='button'
                                           variant='ghost'
                                           size='sm'
                                           onClick={() => field.onChange('')}
@@ -3912,17 +4049,19 @@ export function ChannelMutateDrawer({
                                       </div>
                                     </div>
                                     <FormControl>
-                                      <Textarea
-                                        className='font-mono text-sm'
-                                        rows={6}
+                                      <JsonCodeEditor
                                         value={field.value || ''}
                                         onChange={field.onChange}
+                                        name={field.name}
+                                        onBlur={field.onBlur}
+                                        textareaRef={field.ref}
                                         disabled={
                                           sensitiveLocked || isSubmitting
                                         }
                                         placeholder={t(
                                           'Enter JSON to override request headers'
                                         )}
+                                        heightClassName='h-40 min-h-40 max-h-40'
                                       />
                                     </FormControl>
                                     <FormDescription className='text-xs'>
@@ -3957,6 +4096,7 @@ export function ChannelMutateDrawer({
                           <CardHeading
                             title={t('Channel Extra Settings')}
                             icon={<Settings className='h-4 w-4' />}
+                            iconTone='chart-3'
                           />
                           {sensitiveLocked && (
                             <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
@@ -4089,12 +4229,135 @@ export function ChannelMutateDrawer({
                                   </FormControl>
                                   <FormDescription>
                                     {t(
-                                      'Network proxy for this channel (supports socks5 protocol)'
+                                      'Network proxy for this channel (supports HTTP, HTTPS, SOCKS5, and SOCKS5H)'
                                     )}
                                   </FormDescription>
                                   <FormMessage />
                                 </FormItem>
                               )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='http_protocol'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>{t('HTTP Protocol')}</FormLabel>
+                                  <Select
+                                    items={[
+                                      {
+                                        value: 'auto',
+                                        label: t('Auto'),
+                                      },
+                                      {
+                                        value: 'http1',
+                                        label: t('HTTP/1.1'),
+                                      },
+                                    ]}
+                                    value={field.value || 'auto'}
+                                    onValueChange={(value) => {
+                                      const nextProtocol =
+                                        value === 'http1' ? 'http1' : 'auto'
+                                      field.onChange(nextProtocol)
+                                      if (nextProtocol === 'http1') {
+                                        form.setValue(
+                                          'http2_connection_shards',
+                                          1,
+                                          {
+                                            shouldDirty: true,
+                                            shouldValidate: true,
+                                          }
+                                        )
+                                      }
+                                    }}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent
+                                      alignItemWithTrigger={false}
+                                    >
+                                      <SelectGroup>
+                                        <SelectItem value='auto'>
+                                          {t('Auto')}
+                                        </SelectItem>
+                                        <SelectItem value='http1'>
+                                          {t('HTTP/1.1')}
+                                        </SelectItem>
+                                      </SelectGroup>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription>
+                                    {t(
+                                      'Auto negotiates HTTP/2 when available. HTTP/1.1 forces multiple keep-alive connections under concurrency.'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='http2_connection_shards'
+                              render={({ field }) => {
+                                const http1Selected =
+                                  currentHttpProtocol === 'http1'
+                                const shardItems = Array.from(
+                                  { length: 8 },
+                                  (_, index) => {
+                                    const value = String(index + 1)
+                                    return { value, label: value }
+                                  }
+                                )
+                                return (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('HTTP/2 Connection Shards')}
+                                    </FormLabel>
+                                    <Select
+                                      items={shardItems}
+                                      value={String(field.value || 1)}
+                                      disabled={http1Selected}
+                                      onValueChange={(value) => {
+                                        field.onChange(Number(value))
+                                      }}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger disabled={http1Selected}>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent
+                                        alignItemWithTrigger={false}
+                                      >
+                                        <SelectGroup>
+                                          {shardItems.map((item) => (
+                                            <SelectItem
+                                              key={item.value}
+                                              value={item.value}
+                                            >
+                                              {item.label}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectGroup>
+                                      </SelectContent>
+                                    </Select>
+                                    <FormDescription>
+                                      {http1Selected
+                                        ? t(
+                                            'HTTP/2 connection shards are unavailable when HTTP/1.1 is selected.'
+                                          )
+                                        : t(
+                                            'Spread HTTP/2 traffic across multiple reusable connections to the same upstream origin (1-8).'
+                                          )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )
+                              }}
                             />
 
                             <FormField
@@ -4164,6 +4427,7 @@ export function ChannelMutateDrawer({
                             <CardHeading
                               title={t('Field passthrough controls')}
                               icon={<SlidersHorizontal className='h-4 w-4' />}
+                              iconTone='chart-4'
                             />
                             <fieldset
                               disabled={sensitiveLocked}
@@ -4407,6 +4671,7 @@ export function ChannelMutateDrawer({
                             <CardHeading
                               title={t('Upstream Model Detection Settings')}
                               icon={<RefreshCw className='h-4 w-4' />}
+                              iconTone='info'
                             />
                             <fieldset
                               disabled={sensitiveLocked}
@@ -4427,6 +4692,7 @@ export function ChannelMutateDrawer({
                                             'Periodically check for upstream model changes'
                                           )}
                                         </FormDescription>
+                                        <FormMessage />
                                       </div>
                                       <FormControl>
                                         <Switch
@@ -4595,10 +4861,14 @@ export function ChannelMutateDrawer({
         }}
         redirectModels={redirectModelList}
         redirectSourceModels={redirectModelKeyList}
-        customFetcher={!isEditing ? createModeFetcher : undefined}
-        channelName={!isEditing ? currentName?.trim() : undefined}
+        customFetcher={
+          shouldPreviewUnsavedModels ? formPreviewFetcher : undefined
+        }
+        channelName={
+          shouldPreviewUnsavedModels ? currentName?.trim() : undefined
+        }
         existingModelsOverride={
-          !isEditing
+          shouldPreviewUnsavedModels
             ? parseModelsString(form.getValues('models') || '')
             : undefined
         }

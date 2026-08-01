@@ -12,12 +12,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
@@ -121,7 +122,7 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
-func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
+func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *taskdto.TaskError) {
 	// Accept only POST /v1/video/generations as "generate" action.
 	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
 }
@@ -389,7 +390,7 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 }
 
 // DoResponse handles upstream response, returns taskID etc.
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *taskdto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
@@ -417,11 +418,11 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	}
 
 	if strings.HasPrefix(c.Request.URL.Path, "/api/v3/contents/generations/tasks") {
-		c.JSON(http.StatusOK, dto.SeedanceV3PublicTask{
+		c.JSON(http.StatusOK, taskdto.SeedanceV3PublicTask{
 			ID:        info.PublicTaskID,
 			Model:     info.OriginModelName,
 			Status:    "queued",
-			Content:   dto.SeedanceV3PublicContent{},
+			Content:   taskdto.SeedanceV3PublicContent{},
 			CreatedAt: time.Now().Unix(),
 		})
 	} else {
@@ -621,11 +622,11 @@ func (a *TaskAdaptor) ConvertToSeedanceV3Video(originTask *model.Task) ([]byte, 
 		status = "expired"
 	}
 
-	result := dto.SeedanceV3PublicTask{
+	result := taskdto.SeedanceV3PublicTask{
 		ID:              originTask.TaskID,
 		Model:           originTask.Properties.OriginModelName,
 		Status:          status,
-		Content:         dto.SeedanceV3PublicContent{VideoURL: originTask.GetResultURL()},
+		Content:         taskdto.SeedanceV3PublicContent{VideoURL: originTask.GetResultURL()},
 		DurationSeconds: upstream.Duration,
 		Outputs:         upstream.Outputs,
 		CreatedAt:       originTask.CreatedAt,
@@ -638,13 +639,13 @@ func (a *TaskAdaptor) ConvertToSeedanceV3Video(originTask *model.Task) ([]byte, 
 		result.Outputs = []string{result.Content.VideoURL}
 	}
 	if upstream.Usage.CompletionTokens != 0 || upstream.Usage.TotalTokens != 0 {
-		result.Usage = &dto.SeedanceV3Usage{
+		result.Usage = &taskdto.SeedanceV3Usage{
 			CompletionTokens: upstream.Usage.CompletionTokens,
 			TotalTokens:      upstream.Usage.TotalTokens,
 		}
 	}
 	if originTask.Status == model.TaskStatusFailure {
-		result.Error = &dto.SeedanceV3Error{
+		result.Error = &taskdto.SeedanceV3Error{
 			Code:    upstream.Error.Code,
 			Message: upstream.Error.Message,
 		}

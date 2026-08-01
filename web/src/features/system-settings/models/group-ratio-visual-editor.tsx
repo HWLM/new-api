@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next'
 
 import { StaticDataTable } from '@/components/data-table/static/static-data-table'
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
+import { Dialog } from '@/components/dialog'
 import {
   sideDrawerContentClassName,
   sideDrawerFormClassName,
@@ -51,7 +52,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { Dialog } from '@/components/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -92,7 +92,7 @@ type GroupRatioVisualEditorProps = {
 type GroupPricingRow = {
   _id: string
   name: string
-  ratio: number
+  ratio: string
   topupRatio: string
   selectable: boolean
   description: string
@@ -173,7 +173,7 @@ function buildGroupPricingRows(
   return [...names].map((name) => ({
     _id: createGroupPricingId(),
     name,
-    ratio: normalizeRatio(ratioMap[name]),
+    ratio: String(normalizeRatio(ratioMap[name])),
     topupRatio: Object.hasOwn(topupMap, name) ? String(topupMap[name]) : '',
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
@@ -749,7 +749,7 @@ function GroupPricingTable({
       {
         _id: createGroupPricingId(),
         name,
-        ratio: 1,
+        ratio: '1',
         topupRatio: '',
         selectable: true,
         description: '',
@@ -866,13 +866,9 @@ function GroupPricingTable({
                     type='number'
                     min={0}
                     step={0.1}
-                    value={String(row.ratio)}
+                    value={row.ratio}
                     onChange={(event) =>
-                      updateRow(
-                        row._id,
-                        'ratio',
-                        normalizeRatio(event.target.value)
-                      )
+                      updateRow(row._id, 'ratio', event.target.value)
                     }
                   />
                 ),
@@ -1529,10 +1525,13 @@ function GroupOverrideDialog({
           <p className='text-muted-foreground text-xs'>
             {baseRatio !== undefined
               ? t('(instead of {{ratio}})', { ratio: baseRatio })
-              : t('Multiplier applied when {{userGroup}} uses {{targetGroup}}', {
-                  userGroup: userGroup || t('this user group'),
-                  targetGroup: targetGroup || t('this token group'),
-                })}
+              : t(
+                  'Multiplier applied when {{userGroup}} uses {{targetGroup}}',
+                  {
+                    userGroup: userGroup || t('this user group'),
+                    targetGroup: targetGroup || t('this token group'),
+                  }
+                )}
           </p>
         </div>
       </div>

@@ -2,26 +2,13 @@ FROM registry.cn-guangzhou.aliyuncs.com/kestudy/bun:1 AS builder
 
 WORKDIR /build/web
 COPY web/package.json web/bun.lock ./
-COPY web/default/package.json ./default/package.json
-COPY web/classic/package.json ./classic/package.json
 RUN bun install --frozen-lockfile
-COPY ./web/default ./default
+COPY ./web ./
 COPY ./VERSION /build/VERSION
-RUN cd default && DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
-
-FROM registry.cn-guangzhou.aliyuncs.com/kestudy/bun:1 AS builder-classic
-
-WORKDIR /build/web
-COPY web/package.json web/bun.lock ./
-COPY web/default/package.json ./default/package.json
-COPY web/classic/package.json ./classic/package.json
-RUN bun install --filter ./classic --frozen-lockfile
-COPY ./web/classic ./classic
-COPY ./VERSION /build/VERSION
-RUN cd classic && VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
+RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
 
 FROM registry.cn-guangzhou.aliyuncs.com/kestudy/golang:1.26.1-alpine AS builder2
-ENV GO111MODULE=on CGO_ENABLED=0
+ENV GO111MODULE=on CGO_ENABLED=0 GOWORK=off
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -31,12 +18,14 @@ ENV GOEXPERIMENT=greenteagc
 WORKDIR /build
 
 ADD go.mod go.sum ./
+# relaykit is a local submodule referenced via replace; its go.mod must be
+# present for go mod download to resolve the main module graph.
+ADD relaykit/go.mod ./relaykit/go.mod
 RUN go mod download
 
 COPY . .
-COPY --from=builder /build/web/default/dist ./web/default/dist
-COPY --from=builder-classic /build/web/classic/dist ./web/classic/dist
-RUN go build -ldflags "-s -w -X 'github.com/HWLM/new-api/common.Version=$(cat VERSION)'" -o new-api
+COPY --from=builder /build/web/dist ./web/dist
+RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
 
 FROM registry.cn-guangzhou.aliyuncs.com/kestudy/bookworm-slim
 

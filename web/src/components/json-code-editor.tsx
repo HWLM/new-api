@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { AlertCircle, Braces, CheckCircle2, Code2 } from 'lucide-react'
 import {
   useMemo,
+  useEffect,
   useRef,
   useState,
   type ComponentProps,
@@ -30,26 +31,42 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
-export type JsonCodeEditorProps = Omit<ComponentProps<'div'>, 'onChange'> & {
+export type JsonCodeEditorProps = Omit<
+  ComponentProps<'div'>,
+  'name' | 'onBlur' | 'onChange'
+> & {
   value: string
   onChange: (value: string) => void
+  name?: string
+  onBlur?: () => void
+  textareaRef?: (element: HTMLTextAreaElement | null) => void
   disabled?: boolean
   heightClassName?: string
+  placeholder?: string
+  ariaLabel?: string
+  'data-form-root'?: string
 }
 
 export function JsonCodeEditor({
   value,
   onChange,
+  name,
+  onBlur,
+  textareaRef: externalTextareaRef,
   disabled,
   heightClassName = 'h-56 min-h-56 max-h-56',
+  placeholder,
+  ariaLabel,
   className,
   id,
   'aria-describedby': ariaDescribedBy,
   'aria-invalid': ariaInvalid,
+  'data-form-root': dataFormRoot,
   ...rootProps
 }: JsonCodeEditorProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const latestOnBlurRef = useRef(onBlur)
   const [scrollTop, setScrollTop] = useState(0)
   const lineNumbers = useMemo(() => {
     const count = Math.max(1, value.split('\n').length)
@@ -65,6 +82,17 @@ export function JsonCodeEditor({
       return { valid: false, message: t('Invalid JSON') }
     }
   }, [value, t])
+
+  latestOnBlurRef.current = onBlur
+
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    const handleBlur = () => latestOnBlurRef.current?.()
+    textarea.addEventListener('blur', handleBlur)
+    return () => textarea.removeEventListener('blur', handleBlur)
+  }, [])
 
   const formatJson = () => {
     const trimmed = value.trim()
@@ -109,13 +137,11 @@ export function JsonCodeEditor({
         const lines = selectedBlock.split('\n')
         const nextBlock = event.shiftKey
           ? lines
-              .map((line) =>
-                line.startsWith('  ')
-                  ? line.slice(2)
-                  : line.startsWith('\t')
-                    ? line.slice(1)
-                    : line
-              )
+              .map((line) => {
+                if (line.startsWith('  ')) return line.slice(2)
+                if (line.startsWith('\t')) return line.slice(1)
+                return line
+              })
               .join('\n')
           : lines.map((line) => `  ${line}`).join('\n')
         const nextValue =
@@ -264,13 +290,20 @@ export function JsonCodeEditor({
           </div>
         </div>
         <Textarea
-          ref={textareaRef}
+          ref={(element) => {
+            textareaRef.current = element
+            externalTextareaRef?.(element)
+          }}
           id={id}
+          name={name}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
           aria-describedby={ariaDescribedBy}
           aria-invalid={ariaInvalid}
+          data-form-root={dataFormRoot}
           value={value}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
+          onInput={(event) => onChange(event.currentTarget.value)}
           onKeyDown={handleEditorKeyDown}
           onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
           className={cn(

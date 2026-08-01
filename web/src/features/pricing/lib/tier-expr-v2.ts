@@ -819,7 +819,10 @@ export function tryParseVisualConfigV2(
 
     // The last tier is treated as the default — if it accidentally has
     // conditions from a parser slip, drop them so re-serialization is stable.
-    tiers.at(-1).conditions = []
+    const lastTier = tiers.at(-1)
+    if (lastTier) {
+      lastTier.conditions = []
+    }
 
     const cfg = normalizeVisualConfigV2({
       tiers,

@@ -134,7 +134,7 @@ function SegmentedControl(props: {
 
         return (
           <Tooltip key={option.value}>
-            <TooltipTrigger render={button}></TooltipTrigger>
+            <TooltipTrigger render={button} />
             <TooltipContent side="bottom" className="text-xs">
               {option.tooltip}
             </TooltipContent>
@@ -150,18 +150,8 @@ export function PricingToolbar(props: PricingToolbarProps) {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const sortLabels = getSortLabels(t);
 
-  const handleTokenUnitChange = useCallback(
-    (value: string) => props.onTokenUnitChange(value as TokenUnit),
-    [props],
-  );
-
   const handleViewModeChange = useCallback(
     (value: string) => props.onViewModeChange(value as ViewMode),
-    [props],
-  );
-
-  const handleRechargePriceChange = useCallback(
-    (value: string) => props.onRechargePriceChange(value === "recharge"),
     [props],
   );
 

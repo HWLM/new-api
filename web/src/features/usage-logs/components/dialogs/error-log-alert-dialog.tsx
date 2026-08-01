@@ -46,7 +46,7 @@ export function ErrorLogAlertDialog({
 
   const loadRules = useCallback(() => {
     setLoading(true)
-    api
+    return api
       .get('/api/error-log-alerts/rules')
       .then((res) => setRules(res.data?.data ?? []))
       .catch(() => toast.error(t('Failed to load alert rules')))
@@ -54,7 +54,7 @@ export function ErrorLogAlertDialog({
   }, [t])
 
   useEffect(() => {
-    if (open) loadRules()
+    if (open) void loadRules()
   }, [open, loadRules])
 
   const handleDelete = (id: number) => {
@@ -73,19 +73,22 @@ export function ErrorLogAlertDialog({
       .then((res) => {
         const failures = (res.data?.data?.failed_platform_details ?? []) as LogAlertTestFailure[]
         const legacyFailures = (res.data?.data?.failed_platforms ?? []) as string[]
-        const failureDetails = failures.length
+        const failureDetails: LogAlertTestFailure[] = failures.length
           ? failures
           : legacyFailures.map((reason) => ({ reason }))
         if (failureDetails.length > 0) {
           const details = failureDetails
             .map((failure) => {
-              const platformName =
-                failure.platform_type === 'wecom_group'
-                  ? t('WeCom Group Bot')
-                  : failure.platform_type === 'telegram_bot'
-                    ? t('Telegram Bot')
-                    : failure.platform_type || t('Alert Platform')
-              const index = Number.isInteger(failure.index) ? ` #${failure.index! + 1}` : ''
+              let platformName = failure.platform_type || t('Alert Platform')
+              if (failure.platform_type === 'wecom_group') {
+                platformName = t('WeCom Group Bot')
+              } else if (failure.platform_type === 'telegram_bot') {
+                platformName = t('Telegram Bot')
+              }
+              const failureIndex = failure.index
+              const index = Number.isInteger(failureIndex)
+                ? ` #${Number(failureIndex) + 1}`
+                : ''
               return `${platformName}${index}: ${failure.reason || t('Test send failed')}`
             })
             .join('\n')

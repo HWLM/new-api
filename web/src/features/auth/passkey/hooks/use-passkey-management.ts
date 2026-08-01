@@ -81,7 +81,7 @@ export function usePasskeyManagement(
       .catch(() => setSupported(false))
   }, [])
 
-  const register = useCallback(async () => {
+  const register = useCallback(async (proofToken?: string) => {
     if (!supported) {
       toast.error(i18next.t('This device does not support Passkey'))
       return false
@@ -93,7 +93,7 @@ export function usePasskeyManagement(
 
     setRegistering(true)
     try {
-      const beginResponse = await beginPasskeyRegistration()
+      const beginResponse = await beginPasskeyRegistration(proofToken)
       if (!beginResponse.success) {
         toast.error(
           beginResponse.message ||
@@ -105,6 +105,11 @@ export function usePasskeyManagement(
       const publicKey = prepareCredentialCreationOptions(
         beginResponse.data?.options ?? beginResponse.data
       )
+      const flowToken = beginResponse.data?.flow_token
+      if (!flowToken) {
+        toast.error(i18next.t('Registration flow expired. Please try again.'))
+        return false
+      }
 
       const credential = (await createCredential(
         publicKey
@@ -120,7 +125,11 @@ export function usePasskeyManagement(
         return false
       }
 
-      const finishResponse = await finishPasskeyRegistration(attestation)
+      const finishResponse = await finishPasskeyRegistration(
+        flowToken,
+        attestation,
+        proofToken
+      )
       if (!finishResponse.success) {
         toast.error(
           finishResponse.message || i18next.t('Failed to register Passkey')
@@ -149,10 +158,10 @@ export function usePasskeyManagement(
     }
   }, [supported, fetchStatus])
 
-  const remove = useCallback(async () => {
+  const remove = useCallback(async (proofToken?: string) => {
     setRemoving(true)
     try {
-      const res = await deletePasskey()
+      const res = await deletePasskey(proofToken)
       if (!res.success) {
         toast.error(res.message || i18next.t('Failed to remove Passkey'))
         return false
