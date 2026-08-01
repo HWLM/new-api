@@ -18,6 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { PricingModel } from '../types'
 import {
+  isDoubaoSeedanceV3ModelName,
+  isSeedanceV3ModelName,
+} from './seedance-v3-api'
+import {
   hashStringToSeed,
   randomInRange,
   randomIntInRange,
@@ -315,8 +319,7 @@ export function buildGroupPerformance(model: PricingModel): GroupPerformance[] {
   const spec = PROFILE_SPECS[profile]
   const baseSeed = hashStringToSeed(model.model_name)
 
-  return targets
-    .slice()
+  return [...targets]
     .sort((a, b) => a.localeCompare(b))
     .map<GroupPerformance>((group) => {
       const rand = seededRandom(baseSeed ^ hashStringToSeed(group))
@@ -763,6 +766,91 @@ const VIDEO_PARAMS: SupportedParameter[] = [
   },
 ]
 
+const SEEDANCE_V3_COMMON_PARAMS: SupportedParameter[] = [
+  {
+    name: 'content',
+    type: 'array',
+    required: true,
+    descriptionKey: 'Ordered text and media inputs for video generation',
+  },
+  {
+    name: 'generate_audio',
+    type: 'boolean',
+    defaultValue: false,
+    descriptionKey: 'Whether to generate synchronized audio',
+  },
+  {
+    name: 'watermark',
+    type: 'boolean',
+    defaultValue: false,
+    descriptionKey: 'Whether to add a watermark',
+  },
+]
+
+const SEEDANCE_V3_DOUBAO_PARAMS: SupportedParameter[] = [
+  {
+    name: 'tools',
+    type: 'array',
+    descriptionKey: 'Optional upstream tools, such as web search',
+  },
+  {
+    name: 'service_tier',
+    type: 'string',
+    descriptionKey: 'Upstream service tier',
+  },
+  {
+    name: 'draft',
+    type: 'boolean',
+    defaultValue: false,
+    descriptionKey: 'Whether to generate a draft video',
+  },
+  {
+    name: 'frames',
+    type: 'integer',
+    descriptionKey: 'Requested output frame count',
+  },
+  {
+    name: 'camera_fixed',
+    type: 'boolean',
+    defaultValue: false,
+    descriptionKey: 'Whether to keep the camera fixed',
+  },
+]
+
+function buildSeedanceV3Parameters(modelName: string): SupportedParameter[] {
+  const isDoubao = isDoubaoSeedanceV3ModelName(modelName)
+  return [
+    SEEDANCE_V3_COMMON_PARAMS[0],
+    {
+      name: 'duration',
+      type: 'integer',
+      defaultValue: 5,
+      range: isDoubao ? '-1 or 4 ~ 15' : '4 ~ 15',
+      descriptionKey: 'Video length in seconds',
+    },
+    {
+      name: 'resolution',
+      type: 'enum',
+      enumValues: isDoubao
+        ? ['480p', '720p', '1080p', '4K']
+        : ['480p', '720p', '1080p'],
+      defaultValue: '480p',
+      descriptionKey: 'Output video resolution',
+    },
+    {
+      name: 'ratio',
+      type: 'enum',
+      enumValues: isDoubao
+        ? ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive']
+        : ['16:9', '9:16', '3:4', '1:1', '4:3'],
+      defaultValue: '16:9',
+      descriptionKey: 'Output aspect ratio',
+    },
+    ...SEEDANCE_V3_COMMON_PARAMS.slice(1),
+    ...(isDoubao ? SEEDANCE_V3_DOUBAO_PARAMS : []),
+  ]
+}
+
 type ApiCategory = 'reasoning' | 'embedding' | 'image' | 'video' | 'chat'
 
 /**
@@ -790,6 +878,9 @@ function apiCategoryOf(model: PricingModel): ApiCategory {
 export function buildSupportedParameters(
   model: PricingModel
 ): SupportedParameter[] {
+  if (isSeedanceV3ModelName(model.model_name)) {
+    return buildSeedanceV3Parameters(model.model_name)
+  }
   const cat = apiCategoryOf(model)
   if (cat === 'reasoning') return REASONING_PARAMS
   if (cat === 'embedding') return EMBEDDING_PARAMS
@@ -813,12 +904,20 @@ export function buildRateLimits(model: PricingModel): RateLimit[] {
   const baseSeed = hashStringToSeed(`${model.model_name}:rl`)
   const isHeavy = cat === 'image' || cat === 'video'
   const isLight = cat === 'embedding'
-  const baseRpm = isHeavy ? 60 : isLight ? 5_000 : 500
-  const baseTpm = isHeavy ? 0 : isLight ? 1_000_000 : 200_000
-  const baseRpd = isHeavy ? 1_000 : isLight ? 100_000 : 10_000
+  let baseRpm = 500
+  let baseTpm = 200_000
+  let baseRpd = 10_000
+  if (isHeavy) {
+    baseRpm = 60
+    baseTpm = 0
+    baseRpd = 1_000
+  } else if (isLight) {
+    baseRpm = 5_000
+    baseTpm = 1_000_000
+    baseRpd = 100_000
+  }
 
-  return targets
-    .slice()
+  return [...targets]
     .sort((a, b) => a.localeCompare(b))
     .map((group) => {
       const rand = seededRandom(baseSeed ^ hashStringToSeed(group))
@@ -836,7 +935,8 @@ export function buildRateLimits(model: PricingModel): RateLimit[] {
 export function formatRateLimit(value: number): string {
   if (value <= 0) return '—'
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000)
+  if (value >= 1_000) {
     return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`
+  }
   return value.toLocaleString()
 }
