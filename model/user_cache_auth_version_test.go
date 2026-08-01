@@ -32,6 +32,70 @@ func useUserCacheMiniRedis(t *testing.T) *miniredis.Miniredis {
 	return server
 }
 
+func TestUserAuthCacheKeysShareRedisClusterSlot(t *testing.T) {
+	useUserCacheMiniRedis(t)
+
+	keys := []string{
+		getUserCacheKey(4200),
+		getUserAuthFenceKey(4200),
+		getUserAuthVersionKey(4200),
+	}
+	cacheSlot, err := common.RDB.ClusterKeySlot(t.Context(), keys[0]).Result()
+	require.NoError(t, err)
+	for _, key := range keys[1:] {
+		slot, err := common.RDB.ClusterKeySlot(t.Context(), key).Result()
+		require.NoError(t, err)
+		assert.Equal(t, cacheSlot, slot, "Redis key %q must share the user cache hash slot", key)
+	}
+}
+
+func TestUserAuthVersionFloorReadsLegacyKeysBeforeMigration(t *testing.T) {
+	useUserCacheMiniRedis(t)
+	const userID = 4203
+
+	require.NoError(t, common.RDB.Set(t.Context(), getLegacyUserAuthFenceKey(userID), 3, time.Minute).Err())
+	require.NoError(t, common.RDB.Set(t.Context(), getLegacyUserAuthVersionKey(userID), 2, 0).Err())
+
+	floor, err := getUserAuthVersionFloor(userID)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, floor)
+
+	require.NoError(t, SetUserAuthVersionFence(userID, 4))
+	floor, err = getUserAuthVersionFloor(userID)
+	require.NoError(t, err)
+	assert.EqualValues(t, 4, floor)
+}
+
+func TestPasswordEditPublishesUserAuthCache(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+
+	user := User{
+		Username:    "password-cache-publish",
+		Password:    "old-password",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		AuthVersion: 1,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+
+	updated := user
+	updated.Password = "new-password"
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		return updated.EditWithTx(tx, true)
+	}))
+	require.NoError(t, PublishUserAuthCache(user.Id))
+
+	cached, err := cacheGetUserBase(user.Id)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, cached.AuthVersion)
+	committed, err := common.RDB.Get(t.Context(), getUserAuthVersionKey(user.Id)).Result()
+	require.NoError(t, err)
+	assert.Equal(t, "2", committed)
+}
+
 func TestUserAuthFenceRollbackExpiresAndRecovers(t *testing.T) {
 	truncateTables(t)
 	server := useUserCacheMiniRedis(t)
