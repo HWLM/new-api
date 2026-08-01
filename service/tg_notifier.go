@@ -30,8 +30,9 @@ import (
 )
 
 type tgSendMessageReq struct {
-	ChatId string `json:"chat_id"`
-	Text   string `json:"text"`
+	ChatId                string `json:"chat_id"`
+	Text                  string `json:"text"`
+	DisableWebPagePreview bool   `json:"disable_web_page_preview,omitempty"`
 }
 
 type tgSendMessageResp struct {
@@ -42,11 +43,21 @@ type tgSendMessageResp struct {
 // SendTelegramMessage 调用 Telegram Bot API 发送文本消息。
 // 参考: https://core.telegram.org/bots/api#sendmessage
 func SendTelegramMessage(botToken, chatId, text string) error {
+	return sendTelegramMessage(botToken, chatId, text, false)
+}
+
+// SendTelegramMessageNoPreview 与 SendTelegramMessage 一致，但禁用链接自动预览。
+// 用于错误日志告警等含 URL 但不希望展开预览的场景。
+func SendTelegramMessageNoPreview(botToken, chatId, text string) error {
+	return sendTelegramMessage(botToken, chatId, text, true)
+}
+
+func sendTelegramMessage(botToken, chatId, text string, disablePreview bool) error {
 	if botToken == "" || chatId == "" {
 		return errors.New("bot token or chat id is empty")
 	}
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
-	payload, err := common.Marshal(tgSendMessageReq{ChatId: chatId, Text: text})
+	payload, err := common.Marshal(tgSendMessageReq{ChatId: chatId, Text: text, DisableWebPagePreview: disablePreview})
 	if err != nil {
 		return err
 	}

@@ -244,7 +244,7 @@ type logAlertAgg struct {
 
 var (
 	sendLogAlertWeCom    = SendWeComMarkdown
-	sendLogAlertTelegram = SendTelegramMessage
+	sendLogAlertTelegram = SendTelegramMessageNoPreview
 )
 
 type LogAlertPlatformFailure struct {
