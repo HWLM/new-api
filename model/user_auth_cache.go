@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/go-redis/redis/v8"
 
 	"gorm.io/gorm"
 )
@@ -24,10 +25,18 @@ var ErrUserAuthCachePending = errors.New("user authentication state update is pe
 var ErrUserAuthVersionConflict = errors.New("user authentication version update conflicted")
 
 func getUserAuthFenceKey(userId int) string {
-	return fmt.Sprintf("auth:user:fence:%d", userId)
+	return fmt.Sprintf("auth:user:fence:%s", getUserCacheHashTag(userId))
 }
 
 func getUserAuthVersionKey(userId int) string {
+	return fmt.Sprintf("auth:user:version:%s", getUserCacheHashTag(userId))
+}
+
+func getLegacyUserAuthFenceKey(userId int) string {
+	return fmt.Sprintf("auth:user:fence:%d", userId)
+}
+
+func getLegacyUserAuthVersionKey(userId int) string {
 	return fmt.Sprintf("auth:user:version:%d", userId)
 }
 
@@ -107,11 +116,37 @@ func getUserAuthVersionFloor(userId int) (int64, error) {
 		return 0, err
 	}
 	var floor int64
+	hasClusterSafeState := false
 	for _, value := range values {
 		if value == nil {
 			continue
 		}
+		hasClusterSafeState = true
 		parsed, err := strconv.ParseInt(fmt.Sprint(value), 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		if parsed > floor {
+			floor = parsed
+		}
+	}
+	if hasClusterSafeState {
+		return floor, nil
+	}
+
+	// Before the tagged keys have been populated, preserve authentication
+	// floors written by the previous key layout. These keys must be fetched
+	// separately because a multi-key command would recreate the cross-slot
+	// failure this compatibility path is intended to heal.
+	for _, key := range []string{getLegacyUserAuthFenceKey(userId), getLegacyUserAuthVersionKey(userId)} {
+		value, err := common.RDB.Get(context.Background(), key).Result()
+		if errors.Is(err, redis.Nil) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		parsed, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
 			return 0, err
 		}
@@ -231,7 +266,7 @@ func PublishUserAuthCache(userId int) error {
 	if err != nil {
 		return err
 	}
-	return updateUserCache(*user)
+	return writeUserCache(user.ToBaseUser(), false)
 }
 
 // InitializeUserAuthVersions must run after AutoMigrate when upgrading an
