@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -93,4 +95,46 @@ func TestLogTokenQuotaDataUniqueConstraint(t *testing.T) {
 	dup := &TokenQuotaData{UserID: 42, TokenID: 7, CreatedAt: 1785427200, Count: 1, Quota: 20, TokenUsed: 2}
 	err := DB.Create(dup).Error
 	require.Error(t, err, "重复的 (user_id, token_id, created_at) 应触发 unique 约束")
+}
+
+func TestTokenQuotaDataRecordedWhenDataExportDisabled(t *testing.T) {
+	require.NoError(t, DB.AutoMigrate(&TokenQuotaData{}))
+	require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&TokenQuotaData{}).Error)
+	t.Cleanup(func() {
+		require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&TokenQuotaData{}).Error)
+	})
+
+	originalDataExportEnabled := common.DataExportEnabled
+	common.DataExportEnabled = false
+	t.Cleanup(func() {
+		common.DataExportEnabled = originalDataExportEnabled
+	})
+
+	ctx, _ := gin.CreateTestContext(nil)
+	ctx.Set("username", "token-stats-test")
+	RecordConsumeLog(ctx, 101, RecordConsumeLogParams{
+		TokenId:          201,
+		TokenName:        "sync-consume",
+		Group:            "default",
+		Quota:            100,
+		PromptTokens:     10,
+		CompletionTokens: 20,
+	})
+	RecordTaskBillingLog(RecordTaskBillingLogParams{
+		UserId:  102,
+		TokenId: 202,
+		Group:   "default",
+		Quota:   200,
+		LogType: LogTypeConsume,
+	})
+
+	var rows []TokenQuotaData
+	require.NoError(t, DB.Order("token_id ASC").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	assert.Equal(t, 201, rows[0].TokenID)
+	assert.Equal(t, 100, rows[0].Quota)
+	assert.Equal(t, 30, rows[0].TokenUsed)
+	assert.Equal(t, 202, rows[1].TokenID)
+	assert.Equal(t, 200, rows[1].Quota)
+	assert.Zero(t, rows[1].TokenUsed)
 }

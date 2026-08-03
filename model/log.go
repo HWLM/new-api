@@ -729,8 +729,9 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			ChannelID: params.ChannelId,
 			NodeName:  common.NodeName,
 		})
-		LogTokenQuotaData(userId, params.TokenId, params.TokenName, params.Group, params.Quota, createdAt, tokenUsed)
 	}
+	// Key statistics are independent from the dashboard's quota_data export.
+	LogTokenQuotaData(userId, params.TokenId, params.TokenName, params.Group, params.Quota, createdAt, params.PromptTokens+params.CompletionTokens)
 }
 
 type RecordTaskBillingLogParams struct {
@@ -792,6 +793,9 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 			ChannelID: params.ChannelId,
 			NodeName:  nodeName,
 		})
+	}
+	if params.LogType == LogTypeConsume {
+		// Key statistics are independent from the dashboard's quota_data export.
 		LogTokenQuotaData(params.UserId, params.TokenId, tokenName, params.Group, params.Quota, createdAt, 0)
 	}
 }
