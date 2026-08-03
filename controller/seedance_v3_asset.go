@@ -22,10 +22,11 @@ import (
 
 const seedanceV3AssetLogResultKey = "seedance_v3_asset_log_result"
 
-// RelaySeedanceV3Asset 处理 SeedanceV3 素材接口的两条路由：
+// RelaySeedanceV3Asset 处理 SeedanceV3 素材接口：
 //
 //   - POST /api/v3/open/CreateAsset 上传素材，返回 {"id": "asset-xxxxxx"}
-//   - POST /v3/open/GetAsset     查询素材，返回资产详情
+//   - POST /api/v3/open/GetAsset 查询素材，返回资产详情
+//   - POST /v3/open/GetAsset     查询素材，兼容旧路径
 //
 // 该 controller 是一个简单透传：
 //  1. 从渠道拿到素材上传专用的 base URL（OtherSettings.AssetBaseUrl，未配置时回落到主 base URL）

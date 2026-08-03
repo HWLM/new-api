@@ -1,6 +1,6 @@
 # Seedance V3 统一视频 API
 
-版本：2026-07-18
+版本：2026-08-03
 
 本文档描述 new-api 对外提供的 Seedance 2.0 统一接口。客户端只需要使用本站 API Key，网关会根据 `model` 选择对应的视频和素材上游。
 
@@ -69,8 +69,10 @@ POST /api/v3/open/CreateAsset
 ## 2. 查询素材
 
 ```http
-POST /v3/open/GetAsset
+POST /api/v3/open/GetAsset
 ```
+
+兼容路径 `POST /v3/open/GetAsset` 仍然可用，新接入应使用 `/api/v3/open/GetAsset`。
 
 请求：
 
@@ -80,6 +82,13 @@ POST /v3/open/GetAsset
   "Id": "asset-20260705003737-njxmg"
 }
 ```
+
+字段说明：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `model` | string | 是 | 创建素材时使用的模型，必须与后续视频任务使用的模型一致 |
+| `Id` | string | 是 | `CreateAsset` 返回的素材 ID；字段名区分大小写 |
 
 成功响应：
 
@@ -96,7 +105,23 @@ POST /v3/open/GetAsset
 }
 ```
 
-Doubao 素材创建后可能处于 `Processing`，必须轮询到 `Active` 后再引用。
+响应字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `Id` | string | 素材 ID |
+| `Status` | string | 素材处理状态，例如 `Processing` 或 `Active` |
+| `AssetType` | string | 素材类型，例如 `Image`、`Video` 或 `Audio` |
+| `Name` | string | 创建素材时指定的名称 |
+| `URL` | string | 素材来源 URL |
+| `GroupId` | string | 上游素材分组 ID；未分组时可能为空 |
+| `CreateTime` | string | 素材创建时间，由上游返回 |
+| `UpdateTime` | string | 素材最后更新时间，由上游返回 |
+| `base_resp` | object | 部分上游返回的状态详情，包含 `status_code` 和 `status_msg` |
+
+除 `Id` 外的响应字段可能因上游而省略。该接口只执行一次状态查询，不会在网关内等待状态变化。Doubao 素材创建后可能处于 `Processing`，客户端应继续轮询，直到状态变为 `Active` 后再通过 `asset://<Id>` 引用。查询素材不参与视频任务计费。
+
+请求缺少 `model` 时由网关返回 `400`；缺少 `Id` 时，HC 模型返回 `400`，其他模型按上游校验结果返回。素材不存在时通常返回 `404`；上游鉴权、限流或服务异常会按实际状态返回。
 
 ## 3. 创建视频任务
 
@@ -217,6 +242,14 @@ GET /api/v3/contents/generations/tasks/{task_id}
 ## cURL 示例
 
 ```bash
+curl -X POST "$BASE_URL/api/v3/open/GetAsset" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "doubao-seedance-2-0-filter-off",
+    "Id": "asset-20260705003737-njxmg"
+  }'
+
 curl -X POST "$BASE_URL/api/v3/contents/generations/tasks" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
