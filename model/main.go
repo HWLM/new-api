@@ -69,6 +69,7 @@ func createRootAccountIfNeed() error {
 		if err != nil {
 			return err
 		}
+		totalQuota := int64(100000000)
 		rootUser := User{
 			Username:    "root",
 			Password:    hashedPassword,
@@ -77,6 +78,7 @@ func createRootAccountIfNeed() error {
 			DisplayName: "Root User",
 			AccessToken: nil,
 			Quota:       100000000,
+			TotalQuota:  &totalQuota,
 		}
 		DB.Create(&rootUser)
 	}
@@ -452,7 +454,28 @@ func migrateClickHouseLogDB() error {
 	if err := LOG_DB.Exec(clickHouseLogCreateTableSQL(ttlDays)).Error; err != nil {
 		return err
 	}
+	if err := syncClickHouseLogColumns(); err != nil {
+		return err
+	}
 	return syncClickHouseLogTTL(ttlDays)
+}
+
+func syncClickHouseLogColumns() error {
+	columns := []string{
+		"before_quota Nullable(Int64)",
+		"after_quota Nullable(Int64)",
+		"operation_type Nullable(String)",
+		"quota_type Nullable(String)",
+		"account_id Int64 DEFAULT 0",
+		"recharge_input_amount Nullable(Float64)",
+		"recharge_after_ratio_amount Nullable(Float64)",
+	}
+	for _, column := range columns {
+		if err := LOG_DB.Exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS " + column).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func clickHouseLogTTLDays() int {
@@ -490,6 +513,10 @@ CREATE TABLE IF NOT EXISTS logs (
 	token_name String DEFAULT '',
 	model_name String DEFAULT '',
 	quota Int32 DEFAULT 0,
+	before_quota Nullable(Int64),
+	after_quota Nullable(Int64),
+	operation_type Nullable(String),
+	quota_type Nullable(String),
 	prompt_tokens Int32 DEFAULT 0,
 	completion_tokens Int32 DEFAULT 0,
 	use_time Int32 DEFAULT 0,
@@ -500,7 +527,10 @@ CREATE TABLE IF NOT EXISTS logs (
 	ip String DEFAULT '',
 	request_id String DEFAULT '',
 	upstream_request_id String DEFAULT '',
-	other String DEFAULT ''
+	other String DEFAULT '',
+	account_id Int64 DEFAULT 0,
+	recharge_input_amount Nullable(Float64),
+	recharge_after_ratio_amount Nullable(Float64)
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(toDateTime(created_at))

@@ -44,6 +44,7 @@ export const userSchema = z.object({
   email: z.string().optional(),
   quota: z.number(),
   used_quota: z.number(),
+  total_quota: z.number().optional(),
   request_count: z.number(),
   group: z.string(),
   aff_code: z.string().optional(),
@@ -110,6 +111,35 @@ export interface GetUsersResponse {
     total: number
     page: number
     page_size: number
+  }
+}
+
+export interface UserQuotaHistoryItem {
+  id: number
+  created_at: number
+  type: number
+  delta_quota: number | null
+  before_quota: number | null
+  after_quota: number | null
+  content: string
+  model_name: string
+  token_name: string
+  request_id: string
+  operation_type?: string
+  quota_type?: string
+  recharge_input_amount?: number
+  recharge_after_ratio_amount?: number
+}
+
+export interface UserQuotaHistoryResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: UserQuotaHistoryItem[]
+    total: number
+    page: number
+    page_size: number
+    current_quota: number
   }
 }
 
@@ -275,4 +305,9 @@ export interface VipStatsTrendParams {
 // Dialog Types
 // ============================================================================
 
-export type UsersDialogType = 'create' | 'update' | 'delete' | 'tg-settings'
+export type UsersDialogType =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'tg-settings'
+  | 'quota-history'

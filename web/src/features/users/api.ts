@@ -32,6 +32,7 @@ import type {
   VipStatsDetail,
   VipStatsTrend,
   VipStatsTrendParams,
+  UserQuotaHistoryResponse,
 } from './types'
 
 // ============================================================================
@@ -102,6 +103,17 @@ export async function searchUsers(
  */
 export async function getUser(id: number): Promise<ApiResponse<User>> {
   const res = await api.get(`/api/user/${id}`)
+  return res.data
+}
+
+export async function getUserQuotaHistory(
+  userId: number,
+  page: number,
+  pageSize: number
+): Promise<UserQuotaHistoryResponse> {
+  const res = await api.get(`/api/user/${userId}/quota-history`, {
+    params: { p: page, page_size: pageSize },
+  })
   return res.data
 }
 

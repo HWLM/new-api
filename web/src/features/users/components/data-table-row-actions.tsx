@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
-import { type Row } from '@tanstack/react-table'
+import type { Row } from '@tanstack/react-table'
 import {
   MoreHorizontal,
   Pencil,
@@ -33,9 +32,13 @@ import {
   Briefcase,
   BriefcaseBusiness,
   Repeat,
+  History,
 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -45,8 +48,8 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ConfirmDialog } from '@/components/confirm-dialog'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+
 import {
   manageUser,
   resetUserPasskey,
@@ -60,9 +63,10 @@ import {
   isUserDeleted,
 } from '../constants'
 import { getUserActionMessage } from '../lib'
-import { type User, type ManageUserAction } from '../types'
+import type { ManageUserAction, User } from '../types'
 import { BusinessChannelDialog } from './dialogs/business-channel-dialog'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { UserQuotaHistoryDialog } from './dialogs/user-quota-history-dialog'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -78,6 +82,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false)
+  const [quotaHistoryOpen, setQuotaHistoryOpen] = useState(false)
   const [businessDialogMode, setBusinessDialogMode] = useState<
     'mark' | 'change'
   >('mark')
@@ -104,7 +109,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           result.message || t('Failed to {{action}} user', { action })
         )
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     }
   }
@@ -118,7 +123,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       } else {
         toast.error(result.message || t('Failed to reset Passkey'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetPasskeyOpen(false)
@@ -134,7 +139,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       } else {
         toast.error(result.message || t('Operation failed'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setUnmarkBusinessOpen(false)
@@ -150,7 +155,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       } else {
         toast.error(result.message || t('Failed to reset 2FA'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetTwoFAOpen(false)
@@ -247,6 +252,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             {t('Manage Subscriptions')}
             <DropdownMenuShortcut>
               <CreditCard size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setQuotaHistoryOpen(true)
+            }}
+          >
+            {t('Quota change history')}
+            <DropdownMenuShortcut>
+              <History size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 
@@ -368,6 +385,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
       />
+
+      {quotaHistoryOpen ? (
+        <UserQuotaHistoryDialog
+          open
+          onOpenChange={setQuotaHistoryOpen}
+          user={{ id: user.id, username: user.username, quota: user.quota }}
+        />
+      ) : null}
 
       <BusinessChannelDialog
         open={businessDialogOpen}

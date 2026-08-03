@@ -34,6 +34,7 @@ import { staticDataTableClassNames } from './static-data-table-classnames'
 type StaticDataTableBaseProps = {
   className?: string
   tableClassName?: string
+  tableContainerClassName?: string
   containerProps?: Omit<React.ComponentProps<'div'>, 'className' | 'children'>
   tableProps?: Omit<
     React.ComponentProps<typeof Table>,
@@ -50,6 +51,7 @@ type StaticDataTableDataProps<TData = unknown> = StaticDataTableBaseProps & {
   empty?: boolean
   emptyContent?: React.ReactNode
   emptyClassName?: string
+  headerClassName?: string
   headerRowClassName?: string
 }
 
@@ -74,14 +76,24 @@ export type StaticDataTableColumn<TData = unknown> = {
 export function StaticDataTable<TData = unknown>(
   props: StaticDataTableProps<TData>
 ) {
-  const { className, tableClassName, containerProps, tableProps } = props
+  const {
+    className,
+    tableClassName,
+    tableContainerClassName,
+    containerProps,
+    tableProps,
+  } = props
 
   return (
     <div
       className={cn(staticDataTableClassNames.container, className)}
       {...containerProps}
     >
-      <Table className={tableClassName} {...tableProps}>
+      <Table
+        className={tableClassName}
+        containerClassName={tableContainerClassName}
+        {...tableProps}
+      >
         {props.columns !== undefined ? (
           <StaticDataTableWithColumns {...props} />
         ) : (
@@ -101,6 +113,7 @@ function StaticDataTableWithColumns<TData>({
   empty,
   emptyContent,
   emptyClassName,
+  headerClassName,
   headerRowClassName,
 }: StaticDataTableDataProps<TData>) {
   const isEmpty = empty ?? (data !== undefined && data.length === 0)
@@ -117,7 +130,7 @@ function StaticDataTableWithColumns<TData>({
 
   return (
     <>
-      <TableHeader>
+      <TableHeader className={headerClassName}>
         <TableRow className={headerRowClassName}>
           {columns.map((column) => (
             <TableHead key={column.id} className={column.className}>
