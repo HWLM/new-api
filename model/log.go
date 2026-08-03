@@ -120,6 +120,8 @@ type Log struct {
 	TokenName         string  `json:"token_name" gorm:"index;default:''"`
 	ModelName         string  `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota             int     `json:"quota" gorm:"default:0"`
+	BeforeQuota       *int64  `json:"before_quota,omitempty"`
+	AfterQuota        *int64  `json:"after_quota,omitempty"`
 	OperationType     *string `json:"operation_type,omitempty" gorm:"type:varchar(32);index"`
 	QuotaType         *string `json:"quota_type,omitempty" gorm:"type:varchar(16);index"`
 	PromptTokens      int     `json:"prompt_tokens" gorm:"default:0"`
@@ -188,6 +190,73 @@ func NetQuotaSumExpr() string {
 		"COALESCE(SUM(CASE WHEN type = %d THEN quota WHEN type = %d THEN -quota ELSE 0 END), 0)",
 		LogTypeConsume, LogTypeRefund,
 	)
+}
+
+// FillUsersTotalQuota initializes legacy users once from remaining quota plus
+// consume-minus-refund history. Subsequent list requests use the persisted value.
+func FillUsersTotalQuota(users []*User) error {
+	if len(users) == 0 {
+		return nil
+	}
+
+	userIDs := make([]int, 0, len(users))
+	for _, user := range users {
+		if user != nil && user.TotalQuota == nil {
+			userIDs = append(userIDs, user.Id)
+		}
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	netQuotaDeltaByUser := make(map[int]int64, len(userIDs))
+	if common.LogConsumeEnabled && LOG_DB != nil {
+		type netUsedQuotaRow struct {
+			UserId        int
+			NetQuotaDelta int64
+		}
+		var rows []netUsedQuotaRow
+		if err := LOG_DB.Model(&Log{}).
+			Where("user_id IN ?", userIDs).
+			Where("type IN ?", NetQuotaSumTypes()).
+			Select("user_id, " + NetQuotaSumExpr() + " AS net_quota_delta").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			netQuotaDeltaByUser[row.UserId] = max(row.NetQuotaDelta, 0)
+		}
+	} else {
+		for _, user := range users {
+			if user != nil && user.TotalQuota == nil {
+				netQuotaDeltaByUser[user.Id] = int64(max(user.UsedQuota, 0))
+			}
+		}
+	}
+	for _, user := range users {
+		if user == nil || user.TotalQuota != nil {
+			continue
+		}
+		netQuotaDelta := netQuotaDeltaByUser[user.Id]
+		totalQuota := int64(user.Quota) + netQuotaDelta
+		if totalQuota < 0 {
+			totalQuota = 0
+		}
+		result := DB.Model(&User{}).
+			Where("id = ? AND total_quota IS NULL", user.Id).
+			Update("total_quota", totalQuota)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			if err := DB.Model(&User{}).Where("id = ?", user.Id).Select("total_quota").Scan(&totalQuota).Error; err != nil {
+				return err
+			}
+		}
+		user.TotalQuota = &totalQuota
+	}
+	return nil
 }
 
 func ensureLogRequestId(log *Log) {
@@ -443,7 +512,7 @@ func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo m
 // quotaType 进一步区分 add 模式下的来源（充值/赠送），仅在 add 模式传入，否则传空。
 // rechargeInputAmount / rechargeAfterRatioAmount 仅在「调整额度 add 模式」下传入有效值，
 // 分别对应前端页面填写的原始金额与按充值比例换算之后的金额；其他场景传 nil 留空。
-func RecordManageLog(userId int, content string, opType string, quotaType string, adminInfo map[string]interface{}, rechargeInputAmount *float64, rechargeAfterRatioAmount *float64) {
+func RecordManageLog(userId int, content string, opType string, quotaType string, quota int, adminInfo map[string]interface{}, rechargeInputAmount *float64, rechargeAfterRatioAmount *float64, beforeQuota *int64, afterQuota *int64) {
 	username, _ := GetUsernameById(userId, false)
 	log := &Log{
 		UserId:                   userId,
@@ -451,6 +520,9 @@ func RecordManageLog(userId int, content string, opType string, quotaType string
 		CreatedAt:                common.GetTimestamp(),
 		Type:                     LogTypeManage,
 		Content:                  content,
+		Quota:                    quota,
+		BeforeQuota:              beforeQuota,
+		AfterQuota:               afterQuota,
 		RechargeInputAmount:      rechargeInputAmount,
 		RechargeAfterRatioAmount: rechargeAfterRatioAmount,
 	}
@@ -468,7 +540,7 @@ func RecordManageLog(userId int, content string, opType string, quotaType string
 		}
 		log.Other = common.MapToJsonStr(other)
 	}
-	if err := LOG_DB.Create(log).Error; err != nil {
+	if err := createLog(log); err != nil {
 		common.SysLog("failed to record log: " + err.Error())
 	}
 }
@@ -541,8 +613,17 @@ func RecordOperationAuditLog(logUserId int, content string, ip string, action st
 	}
 }
 
-func RecordTopupLog(userId int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {
+func RecordTopupLog(userId int, quota int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {
 	username, _ := GetUsernameById(userId, false)
+	var beforeQuota *int64
+	var afterQuota *int64
+	var currentQuota int
+	if err := DB.Model(&User{}).Where("id = ?", userId).Select("quota").Scan(&currentQuota).Error; err == nil {
+		after := int64(currentQuota)
+		before := after - int64(quota)
+		beforeQuota = &before
+		afterQuota = &after
+	}
 	adminInfo := map[string]interface{}{
 		"server_ip":               common.GetIp(),
 		"node_name":               common.NodeName,
@@ -555,13 +636,16 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 		"admin_info": adminInfo,
 	}
 	log := &Log{
-		UserId:    userId,
-		Username:  username,
-		CreatedAt: common.GetTimestamp(),
-		Type:      LogTypeTopup,
-		Content:   content,
-		Ip:        callerIp,
-		Other:     common.MapToJsonStr(other),
+		UserId:      userId,
+		Username:    username,
+		CreatedAt:   common.GetTimestamp(),
+		Type:        LogTypeTopup,
+		Content:     content,
+		Quota:       quota,
+		BeforeQuota: beforeQuota,
+		AfterQuota:  afterQuota,
+		Ip:          callerIp,
+		Other:       common.MapToJsonStr(other),
 	}
 	err := createLog(log)
 	if err != nil {
@@ -622,6 +706,8 @@ type RecordConsumeLogParams struct {
 	ModelName        string                 `json:"model_name"`
 	TokenName        string                 `json:"token_name"`
 	Quota            int                    `json:"quota"`
+	BeforeQuota      *int64                 `json:"before_quota,omitempty"`
+	AfterQuota       *int64                 `json:"after_quota,omitempty"`
 	Content          string                 `json:"content"`
 	TokenId          int                    `json:"token_id"`
 	UseTimeSeconds   int                    `json:"use_time_seconds"`
@@ -696,6 +782,8 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		TokenName:        params.TokenName,
 		ModelName:        params.ModelName,
 		Quota:            params.Quota,
+		BeforeQuota:      params.BeforeQuota,
+		AfterQuota:       params.AfterQuota,
 		ChannelId:        params.ChannelId,
 		TokenId:          params.TokenId,
 		UseTime:          params.UseTimeSeconds,
@@ -734,16 +822,18 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 }
 
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   string
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     map[string]interface{}
-	NodeName  string // 任务发起节点；为空时回退当前节点
+	UserId      int
+	LogType     int
+	Content     string
+	ChannelId   int
+	ModelName   string
+	Quota       int
+	BeforeQuota *int64
+	AfterQuota  *int64
+	TokenId     int
+	Group       string
+	Other       map[string]interface{}
+	NodeName    string // 任务发起节点；为空时回退当前节点
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -759,18 +849,20 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 	createdAt := common.GetTimestamp()
 	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: createdAt,
-		Type:      params.LogType,
-		Content:   params.Content,
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     common.MapToJsonStr(params.Other),
+		UserId:      params.UserId,
+		Username:    username,
+		CreatedAt:   createdAt,
+		Type:        params.LogType,
+		Content:     params.Content,
+		TokenName:   tokenName,
+		ModelName:   params.ModelName,
+		Quota:       params.Quota,
+		BeforeQuota: params.BeforeQuota,
+		AfterQuota:  params.AfterQuota,
+		ChannelId:   params.ChannelId,
+		TokenId:     params.TokenId,
+		Group:       params.Group,
+		Other:       common.MapToJsonStr(params.Other),
 	}
 	err := createLog(log)
 	if err != nil {
@@ -888,6 +980,67 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 
 	return logs, total, err
+}
+
+func userQuotaHistoryQuery(userId int) *gorm.DB {
+	return LOG_DB.Model(&Log{}).
+		Where("user_id = ?", userId).
+		Where(
+			"(type IN ? OR (type = ? AND operation_type = ?))",
+			[]int{LogTypeTopup, LogTypeConsume, LogTypeRefund},
+			LogTypeManage,
+			OperationTypeQuota,
+		)
+}
+
+func GetUserQuotaHistory(userId int, startIdx int, num int) (logs []*Log, total int64, err error) {
+	if LOG_DB == nil {
+		return nil, 0, errors.New("log database is not initialized")
+	}
+
+	query := userQuotaHistoryQuery(userId)
+	if err = query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err = query.
+		Select("id, user_id, created_at, type, content, model_name, token_name, quota, before_quota, after_quota, operation_type, quota_type, request_id, recharge_input_amount, recharge_after_ratio_amount").
+		Order("id DESC").
+		Limit(num).
+		Offset(startIdx).
+		Find(&logs).Error
+	return logs, total, err
+}
+
+func GetUserQuotaHistoryNewerDelta(userId int, beforeId int) (delta int64, hasUnknown bool, err error) {
+	if LOG_DB == nil {
+		return 0, false, errors.New("log database is not initialized")
+	}
+
+	type quotaHistoryDeltaRow struct {
+		Delta        int64
+		UnknownCount int64
+	}
+	var row quotaHistoryDeltaRow
+	signedDeltaExpr := fmt.Sprintf(
+		"CASE WHEN type = %d THEN -quota WHEN type = %d THEN quota WHEN type IN (%d, %d) AND quota <> 0 THEN quota ELSE 0 END",
+		LogTypeConsume,
+		LogTypeRefund,
+		LogTypeTopup,
+		LogTypeManage,
+	)
+	unknownExpr := fmt.Sprintf(
+		"CASE WHEN type IN (%d, %d) AND quota = 0 THEN 1 ELSE 0 END",
+		LogTypeTopup,
+		LogTypeManage,
+	)
+	err = userQuotaHistoryQuery(userId).
+		Where("id > ?", beforeId).
+		Select(
+			"COALESCE(SUM(" + signedDeltaExpr + "), 0) AS delta, COALESCE(SUM(" + unknownExpr + "), 0) AS unknown_count",
+		).
+		Scan(&row).Error
+	return row.Delta, row.UnknownCount > 0, err
 }
 
 const logSearchCountLimit = 10000

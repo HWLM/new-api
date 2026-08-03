@@ -270,6 +270,8 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		ModelName:        logModel,
 		TokenName:        tokenName,
 		Quota:            quota,
+		BeforeQuota:      relayInfo.UserQuotaBefore,
+		AfterQuota:       relayInfo.UserQuotaAfter,
 		Content:          logContent,
 		TokenId:          relayInfo.TokenId,
 		UseTimeSeconds:   int(useTimeSeconds),
@@ -393,6 +395,8 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		ModelName:        logModel,
 		TokenName:        tokenName,
 		Quota:            quota,
+		BeforeQuota:      relayInfo.UserQuotaBefore,
+		AfterQuota:       relayInfo.UserQuotaAfter,
 		Content:          logContent,
 		TokenId:          relayInfo.TokenId,
 		UseTimeSeconds:   int(useTimeSeconds),
@@ -436,6 +440,7 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 
 	// 1) Consume from wallet quota OR subscription item
 	if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
+		resetUserQuotaSnapshot(relayInfo)
 		if relayInfo.SubscriptionId == 0 {
 			return errors.New("subscription id is missing")
 		}
@@ -448,6 +453,7 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 		}
 	} else {
 		// Wallet
+		resetUserQuotaSnapshot(relayInfo)
 		if quota > 0 {
 			err = model.DecreaseUserQuota(relayInfo.UserId, quota, false)
 		} else {
@@ -456,6 +462,7 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 		if err != nil {
 			return err
 		}
+		applyUserQuotaSnapshotDelta(relayInfo, -quota)
 	}
 
 	if !relayInfo.IsPlayground {
