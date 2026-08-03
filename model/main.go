@@ -330,6 +330,11 @@ func migrateDB() error {
 			return err
 		}
 	}
+	go func() {
+		if err := MigrateUserSettingsRecordIpLogEnabled(); err != nil {
+			common.SysError("failed to migrate record IP log settings: " + err.Error())
+		}
+	}()
 	return nil
 }
 

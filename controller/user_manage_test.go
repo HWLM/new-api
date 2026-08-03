@@ -88,6 +88,31 @@ func TestManageUserDisableAdvancesAuthVersionOnceAndRevokesSession(t *testing.T)
 	assert.Equal(t, model.UserSessionStatusRevoked, session.Status)
 }
 
+func TestUpdateUserSettingMissingRecordIpLogPreservesExistingValue(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	user := model.User{
+		Username: "record-ip-opt-out-user",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Setting:  `{"record_ip_log":false}`,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/user/setting", strings.NewReader(`{"notify_type":"email","quota_warning_threshold":1,"accept_unset_model_ratio_model":false}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("id", user.Id)
+
+	UpdateUserSetting(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	var updated model.User
+	require.NoError(t, db.First(&updated, user.Id).Error)
+	assert.False(t, updated.GetSetting().RecordIpLog)
+}
+
 func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	previousMaster := common.IsMasterNode
