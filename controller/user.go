@@ -355,6 +355,10 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.FillUsersTotalQuota(users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	model.FillInviterUsernames(users)
 
 	pageInfo.SetTotal(int(total))
@@ -404,6 +408,10 @@ func SearchUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	users, total, err := model.SearchUsers(keyword, group, role, status, isVip, allowOnlineTopup, createdAtStart, createdAtEnd, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.FillUsersTotalQuota(users); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -1304,7 +1312,7 @@ func ManageUser(c *gin.Context) {
 				return
 			}
 			oldQuota := user.Quota
-			if err := model.IncreaseUserQuota(user.Id, quotaValue, true); err != nil {
+			if err := model.IncreaseUserQuotaAndTotal(user.Id, quotaValue); err != nil {
 				common.ApiError(c, err)
 				return
 			}
@@ -1326,9 +1334,11 @@ func ManageUser(c *gin.Context) {
 					req.RechargeAmount, req.Ratio, localPrice,
 					logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue))
 			}
+			beforeQuota := int64(oldQuota)
+			afterQuota := int64(oldQuota + quotaValue)
 			model.RecordManageLog(user.Id, logMsg,
-				model.OperationTypeQuota, req.QuotaType, adminInfo,
-				&rechargeInputAmount, &rechargeAfterRatioAmount)
+				model.OperationTypeQuota, req.QuotaType, quotaValue, adminInfo,
+				&rechargeInputAmount, &rechargeAfterRatioAmount, &beforeQuota, &afterQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_add", map[string]interface{}{
 				"quota": logger.LogQuota(req.Value),
 			})
@@ -1337,23 +1347,27 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
-			if err := model.DecreaseUserQuota(user.Id, req.Value, true); err != nil {
+			if err := model.DecreaseUserQuotaAndTotal(user.Id, req.Value); err != nil {
 				common.ApiError(c, err)
 				return
 			}
+			beforeQuota := int64(user.Quota)
+			afterQuota := int64(user.Quota - req.Value)
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo, nil, nil)
+				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), model.OperationTypeQuota, "", -req.Value, adminInfo, nil, nil, &beforeQuota, &afterQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_subtract", map[string]interface{}{
 				"quota": logger.LogQuota(req.Value),
 			})
 		case "override":
 			oldQuota := user.Quota
-			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
+			if err := model.OverrideUserQuotaAndTotal(user.Id, oldQuota, req.Value); err != nil {
 				common.ApiError(c, err)
 				return
 			}
+			beforeQuota := int64(oldQuota)
+			afterQuota := int64(req.Value)
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo, nil, nil)
+				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), model.OperationTypeQuota, "", req.Value-oldQuota, adminInfo, nil, nil, &beforeQuota, &afterQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_override", map[string]interface{}{
 				"from": logger.LogQuota(oldQuota),
 				"to":   logger.LogQuota(req.Value),

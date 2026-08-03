@@ -76,14 +76,16 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		}
 	}
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
-		ChannelId: info.ChannelId,
-		ModelName: info.OriginModelName,
-		TokenName: tokenName,
-		Quota:     info.PriceData.Quota,
-		Content:   logContent,
-		TokenId:   info.TokenId,
-		Group:     info.UsingGroup,
-		Other:     other,
+		ChannelId:   info.ChannelId,
+		ModelName:   info.OriginModelName,
+		TokenName:   tokenName,
+		Quota:       info.PriceData.Quota,
+		BeforeQuota: info.UserQuotaBefore,
+		AfterQuota:  info.UserQuotaAfter,
+		Content:     logContent,
+		TokenId:     info.TokenId,
+		Group:       info.UsingGroup,
+		Other:       other,
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
@@ -115,14 +117,25 @@ func taskIsSubscription(task *model.Task) bool {
 }
 
 // taskAdjustFunding 调整任务的资金来源（钱包或订阅），delta > 0 表示扣费，delta < 0 表示退还。
-func taskAdjustFunding(task *model.Task, delta int) error {
+func taskAdjustFunding(task *model.Task, delta int) (beforeQuota *int64, afterQuota *int64, err error) {
 	if taskIsSubscription(task) {
-		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
+		return nil, nil, model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
+	}
+	before, err := model.GetUserQuota(task.UserId, false)
+	if err != nil {
+		return nil, nil, err
 	}
 	if delta > 0 {
-		return model.DecreaseUserQuota(task.UserId, delta, false)
+		err = model.DecreaseUserQuota(task.UserId, delta, false)
+	} else {
+		err = model.IncreaseUserQuota(task.UserId, -delta, false)
 	}
-	return model.IncreaseUserQuota(task.UserId, -delta, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	beforeValue := int64(before)
+	afterValue := beforeValue - int64(delta)
+	return &beforeValue, &afterValue, nil
 }
 
 // taskAdjustTokenQuota 调整任务的令牌额度，delta > 0 表示扣费，delta < 0 表示退还。
@@ -247,7 +260,8 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	}
 
 	// 1. 退还资金来源（钱包或订阅）
-	if err := taskAdjustFunding(task, -quota); err != nil {
+	beforeQuota, afterQuota, err := taskAdjustFunding(task, -quota)
+	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
 		restored, restoreErr := task.RestoreRefundQuota(quota)
 		if restoreErr != nil {
@@ -261,21 +275,24 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 
 	// 2. 退还令牌额度
 	taskAdjustTokenQuota(ctx, task, -quota)
+	model.UpdateUserUsedQuota(task.UserId, -quota)
 
 	// 3. 记录日志
 	other := taskBillingOther(task)
 	other["task_id"] = task.TaskID
 	other["reason"] = reason
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   model.LogTypeRefund,
-		Content:   "",
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     quota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
+		UserId:      task.UserId,
+		LogType:     model.LogTypeRefund,
+		Content:     "",
+		ChannelId:   task.ChannelId,
+		ModelName:   taskModelName(task),
+		Quota:       quota,
+		BeforeQuota: beforeQuota,
+		AfterQuota:  afterQuota,
+		TokenId:     task.PrivateData.TokenId,
+		Group:       task.Group,
+		Other:       other,
 	})
 
 	// 4. 资金退款完成后再清除持久化标记。
@@ -322,7 +339,8 @@ func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	))
 
 	// 调整资金来源
-	if err := taskAdjustFunding(task, quotaDelta); err != nil {
+	beforeQuota, afterQuota, err := taskAdjustFunding(task, quotaDelta)
+	if err != nil {
 		logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
 		return
 	}
@@ -345,6 +363,7 @@ func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	} else {
 		logType = model.LogTypeRefund
 		logQuota = -quotaDelta
+		model.UpdateUserUsedQuota(task.UserId, quotaDelta)
 	}
 	other := taskBillingOther(task)
 	other["task_id"] = task.TaskID
@@ -362,16 +381,18 @@ func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		attachQuotaSaturationToOther(other, clamp)
 	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   logType,
-		Content:   reason,
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     logQuota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
-		NodeName:  task.PrivateData.NodeName,
+		UserId:      task.UserId,
+		LogType:     logType,
+		Content:     reason,
+		ChannelId:   task.ChannelId,
+		ModelName:   taskModelName(task),
+		Quota:       logQuota,
+		BeforeQuota: beforeQuota,
+		AfterQuota:  afterQuota,
+		TokenId:     task.PrivateData.TokenId,
+		Group:       task.Group,
+		Other:       other,
+		NodeName:    task.PrivateData.NodeName,
 	})
 }
 
