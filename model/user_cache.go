@@ -52,6 +52,10 @@ func getUserCacheKey(userId int) string {
 	return fmt.Sprintf("user:%d", userId)
 }
 
+func getUserCacheHashTag(userId int) string {
+	return fmt.Sprintf("{%s}", getUserCacheKey(userId))
+}
+
 func userCacheTTLSeconds() int {
 	ttl := common.RedisKeyCacheSeconds()
 	if ttl <= 0 {
