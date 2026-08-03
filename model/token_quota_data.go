@@ -50,10 +50,13 @@ func LogTokenQuotaData(userId int, tokenId int, tokenName string, group string, 
 		TokenUsed: tokenUsed,
 	}
 
+	// PostgreSQL ON CONFLICT DO UPDATE 里未限定列名会同时匹配目标行和 EXCLUDED，
+	// 触发 SQLSTATE 42702 (column reference is ambiguous)。显式用表名限定引用现有值，
+	// MySQL / SQLite 也接受该写法。参见历史 PR #4683 对 perf_metrics 的同类修复。
 	assignments := map[string]interface{}{
-		"count":      gorm.Expr("count + ?", 1),
-		"quota":      gorm.Expr("quota + ?", quota),
-		"token_used": gorm.Expr("token_used + ?", tokenUsed),
+		"count":      gorm.Expr("token_quota_data.count + ?", 1),
+		"quota":      gorm.Expr("token_quota_data.quota + ?", quota),
+		"token_used": gorm.Expr("token_quota_data.token_used + ?", tokenUsed),
 	}
 	if tokenName != "" {
 		assignments["token_name"] = tokenName
