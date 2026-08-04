@@ -62,6 +62,13 @@ describe('Seedance channel routes', () => {
         id: '{data.asset_id}',
         data: null,
       }),
+      seedance_asset_get_method: 'POST',
+      seedance_asset_get_target: 'https://asset.example.com/query',
+      seedance_asset_get_parameters: JSON.stringify({ asset_id: '{Id}' }),
+      seedance_asset_get_response_mapping: JSON.stringify({
+        Id: '{data.asset_id}',
+        data: null,
+      }),
       seedance_task_create_method: 'POST',
       seedance_task_create_target: '/tasks',
       seedance_task_get_method: 'GET',
@@ -75,6 +82,12 @@ describe('Seedance channel routes', () => {
           target: 'https://asset.example.com/create',
           parameters: { region: 'global' },
           response_mapping: { id: '{data.asset_id}', data: null },
+        },
+        asset_get: {
+          method: 'POST',
+          target: 'https://asset.example.com/query',
+          parameters: { asset_id: '{Id}' },
+          response_mapping: { Id: '{data.asset_id}', data: null },
         },
         task_create: { method: 'POST', target: '/tasks' },
         task_get: { method: 'GET', target: '/tasks/{task_id}' },
@@ -100,6 +113,13 @@ describe('Seedance channel routes', () => {
         type: 54,
         seedance_asset_create_method: 'PUT',
         seedance_asset_create_target: '/assets',
+        seedance_asset_get_method: 'POST',
+        seedance_asset_get_target: '/assets/query',
+        seedance_asset_get_parameters: JSON.stringify({ asset_id: '{Id}' }),
+        seedance_asset_get_response_mapping: JSON.stringify({
+          Id: '{data.asset_id}',
+          data: null,
+        }),
         seedance_task_create_method: 'PATCH',
         seedance_task_create_target: '/tasks/create',
         seedance_task_create_parameters: JSON.stringify({ priority: 10 }),
@@ -122,6 +142,14 @@ describe('Seedance channel routes', () => {
 
     expect(defaults.seedance_asset_create_method).toBe('PUT')
     expect(defaults.seedance_asset_create_target).toBe('/assets')
+    expect(defaults.seedance_asset_get_method).toBe('POST')
+    expect(defaults.seedance_asset_get_target).toBe('/assets/query')
+    expect(JSON.parse(defaults.seedance_asset_get_parameters || '{}')).toEqual({
+      asset_id: '{Id}',
+    })
+    expect(
+      JSON.parse(defaults.seedance_asset_get_response_mapping || '{}')
+    ).toEqual({ Id: '{data.asset_id}', data: null })
     expect(defaults.seedance_task_create_method).toBe('PATCH')
     expect(defaults.seedance_task_create_target).toBe('/tasks/create')
     expect(

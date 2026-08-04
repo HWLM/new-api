@@ -132,6 +132,7 @@ export interface SeedanceV3Route {
 
 export interface SeedanceV3Routes {
   asset_create?: SeedanceV3Route
+  asset_get?: SeedanceV3Route
   task_create?: SeedanceV3Route
   task_get?: SeedanceV3Route
 }

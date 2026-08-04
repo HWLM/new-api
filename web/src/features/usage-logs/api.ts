@@ -120,3 +120,14 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
 
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('/api/task', params, false)
+
+export async function getTaskVideo(taskId: string): Promise<Blob> {
+  const response = await api.get<Blob>(
+    `/v1/videos/${encodeURIComponent(taskId)}/content`,
+    {
+      responseType: 'blob',
+      skipErrorHandler: true,
+    }
+  )
+  return response.data
+}

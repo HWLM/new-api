@@ -197,6 +197,99 @@ func TestRelaySeedanceV3AssetFallbackToMainBaseUrl(t *testing.T) {
 	assert.Equal(t, "Active", out["Status"])
 }
 
+func TestRelaySeedanceV3AssetUsesConfiguredGetRoute(t *testing.T) {
+	service.InitHttpClient()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/custom/assets/query", r.URL.Path)
+		assert.Equal(t, "Bearer channel-key", r.Header.Get("Authorization"))
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"asset_id":"asset-query","tenant":"global"}`, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"payload":{"asset_id":"asset-query","status":"Active"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/open/GetAsset", strings.NewReader(`{"model":"doubao-seedance-2-0","Id":"asset-query"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "")
+	common.SetContextKey(c, constant.ContextKeyChannelKey, "channel-key")
+	common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{})
+	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, dto.ChannelOtherSettings{
+		SeedanceV3Routes: &dto.SeedanceV3Routes{
+			AssetGet: &dto.SeedanceV3Route{
+				Method: http.MethodPost,
+				Target: upstream.URL + "/custom/assets/query",
+				Parameters: map[string]any{
+					"model":    nil,
+					"Id":       nil,
+					"asset_id": "{Id}",
+					"tenant":   "global",
+				},
+				ResponseMapping: map[string]any{
+					"Id":      "{payload.asset_id}",
+					"Status":  "{payload.status}",
+					"payload": nil,
+				},
+			},
+		},
+	})
+
+	RelaySeedanceV3Asset(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.JSONEq(t, `{"Id":"asset-query","Status":"Active"}`, recorder.Body.String())
+}
+
+func TestRelaySeedanceV3AssetUsesConfiguredGetRouteQuery(t *testing.T) {
+	service.InitHttpClient()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/custom/assets/asset-query", r.URL.Path)
+		assert.Equal(t, "asset-query", r.URL.Query().Get("requested_id"))
+		assert.Equal(t, "global", r.URL.Query().Get("tenant"))
+		assert.Empty(t, r.Header.Get("Content-Type"))
+		assert.Equal(t, "Bearer channel-key", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"payload":{"asset_id":"asset-query","status":"Active"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/open/GetAsset", strings.NewReader(`{"model":"doubao-seedance-2-0","Id":"asset-query"}`))
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "")
+	common.SetContextKey(c, constant.ContextKeyChannelKey, "channel-key")
+	common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{})
+	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, dto.ChannelOtherSettings{
+		SeedanceV3Routes: &dto.SeedanceV3Routes{
+			AssetGet: &dto.SeedanceV3Route{
+				Method: http.MethodGet,
+				Target: upstream.URL + "/custom/assets/{asset_id}",
+				Parameters: map[string]any{
+					"requested_id": "{Id}",
+					"tenant":       "global",
+				},
+				ResponseMapping: map[string]any{
+					"Id":      "{payload.asset_id}",
+					"Status":  "{payload.status}",
+					"payload": nil,
+				},
+			},
+		},
+	})
+
+	RelaySeedanceV3Asset(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.JSONEq(t, `{"Id":"asset-query","Status":"Active"}`, recorder.Body.String())
+}
+
 func TestRelaySeedanceV3AssetConvertsHCAssetCreation(t *testing.T) {
 	service.InitHttpClient()
 

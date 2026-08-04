@@ -29,6 +29,17 @@ func TestSeedanceV3RoutesValidate(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("accepts custom asset query route", func(t *testing.T) {
+		err := (&SeedanceV3Routes{
+		AssetGet: &SeedanceV3Route{
+			Method:     "POST",
+			Target:     "/assets/query",
+			Parameters: map[string]any{"asset_id": "{Id}"},
+		},
+	}).Validate()
+		require.NoError(t, err)
+	})
+
 	t.Run("rejects GET query without task placeholder", func(t *testing.T) {
 		err := (&SeedanceV3Routes{
 			TaskGet: &SeedanceV3Route{Method: "GET", Target: "/tasks/query"},

@@ -48,7 +48,7 @@ import type { SeedanceV3RouteMethod } from '../types'
 
 const METHOD_OPTIONS: SeedanceV3RouteMethod[] = ['GET', 'POST', 'PUT', 'PATCH']
 
-type RouteID = 'asset_create' | 'task_create' | 'task_get'
+type RouteID = 'asset_create' | 'asset_get' | 'task_create' | 'task_get'
 
 type RouteDraft = {
   method: SeedanceV3RouteMethod
@@ -64,18 +64,22 @@ const ROUTES: Array<{
   label: string
   methodField:
     | 'seedance_asset_create_method'
+    | 'seedance_asset_get_method'
     | 'seedance_task_create_method'
     | 'seedance_task_get_method'
   targetField:
     | 'seedance_asset_create_target'
+    | 'seedance_asset_get_target'
     | 'seedance_task_create_target'
     | 'seedance_task_get_target'
   parametersField:
     | 'seedance_asset_create_parameters'
+    | 'seedance_asset_get_parameters'
     | 'seedance_task_create_parameters'
     | 'seedance_task_get_parameters'
   responseMappingField:
     | 'seedance_asset_create_response_mapping'
+    | 'seedance_asset_get_response_mapping'
     | 'seedance_task_create_response_mapping'
     | 'seedance_task_get_response_mapping'
   defaultMethod: SeedanceV3RouteMethod
@@ -92,6 +96,17 @@ const ROUTES: Array<{
     defaultMethod: 'POST',
     targetPlaceholder: '/v3/open/CreateAsset',
     byteplusTargetPlaceholder: '/v1/sd/assets',
+  },
+  {
+    id: 'asset_get',
+    label: 'Asset query',
+    methodField: 'seedance_asset_get_method',
+    targetField: 'seedance_asset_get_target',
+    parametersField: 'seedance_asset_get_parameters',
+    responseMappingField: 'seedance_asset_get_response_mapping',
+    defaultMethod: 'POST',
+    targetPlaceholder: '/v3/open/GetAsset',
+    byteplusTargetPlaceholder: '/v1/sd/assets/{asset_id}',
   },
   {
     id: 'task_create',
@@ -312,7 +327,7 @@ export function SeedanceRouteFields(props: SeedanceRouteFieldsProps) {
         ) : null}
 
         <Tabs defaultValue='asset_create'>
-          <TabsList className='grid h-auto w-full grid-cols-3'>
+          <TabsList className='grid h-auto w-full grid-cols-4'>
             {ROUTES.map((route) => (
               <TabsTrigger
                 key={route.id}
@@ -328,6 +343,14 @@ export function SeedanceRouteFields(props: SeedanceRouteFieldsProps) {
             const draft = drafts[route.id]
             const parameterError = parameterErrors[route.id]
             const responseMappingError = responseMappingErrors[route.id]
+            let routeHelperText = ''
+            if (route.id === 'task_get') {
+              routeHelperText =
+                'Use {task_id} in the URL or parameter values for the upstream task ID.'
+            } else if (route.id === 'asset_get') {
+              routeHelperText =
+                'Use {asset_id} in the URL for the upstream asset ID, or use {Id} in parameter values to copy it from the current request.'
+            }
             return (
               <TabsContent key={route.id} value={route.id} className='pt-3'>
                 <FieldGroup>
@@ -401,12 +424,8 @@ export function SeedanceRouteFields(props: SeedanceRouteFieldsProps) {
                       aria-invalid={Boolean(parameterError)}
                       heightClassName='h-64 min-h-64 max-h-64'
                     />
-                    {route.id === 'task_get' ? (
-                      <FieldDescription>
-                        {t(
-                          'Use {task_id} in the URL or parameter values for the upstream task ID.'
-                        )}
-                      </FieldDescription>
+                    {routeHelperText ? (
+                      <FieldDescription>{t(routeHelperText)}</FieldDescription>
                     ) : null}
                     {parameterError ? (
                       <p className='text-destructive text-sm'>
