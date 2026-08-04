@@ -1148,16 +1148,21 @@ func cacheTokensInnerExpr() string {
 // 仅在 sub 渠道过滤后的子集上调用。channel_id 是 int，直接拼接安全。
 func subTokensExpr(openaiIds, otherIds []int) string {
 	cacheExpr := cacheTokensInnerExpr()
+	consumeType := fmt.Sprintf("%d", LogTypeConsume)
 	if len(openaiIds) == 0 {
-		return `COALESCE(SUM(prompt_tokens + completion_tokens + ` + cacheExpr + `), 0) AS sub_tokens`
+		return `COALESCE(SUM(CASE WHEN type = ` + consumeType +
+			` THEN prompt_tokens + completion_tokens + ` + cacheExpr +
+			` ELSE 0 END), 0) AS sub_tokens`
 	}
 	if len(otherIds) == 0 {
-		return `COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS sub_tokens`
+		return `COALESCE(SUM(CASE WHEN type = ` + consumeType +
+			` THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS sub_tokens`
 	}
-	return `COALESCE(SUM(CASE WHEN channel_id IN (` + intsToCSV(openaiIds) +
+	return `COALESCE(SUM(CASE WHEN type = ` + consumeType +
+		` THEN CASE WHEN channel_id IN (` + intsToCSV(openaiIds) +
 		`) THEN prompt_tokens + completion_tokens` +
 		` ELSE prompt_tokens + completion_tokens + ` + cacheExpr +
-		` END), 0) AS sub_tokens`
+		` END ELSE 0 END), 0) AS sub_tokens`
 }
 
 // intsToCSV 把 int 切片拼成逗号分隔字符串，用于直接嵌入 SQL 的 IN 列表。
@@ -1220,7 +1225,7 @@ func ResolveSubChannelIdsByType() (openaiIds []int, otherIds []int, err error) {
 
 func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
 	tx := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
-		Select("COALESCE(sum(quota), 0) quota")
+		Select(NetQuotaSumExpr() + " AS quota")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
@@ -1257,7 +1262,7 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
 	}
 
-	tx = tx.Where("type = ?", LogTypeConsume)
+	tx = tx.Where("type IN ?", NetQuotaSumTypes())
 	rpmTpmQuery = rpmTpmQuery.Where("type = ?", LogTypeConsume)
 
 	// 只统计最近60秒的rpm和tpm
@@ -1284,7 +1289,7 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 		subIds = append(subIds, openaiSubIds...)
 		subIds = append(subIds, otherSubIds...)
 		subQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
-			Select("COALESCE(SUM(quota), 0) AS sub_quota, " + subTokensExpr(openaiSubIds, otherSubIds))
+			Select(NetQuotaSumExpr() + " AS sub_quota, " + subTokensExpr(openaiSubIds, otherSubIds))
 		if subQuery, err = applyLogUsernameFilter(subQuery, "username", username); err != nil {
 			return stat, err
 		}
@@ -1306,7 +1311,7 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 		if group != "" {
 			subQuery = subQuery.Where(logGroupCol+" = ?", group)
 		}
-		subQuery = subQuery.Where("type = ?", LogTypeConsume).
+		subQuery = subQuery.Where("type IN ?", NetQuotaSumTypes()).
 			Where("channel_id IN ?", subIds)
 
 		var subStat struct {
@@ -1339,7 +1344,7 @@ const statByAccountsChunkSize = 1000
 // SumUsedQuotaByAccountIDs 按 account_id 集合聚合 [start, end] 时间窗内的消耗 quota。
 // 返回 (总 quota, 每个账号的 quota) — 后者只包含 quota > 0 的账号(对齐 sub2api HAVING SUM > 0 语义)。
 //
-// 只统计 type = LogTypeConsume 的日志,与 SumUsedQuota 保持一致。
+// 该内部 ROI 统计只统计 type = LogTypeConsume；公开的 SumUsedQuota 则返回消耗减退款的净用量。
 // startTimestamp / endTimestamp 传 0 表示不加下/上界。
 //
 // 内部按 statByAccountsChunkSize 分批查库;不同 chunk 的 account_id 天然互不相交(sub2api 传的是
@@ -1386,8 +1391,8 @@ func SumUsedQuotaByAccountIDs(ctx context.Context, accountIDs []int64, startTime
 // SumChannelQuota 按 channel_id + type + 时间窗聚合 logs.quota。
 //
 // **type 参数在这里真正生效**,与老对外接口 SumUsedQuota 的行为不同 —— 那个函数
-// 声明了 logType 参数但函数体里被 [line 989] 硬编码 `WHERE type = LogTypeConsume` 覆盖,
-// 参数是死代码;本函数按传入的 logType 精确过滤,供 sub2api ROI 上游分支分别拉:
+// 声明了 logType 参数但固定统计 consume - refund 的净用量，参数不控制统计口径；
+// 本函数按传入的 logType 精确过滤,供 sub2api ROI 上游分支分别拉:
 //
 //	consume = SumChannelQuota(ctx, channelID, LogTypeConsume, ...)
 //	refund  = SumChannelQuota(ctx, channelID, LogTypeRefund,  ...)
