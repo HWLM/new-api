@@ -5823,6 +5823,19 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Agent Identity": "代理身份",
+    "Agent apikey": "代理 apikey",
+    "Mark as Agent": "标记为代理商",
+    "Remove Agent Identity": "取消代理身份",
+    "Marked as agent": "已标记为代理商",
+    "Agent identity removed": "代理身份已取消",
+    "Mark user {{username}} as an agent?": "确认将用户【{{username}}】标记为代理商？",
+    "After removing the agent identity, users on the associated site will no longer be able to log in. Confirm removal?": "取消该用户代理身份后，对应站点的用户将无法登录，确认取消吗？",
+    "Agent apikey for user [{{username}}] generated. Please associate it in your agent site.": "已生成用户【{{username}}】的代理 apikey，请在代理站点关联。",
+    "Deleted {{count}} API key(s); {{skipped}} agent apikey(s) skipped (unmark agent to delete)": "已删除 {{count}} 个 API 密钥；{{skipped}} 个代理身份 apikey 被跳过（请先取消代理身份再删除）",
+    "This is an agent apikey; edit or delete it from the user management page.": "此为代理身份 apikey，请前往用户管理页修改或删除。",
+    "Copy agent apikey": "复制代理 apikey",
+    "Failed to fetch agent apikey": "获取代理 apikey 失败"
   }
 }

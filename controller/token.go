@@ -342,6 +342,11 @@ func AddToken(c *gin.Context) {
 func DeleteToken(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	userId := c.GetInt("id")
+	// 代理身份 apikey 只能通过取消代理身份来清理，禁止直接删除
+	if existing, err := model.GetTokenByIds(id, userId); err == nil && existing.IsAgentToken {
+		common.ApiErrorMsg(c, "代理身份 apikey 不可删除，请先取消该用户的代理身份")
+		return
+	}
 	err := model.DeleteTokenById(id, userId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -389,6 +394,12 @@ func UpdateToken(c *gin.Context) {
 	cleanToken, err := model.GetTokenByIds(token.Id, userId)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	// 代理身份 apikey 只允许启停状态修改，其他字段（额度/有效期/分组/名称/IP 白名单/模型限制/跨分组重试）
+	// 均由代理身份逻辑维护，禁止在 token 页面直接改动。
+	if cleanToken.IsAgentToken && statusOnly == "" {
+		common.ApiErrorMsg(c, "代理身份 apikey 仅可启用/禁用，其他字段请通过代理身份管理修改")
 		return
 	}
 	if token.Status == common.TokenStatusEnabled {
@@ -440,15 +451,17 @@ func DeleteTokenBatch(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	count, err := model.BatchDeleteTokens(tokenBatch.Ids, userId)
+	count, skippedAgent, err := model.BatchDeleteTokens(tokenBatch.Ids, userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    count,
+		"success":       true,
+		"message":       "",
+		"data":          count,
+		"count":         count,
+		"skipped_agent": skippedAgent,
 	})
 }
 

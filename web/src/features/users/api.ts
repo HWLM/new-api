@@ -70,6 +70,7 @@ export async function searchUsers(
     status = '',
     is_vip = '',
     allow_online_topup = '',
+    is_agent = '',
     created_at_start,
     created_at_end,
     p = 1,
@@ -86,6 +87,7 @@ export async function searchUsers(
   if (allow_online_topup) {
     queryParams.set('allow_online_topup', allow_online_topup)
   }
+  if (is_agent) queryParams.set('is_agent', is_agent)
   if (created_at_start) {
     queryParams.set('created_at_start', String(created_at_start))
   }
@@ -281,6 +283,38 @@ export async function setUserBusinessChannel(
   channel: string
 ): Promise<ApiResponse> {
   const res = await api.post('/api/user/business_channel', { id, channel })
+  return res.data
+}
+
+/**
+ * Mark a user as an agent (admin). Backend creates an agent apikey
+ * bound to the user's group and returns the plaintext key once for
+ * copying. The key is never returned again by any other endpoint.
+ */
+export async function markUserAsAgent(
+  id: number
+): Promise<ApiResponse<{ key: string }>> {
+  const res = await api.post('/api/user/mark_agent', { id })
+  return res.data
+}
+
+/**
+ * Unmark a user as an agent (admin). Deletes the agent apikey.
+ */
+export async function unmarkUserAsAgent(id: number): Promise<ApiResponse> {
+  const res = await api.post('/api/user/unmark_agent', { id })
+  return res.data
+}
+
+/**
+ * Fetch an existing agent user's apikey plaintext (admin) for re-copy.
+ * Backend enforces the same role check as mark_agent and only returns
+ * a key when the user is still flagged as agent.
+ */
+export async function getAgentApikey(
+  id: number
+): Promise<ApiResponse<{ key: string }>> {
+  const res = await api.get(`/api/user/${id}/agent_apikey`)
   return res.data
 }
 

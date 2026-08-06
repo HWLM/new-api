@@ -82,10 +82,16 @@ export async function deleteApiKey(id: number): Promise<ApiResponse> {
   return res.data
 }
 
-// Batch delete multiple API keys
+// Batch delete multiple API keys.
+// 兼容旧格式：data 仍是删除数量 (number)；根部平级追加 count/skipped_agent 便于新前端读详情。
+// skipped_agent = 因是代理身份 apikey 被跳过的数量（须先取消代理身份才可删）。
+export type BatchDeleteApiKeysResponse = ApiResponse<number> & {
+  count?: number
+  skipped_agent?: number
+}
 export async function batchDeleteApiKeys(
   ids: number[]
-): Promise<ApiResponse<number>> {
+): Promise<BatchDeleteApiKeysResponse> {
   const res = await api.post('/api/token/batch', { ids })
   return res.data
 }

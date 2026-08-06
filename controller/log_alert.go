@@ -483,7 +483,7 @@ func LookupUsersForLogAlert(c *gin.Context) {
 		pageSize = 20
 	}
 	startIdx := (page - 1) * pageSize
-	users, total, err := model.SearchUsers(keyword, "", nil, nil, nil, nil, nil, nil, startIdx, pageSize)
+	users, total, err := model.SearchUsers(keyword, "", nil, nil, nil, nil, nil, nil, nil, startIdx, pageSize)
 	if err != nil {
 		responseErr(c, http.StatusInternalServerError, err.Error())
 		return

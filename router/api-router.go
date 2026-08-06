@@ -213,6 +213,9 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.POST("/batch_vip", controller.BatchMarkVipCustomer)
 				adminRoute.POST("/batch_online_topup", controller.BatchSetAllowOnlineTopup)
 				adminRoute.POST("/business_channel", controller.SetUserBusinessChannel)
+				adminRoute.POST("/mark_agent", controller.MarkUserAsAgent)
+				adminRoute.POST("/unmark_agent", controller.UnmarkUserAsAgent)
+				adminRoute.GET("/:id/agent_apikey", controller.GetAgentApikey)
 				adminRoute.GET("/tg_notify", controller.GetTgNotifySettings)
 				adminRoute.PUT("/tg_notify", controller.UpdateTgNotifySettings)
 				adminRoute.POST("/tg_notify/trigger", controller.TriggerTgNotifyManually)
@@ -332,6 +335,18 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				tokenUsageRoute.GET("/", controller.GetTokenUsage)
 			}
+		}
+
+		// 白名单 apikey 接口组：
+		//   /info                 — 代理身份 apikey 查询自身账户概况（handler 内校验 IsAgentToken）
+		//   /model_pricing        — 管理员 apikey 拉全量模型定价（handler 内校验 role>=admin 且非 agent token）
+		//   /group_ratio          — 管理员 apikey 拉全量分组定价（同上）
+		agentRoute := apiRouter.Group("/agent")
+		agentRoute.Use(middleware.CORS(), middleware.CriticalRateLimit(), middleware.TokenAuthReadOnly())
+		{
+			agentRoute.GET("/info", controller.GetAgentInfo)
+			agentRoute.GET("/model_pricing", controller.GetModelPricingForSync)
+			agentRoute.GET("/group_ratio", controller.GetGroupRatioForSync)
 		}
 
 		redemptionRoute := apiRouter.Group("/redemption")
