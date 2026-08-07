@@ -19,5 +19,9 @@ func SetDashboardRouter(router *gin.Engine) {
 		apiRouter.GET("/v1/dashboard/billing/subscription", controller.GetSubscription)
 		apiRouter.GET("/dashboard/billing/usage", controller.GetUsage)
 		apiRouter.GET("/v1/dashboard/billing/usage", controller.GetUsage)
+
+		// Agent quota info endpoint: allows a downstream system to query the
+		// quota/used_quota/request_count for the user that owns the sk-xxx key.
+		apiRouter.GET("/api/user/agent/quota-info", controller.GetAgentQuotaInfo)
 	}
 }
