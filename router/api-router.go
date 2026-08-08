@@ -395,6 +395,7 @@ func SetApiRouter(router *gin.Engine) {
 			userStatsRoute.GET("/details_singleday", controller.GetUserStatsDetailsSingleDay)
 			userStatsRoute.GET("/details_singleday/export", controller.ExportUserStatsDetailsSingleDay)
 			userStatsRoute.GET("/user_trend", controller.GetUserStatsUserTrend)
+			userStatsRoute.POST("/repair_tokens", controller.RepairUserStatsTokens)
 		}
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)

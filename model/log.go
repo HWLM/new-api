@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 
 	"gorm.io/gorm"
 )
@@ -190,6 +191,75 @@ func NetQuotaSumExpr() string {
 		"COALESCE(SUM(CASE WHEN type = %d THEN quota WHEN type = %d THEN -quota ELSE 0 END), 0)",
 		LogTypeConsume, LogTypeRefund,
 	)
+}
+
+// ClaudeCacheTokensFromOther 解析 logs.other 中 Claude 语义请求需要补加的缓存 token 总量（读 + 写）。
+//
+// 上游语义差异：OpenAI 系 API 的 input_tokens（→logs.prompt_tokens）已包含缓存读取；
+// Anthropic 系 API 的 input_tokens 是净输入，缓存读取（cache_tokens）与缓存写入
+// （cache_write_tokens，即 cache_creation 归一化总量）单独记账。因此只有 Claude 语义
+// 的请求需要把缓存 token 补进"总 token 数"口径，OpenAI 语义请求直接返回 0，否则会重复计数。
+func ClaudeCacheTokensFromOther(other string) int64 {
+	if !strings.Contains(other, `"claude":true`) &&
+		!strings.Contains(other, `"usage_semantic":"anthropic"`) {
+		return 0
+	}
+	read := gjson.Get(other, "cache_tokens").Int()
+	if read < 0 {
+		read = 0
+	}
+	write := gjson.Get(other, "cache_write_tokens").Int()
+	if write <= 0 {
+		// 老数据没有 cache_write_tokens：按 cacheWriteTokensTotal 的口径回退，
+		// 即存在 5m/1h 拆分时取二者之和与 cache_creation_tokens 的较大者，否则取 cache_creation_tokens。
+		creation := gjson.Get(other, "cache_creation_tokens").Int()
+		c5 := gjson.Get(other, "cache_creation_tokens_5m").Int()
+		c1 := gjson.Get(other, "cache_creation_tokens_1h").Int()
+		if split := c5 + c1; split > creation {
+			write = split
+		} else {
+			write = creation
+		}
+	}
+	if write < 0 {
+		write = 0
+	}
+	return read + write
+}
+
+// SumClaudeCacheTokensByUsers 计算给定时间窗口内（startTs/endTs 传 0 表示不限）
+// 指定用户集合（userIDs 为空表示全部 user_id>0）的 Claude 语义请求
+// 需要补加的缓存 token 总量，按 user_id 分组返回。
+// 只做 text LIKE 粗筛（跨 SQLite/MySQL/PostgreSQL 通用），JSON 解析在 Go 侧完成。
+func SumClaudeCacheTokensByUsers(startTs, endTs int64, userIDs []int) (map[int]int64, error) {
+	result := make(map[int]int64)
+	tx := LOG_DB.Model(&Log{}).
+		Where("type = ?", LogTypeConsume).
+		Where("user_id > 0")
+	if startTs > 0 {
+		tx = tx.Where("created_at >= ?", startTs)
+	}
+	if endTs > 0 {
+		tx = tx.Where("created_at <= ?", endTs)
+	}
+	if len(userIDs) > 0 {
+		tx = tx.Where("user_id IN ?", userIDs)
+	}
+	type claudeRow struct {
+		UserId int
+		Other  string
+	}
+	var rows []claudeRow
+	if err := tx.
+		Where("other LIKE ? OR other LIKE ?", `%"usage_semantic":"anthropic"%`, `%"claude":true%`).
+		Select("user_id, other").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		result[r.UserId] += ClaudeCacheTokensFromOther(r.Other)
+	}
+	return result, nil
 }
 
 // FillUsersTotalQuota initializes legacy users once from remaining quota plus

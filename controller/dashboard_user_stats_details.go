@@ -297,6 +297,19 @@ func GetUserStatsDetails(c *gin.Context) {
 		}
 	}
 
+	// Claude 语义请求的 prompt_tokens 是净输入（不含缓存），补加缓存读取/写入 token，
+	// 与 OpenAI 语义（prompt_tokens 已含缓存）对齐到"总 token 数"口径。
+	claudeExtra, err := model.SumClaudeCacheTokensByUsers(0, 0, userIds)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	for uid, extra := range claudeExtra {
+		agg := consumeMap[uid]
+		agg.TotalTokens += extra
+		consumeMap[uid] = agg
+	}
+
 	// 7. logs 聚合：recharge 部分（SUM recharge_input_amount / MAX created_at）
 	type rechargeAgg struct {
 		UserId         int
@@ -713,6 +726,18 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 				RequestCount: r.RequestCount,
 				Tokens:       r.TotalTokens,
 			}
+		}
+		// Claude 语义请求补加缓存 token，口径与 vip_daily_consumption 落盘一致。
+		claudeExtra, err := model.SumClaudeCacheTokensByUsers(todayStart, todayEnd, candidateIds)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for uid, extra := range claudeExtra {
+			k := fmt.Sprintf("%d#%s", uid, todayStr)
+			a := aggMap[k]
+			a.Tokens += extra
+			aggMap[k] = a
 		}
 	}
 
@@ -1162,6 +1187,16 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 		}
 		for _, r := range rows {
 			aggMap[r.UserId] = aggRow{Quota: r.TotalQuota, RequestCount: r.RequestCount, Tokens: r.TotalTokens}
+		}
+		// Claude 语义请求补加缓存 token，口径与 vip_daily_consumption 落盘一致。
+		claudeExtra, err := model.SumClaudeCacheTokensByUsers(todayStart, todayEnd, candidateIds)
+		if err != nil {
+			return nil, err
+		}
+		for uid, extra := range claudeExtra {
+			agg := aggMap[uid]
+			agg.Tokens += extra
+			aggMap[uid] = agg
 		}
 	}
 	// f.date > todayStr（未来日）：aggMap 留空，全部展示 0
