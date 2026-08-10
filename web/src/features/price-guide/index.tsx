@@ -25,7 +25,7 @@ import {
   Sparkles,
   Tag,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PageTransition } from "@/components/page-transition";
@@ -56,9 +56,10 @@ import {
   getActualUsdPrice,
   getBestPriceGuideGroup,
   filterModelsByGroup,
-  getGroupRatioSavingPercent,
+  getMaxPriceGuideSavingPercent,
   getPriceGuidePricingSource,
   getPriceGuideSavingPercent,
+  getPriceGuideGroupSavingPercent,
   getPriceGuideGroupOptions,
   getRequestBaseUsdPrice,
   getSelectedGroupRatio,
@@ -116,6 +117,7 @@ function PriceGuideTopPanel(props: {
     label: string;
     description: string;
     ratio: number;
+    savingPercent: number | null;
   }>;
   selectedGroup: string;
   selectedGroupOption: {
@@ -138,23 +140,23 @@ function PriceGuideTopPanel(props: {
     props.selectedGroupOption?.label ||
     "-";
   return (
-    <section className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-background to-background mb-0 px-4 py-5 sm:px-6">
+    <section className="from-primary/10 via-background to-background relative mb-0 overflow-hidden bg-gradient-to-br px-4 py-5 sm:px-6">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-primary/10 to-transparent"
+        className="from-primary/10 pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b to-transparent"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-16 right-0 h-48 w-48 rounded-full bg-primary/10 blur-3xl"
+        className="bg-primary/10 pointer-events-none absolute -top-16 right-0 h-48 w-48 rounded-full blur-3xl"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -bottom-20 left-0 h-56 w-56 rounded-full bg-primary/5 blur-3xl"
+        className="bg-primary/5 pointer-events-none absolute -bottom-20 left-0 h-56 w-56 rounded-full blur-3xl"
       />
       <div className="relative flex flex-col gap-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="text-sm font-medium text-muted-foreground">
+            <div className="text-muted-foreground text-sm font-medium">
               {t("Price Guide")}
             </div>
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
@@ -169,13 +171,13 @@ function PriceGuideTopPanel(props: {
 
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="gap-1 rounded-full">
-              <span className="size-2 rounded-full bg-muted-foreground/60" />
+              <span className="bg-muted-foreground/60 size-2 rounded-full" />
               {t("Default cheapest, compare anytime")}
             </Badge>
             <Button
               onClick={props.onRefresh}
               variant="outline"
-              className="shrink-0 gap-1.5 bg-background/80 shadow-sm"
+              className="bg-background/80 shrink-0 gap-1.5 shadow-sm"
             >
               <RefreshCcw className="size-4" />
               {t("Refresh prices")}
@@ -183,11 +185,11 @@ function PriceGuideTopPanel(props: {
           </div>
         </div>
 
-        <div className="rounded-xl border border-primary/20 bg-card/80 p-4 shadow-sm">
+        <div className="border-primary/20 bg-card/80 rounded-xl border p-4 shadow-sm">
           <div className="flex flex-col lg:flex-row lg:items-start">
             <div className="min-w-0 space-y-3">
               <div className="flex items-center gap-2 text-sm font-medium">
-                <Sparkles className="size-4 text-primary" />
+                <Sparkles className="text-primary size-4" />
                 {t("Select group")}
               </div>
               <div className="flex flex-wrap items-center">
@@ -198,7 +200,7 @@ function PriceGuideTopPanel(props: {
                       props.onSelectedGroupChange(value ?? "")
                     }
                   >
-                    <SelectTrigger className="h-14 w-full rounded-xl border-primary/30 bg-background px-4 text-sm shadow-sm [&_svg]:text-primary">
+                    <SelectTrigger className="border-primary/30 bg-background [&_svg]:text-primary h-14 w-full rounded-xl px-4 text-sm shadow-sm">
                       <SelectValue className="min-w-0">
                         <span className="flex min-w-0 items-center gap-2">
                           <span className="truncate font-medium">
@@ -224,9 +226,6 @@ function PriceGuideTopPanel(props: {
                     <SelectContent>
                       <SelectGroup>
                         {props.groupOptions.map((option) => {
-                          const optionSavingsPercent =
-                            getGroupRatioSavingPercent(option.ratio);
-
                           return (
                             <SelectItem key={option.value} value={option.value}>
                               <span className="flex min-w-0 items-center gap-2">
@@ -236,10 +235,10 @@ function PriceGuideTopPanel(props: {
                                 <span className="text-muted-foreground/70 font-mono text-xs">
                                   {option.ratio.toFixed(2)}x
                                 </span>
-                                {hasPositiveSaving(optionSavingsPercent) && (
-                                  <span className="text-primary font-medium text-xs">
+                                {hasPositiveSaving(option.savingPercent) && (
+                                  <span className="text-primary text-xs font-medium">
                                     {t("Price savings label")}
-                                    {formatPercent(optionSavingsPercent)}
+                                    {formatPercent(option.savingPercent)}
                                   </span>
                                 )}
                               </span>
@@ -250,17 +249,17 @@ function PriceGuideTopPanel(props: {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 lg:shrink-0  ml-3">
+                <div className="ml-3 flex flex-wrap items-center gap-2 lg:shrink-0">
                   <Badge
                     variant="outline"
-                    className="gap-1.5 border-primary/30 bg-primary/10 font-mono text-primary"
+                    className="border-primary/30 bg-primary/10 text-primary gap-1.5 font-mono"
                   >
                     {t("Multiplier")}: {props.selectedGroupRatio.toFixed(2)}x
                   </Badge>
                   {hasPositiveSaving(props.selectedGroupSavingsPercent) && (
                     <Badge
                       variant="secondary"
-                      className="gap-1.5 border-primary/20 bg-primary/10 font-medium text-primary"
+                      className="border-primary/20 bg-primary/10 text-primary gap-1.5 font-medium"
                     >
                       {t("Price savings label")}:{" "}
                       {formatPercent(props.selectedGroupSavingsPercent)} 🔥
@@ -268,7 +267,7 @@ function PriceGuideTopPanel(props: {
                   )}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-xs">
                 <span className="inline-flex items-center gap-1.5">
                   <Info className="size-3.5" />
                   {t(
@@ -294,7 +293,7 @@ function PriceGuideTopPanel(props: {
               </div>
             </div>
           </div>
-          <div className="mt-3 text-xs text-muted-foreground/80">
+          <div className="text-muted-foreground/80 mt-3 text-xs">
             {selectedGroupNote}
           </div>
         </div>
@@ -311,6 +310,7 @@ function PriceRow(props: {
   unitLabel: string;
   officialCny?: number | null;
   actualCny?: number | null;
+  showOfficialUsd?: boolean;
 }) {
   const officialCny =
     props.officialCny ??
@@ -333,15 +333,15 @@ function PriceRow(props: {
         </span>
       </div>
       <div className="ml-auto flex min-w-0 flex-wrap items-baseline justify-end gap-x-3 gap-y-1 text-right">
-        {props.officialUsd != null && (
-          <span className="text-muted-foreground/50 font-mono text-xs line-through tabular-nums">
+        {props.showOfficialUsd !== false && props.officialUsd != null && (
+          <span className="text-muted-foreground/50 font-mono text-xs tabular-nums line-through">
             {formatUsdMoney(props.officialUsd)}
           </span>
         )}
-        <span className="text-muted-foreground/50 font-mono text-xs line-through tabular-nums">
+        <span className="text-muted-foreground/50 font-mono text-xs tabular-nums line-through">
           {formatCnyMoney(officialCny)}
         </span>
-        <span className="font-mono text-sm font-bold text-primary tabular-nums">
+        <span className="text-primary font-mono text-sm font-bold tabular-nums">
           {formatCnyMoney(actualCny)}
         </span>
         <span className="text-muted-foreground/50 text-[10px]">
@@ -385,16 +385,14 @@ function DynamicModelCard(props: {
                 <Tag className="size-3" />
                 {badgeLabel}
               </Badge>
-              {hasPositiveSaving(savingPercent) && (
-                <Badge variant="secondary" className="font-medium">
-                  {t("Price savings label")}: {formatPercent(savingPercent)}
-                </Badge>
-              )}
             </CardDescription>
           </div>
-          <Badge variant="secondary" className="shrink-0">
-            {t("Dynamic Pricing")}
-          </Badge>
+
+          {hasPositiveSaving(savingPercent) && (
+            <Badge variant="secondary" className="font-medium">
+              {t("Price savings label")}: {formatPercent(savingPercent)}
+            </Badge>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-2 pt-4">
@@ -446,6 +444,7 @@ function StaticModelCard(props: {
 
   const requestUnit = ` / ${t("request")}`;
   const tokenUnit = "M token";
+  const compactTokenUnit = t("Million tokens");
   const actualPriceBadge = tokenBased ? t("Token-based") : t("Per Request");
   let cacheReadCny: number | null = null;
   if (tokenCacheUsd != null) {
@@ -503,6 +502,7 @@ function StaticModelCard(props: {
               }
               usdExchangeRate={props.usdExchangeRate}
               unitLabel={tokenUnit}
+              showOfficialUsd={!isConvertedSource}
             />
             <PriceRow
               label={t("Output")}
@@ -521,35 +521,39 @@ function StaticModelCard(props: {
               }
               usdExchangeRate={props.usdExchangeRate}
               unitLabel={tokenUnit}
+              showOfficialUsd={!isConvertedSource}
             />
             {(cacheReadCny != null || cacheWriteCny != null) && (
               <div className="rounded-lg border px-3 py-3">
-                <p className="flex flex-wrap items-baseline gap-x-1 gap-y-1 text-xs leading-relaxed">
-                  <span className="text-muted-foreground font-medium">
-                    {t("Price savings label")}
-                  </span>
+                <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-relaxed">
                   {cacheReadCny != null && (
-                    <>
+                    <span className="inline-flex items-baseline gap-1">
+                      <span className="text-muted-foreground font-medium">
+                        {t("Cache Read")}
+                      </span>
                       <span className="text-foreground font-mono font-semibold tabular-nums">
                         {formatCnyMoney(cacheReadCny)}
                       </span>
                       <span className="text-muted-foreground/60">
-                        /百万token
+                        /{compactTokenUnit}
                       </span>
-                    </>
+                    </span>
                   )}
                   {cacheReadCny != null && cacheWriteCny != null && (
                     <span className="text-muted-foreground/60">-</span>
                   )}
                   {cacheWriteCny != null && (
-                    <>
+                    <span className="inline-flex items-baseline gap-1">
+                      <span className="text-muted-foreground font-medium">
+                        {t("Cache Write")}
+                      </span>
                       <span className="text-foreground font-mono font-semibold tabular-nums">
                         {formatCnyMoney(cacheWriteCny)}
                       </span>
                       <span className="text-muted-foreground/60">
-                        /百万token
+                        /{compactTokenUnit}
                       </span>
-                    </>
+                    </span>
                   )}
                 </p>
               </div>
@@ -573,6 +577,7 @@ function StaticModelCard(props: {
             }
             usdExchangeRate={props.usdExchangeRate}
             unitLabel={requestUnit}
+            showOfficialUsd={!isConvertedSource}
           />
         )}
       </CardContent>
@@ -615,51 +620,67 @@ export function PriceGuide() {
     [groupRatio, usableGroup],
   );
 
+  const groupOptionsWithSavings = useMemo(
+    () =>
+      groupOptions.map((option) => ({
+        ...option,
+        savingPercent: getPriceGuideGroupSavingPercent({
+          models: models || [],
+          group: option.value,
+          selectedGroupRatio: option.ratio,
+          priceRate,
+          usdExchangeRate,
+        }),
+      })),
+    [groupOptions, models, priceRate, usdExchangeRate],
+  );
+
   const bestGroup = useMemo(
     () => getBestPriceGuideGroup(groupOptions),
     [groupOptions],
   );
 
-  useEffect(() => {
-    if (groupOptions.length === 0) {
-      setSelectedGroup("");
-      return;
-    }
-
-    const hasCurrent = groupOptions.some(
-      (option) => option.value === selectedGroup,
-    );
-    if (!hasCurrent) {
-      setSelectedGroup(bestGroup);
-    }
-  }, [bestGroup, groupOptions, selectedGroup]);
+  const hasSelectedGroup = groupOptions.some(
+    (option) => option.value === selectedGroup,
+  );
+  const effectiveSelectedGroup = hasSelectedGroup ? selectedGroup : bestGroup;
 
   const selectedGroupOption = useMemo(
-    () => groupOptions.find((option) => option.value === selectedGroup) ?? null,
-    [groupOptions, selectedGroup],
+    () =>
+      groupOptions.find((option) => option.value === effectiveSelectedGroup) ??
+      null,
+    [effectiveSelectedGroup, groupOptions],
   );
 
   const selectedGroupRatio = useMemo(
-    () => getSelectedGroupRatio(groupRatio || {}, selectedGroup),
-    [groupRatio, selectedGroup],
-  );
-
-  const selectedGroupSavingsPercent = useMemo(
-    () => getGroupRatioSavingPercent(selectedGroupRatio),
-    [selectedGroupRatio],
+    () => getSelectedGroupRatio(groupRatio || {}, effectiveSelectedGroup),
+    [effectiveSelectedGroup, groupRatio],
   );
 
   const visibleModels = useMemo(
-    () => filterModelsByGroup(models || [], selectedGroup),
-    [models, selectedGroup],
+    () => filterModelsByGroup(models || [], effectiveSelectedGroup),
+    [effectiveSelectedGroup, models],
   );
+
+  const selectedGroupSavingsPercent = useMemo(() => {
+    return getMaxPriceGuideSavingPercent({
+      models: visibleModels,
+      selectedGroupRatio,
+      priceRate,
+      usdExchangeRate,
+    });
+  }, [
+    priceRate,
+    selectedGroupRatio,
+    usdExchangeRate,
+    visibleModels,
+  ]);
 
   const displayModels = useMemo(
     () =>
-      [...visibleModels]
-        .sort((left, right) =>
-          (left.model_name || "").localeCompare(right.model_name || ""),
-        ),
+      [...visibleModels].sort((left, right) =>
+        (left.model_name || "").localeCompare(right.model_name || ""),
+      ),
     [visibleModels],
   );
 
@@ -682,8 +703,8 @@ export function PriceGuide() {
           <PriceGuideTopPanel
             onRefresh={handleRefresh}
             groupCount={groupOptions.length}
-            groupOptions={groupOptions}
-            selectedGroup={selectedGroup}
+            groupOptions={groupOptionsWithSavings}
+            selectedGroup={effectiveSelectedGroup}
             selectedGroupOption={selectedGroupOption}
             selectedGroupRatio={selectedGroupRatio}
             selectedGroupSavingsPercent={selectedGroupSavingsPercent}
@@ -717,8 +738,8 @@ export function PriceGuide() {
         <PriceGuideTopPanel
           onRefresh={handleRefresh}
           groupCount={groupOptions.length}
-          groupOptions={groupOptions}
-          selectedGroup={selectedGroup}
+          groupOptions={groupOptionsWithSavings}
+          selectedGroup={effectiveSelectedGroup}
           selectedGroupOption={selectedGroupOption}
           selectedGroupRatio={selectedGroupRatio}
           selectedGroupSavingsPercent={selectedGroupSavingsPercent}
@@ -727,7 +748,7 @@ export function PriceGuide() {
           usdExchangeRate={usdExchangeRate}
         />
 
-        <section className="space-y-4 rounded-xl bg-background/30 p-4">
+        <section className="bg-background/30 space-y-4 rounded-xl p-4">
           {displayModels.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {displayModels.map((model) =>
@@ -759,7 +780,6 @@ export function PriceGuide() {
               </CardContent>
             </Card>
           )}
-
         </section>
       </div>
     </PageTransition>

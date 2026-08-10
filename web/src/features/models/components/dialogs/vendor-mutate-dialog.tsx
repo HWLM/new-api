@@ -36,9 +36,18 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 
 import { createVendor, updateVendor } from '../../api'
+import { getOfficialPriceBasisOptions } from '../../constants'
 import { vendorsQueryKeys, modelsQueryKeys } from '../../lib'
 import { vendorFormSchema, type Vendor } from '../../types'
 
@@ -59,6 +68,13 @@ export function VendorMutateDialog({
   const queryClient = useQueryClient()
   const isEdit = Boolean(currentVendor?.id)
   const [isSaving, setIsSaving] = useState(false)
+  const officialPriceBasisOptions = getOfficialPriceBasisOptions(t)
+  let submitLabel = t('Create')
+  if (isSaving) {
+    submitLabel = t('Saving...')
+  } else if (isEdit) {
+    submitLabel = t('Update')
+  }
 
   const form = useForm({
     resolver: zodResolver(vendorFormSchema),
@@ -66,6 +82,7 @@ export function VendorMutateDialog({
       name: '',
       description: '',
       icon: '',
+      official_price_basis: 'consume_usd_exchange_rate',
       status: 1,
     },
   })
@@ -78,6 +95,10 @@ export function VendorMutateDialog({
         name: currentVendor.name,
         description: currentVendor.description || '',
         icon: currentVendor.icon || '',
+        official_price_basis:
+          currentVendor.official_price_basis === 'one_to_one'
+            ? 'one_to_one'
+            : 'consume_usd_exchange_rate',
         status: currentVendor.status || 1,
       })
     } else if (open && !isEdit) {
@@ -85,6 +106,7 @@ export function VendorMutateDialog({
         name: '',
         description: '',
         icon: '',
+        official_price_basis: 'consume_usd_exchange_rate',
         status: 1,
       })
     }
@@ -93,9 +115,10 @@ export function VendorMutateDialog({
   const onSubmit = async (values: Record<string, unknown>) => {
     setIsSaving(true)
     try {
-      const response = isEdit
-        ? await updateVendor({ ...values, id: currentVendor!.id })
-        : await createVendor(values)
+      const response =
+        isEdit && currentVendor
+          ? await updateVendor({ ...values, id: currentVendor.id })
+          : await createVendor(values)
 
       if (response.success) {
         toast.success(
@@ -146,7 +169,7 @@ export function VendorMutateDialog({
             {isSaving ? (
               <Loader2 className='mr-2 h-4 w-4 animate-spin' />
             ) : null}
-            {isSaving ? t('Saving...') : isEdit ? t('Update') : t('Create')}
+            {submitLabel}
           </Button>
         </>
       }
@@ -213,6 +236,55 @@ export function VendorMutateDialog({
                 <FormMessage />
               </FormItem>
             )}
+          />
+
+          <FormField
+            control={form.control}
+            name='official_price_basis'
+            render={({ field }) => {
+              const selectedOption =
+                officialPriceBasisOptions.find(
+                  (option) => option.value === field.value
+                ) || officialPriceBasisOptions[0]
+
+              return (
+                <FormItem>
+                  <FormLabel>{t('Source type')}</FormLabel>
+                  <Select
+                    items={officialPriceBasisOptions.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                    }))}
+                    value={field.value || 'consume_usd_exchange_rate'}
+                    onValueChange={field.onChange}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('Select source type')} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        {officialPriceBasisOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            <div className='flex flex-col gap-0.5'>
+                              <span>{option.label}</span>
+                              <span className='text-muted-foreground text-xs'>
+                                {option.description}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    {selectedOption.description}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )
+            }}
           />
         </form>
       </Form>

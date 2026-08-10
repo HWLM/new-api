@@ -88,10 +88,11 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 
 		// 创建模型元数据
 		metaMap[modelName] = &Model{
-			ModelName: modelName,
-			VendorID:  vendorID,
-			Status:    1,
-			NameRule:  NameRuleExact,
+			ModelName:          modelName,
+			VendorID:           vendorID,
+			Status:             1,
+			NameRule:           NameRuleExact,
+			OfficialPriceBasis: OfficialPriceBasisConsumeUSDExchangeRate,
 		}
 	}
 }
@@ -107,9 +108,10 @@ func getOrCreateVendor(vendorName string, vendorMap map[int]*Vendor) int {
 
 	// 创建新供应商
 	newVendor := &Vendor{
-		Name:   vendorName,
-		Status: 1,
-		Icon:   getDefaultVendorIcon(vendorName),
+		Name:               vendorName,
+		Status:             1,
+		Icon:               getDefaultVendorIcon(vendorName),
+		OfficialPriceBasis: OfficialPriceBasisConsumeUSDExchangeRate,
 	}
 
 	if err := newVendor.Insert(); err != nil {

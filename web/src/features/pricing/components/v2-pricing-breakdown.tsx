@@ -259,6 +259,7 @@ export function V2PricingBreakdown({
         <TierList
           tiers={tiers}
           symbol={symbol}
+          currencyRate={effectiveRate}
           officialRate={officialRate}
           compact={compact}
           embedded={embedded}
@@ -443,6 +444,7 @@ function MatrixTable({
 type TierListProps = {
   tiers: VisualTierV2[]
   symbol: string
+  currencyRate: number
   officialRate: number
   compact: boolean
   embedded: boolean
@@ -454,6 +456,7 @@ type TierListProps = {
 function TierList({
   tiers,
   symbol,
+  currencyRate,
   officialRate,
   compact,
   embedded,
@@ -514,12 +517,12 @@ function TierList({
                 </div>
               )}
               <div className='text-xs'>
-          <HumanFormula
-            tier={tier}
-            currencySymbol={symbol}
-            currencyRate={effectiveRate}
-            officialCurrencyRate={officialRate}
-            showComparison={showComparison}
+                <HumanFormula
+                  tier={tier}
+                  currencySymbol={symbol}
+                  currencyRate={currencyRate}
+                  officialCurrencyRate={officialRate}
+                  showComparison={showComparison}
                   compact
                 />
               </div>
@@ -607,7 +610,7 @@ function TierList({
               <HumanFormula
                 tier={tier}
                 currencySymbol={symbol}
-                currencyRate={effectiveRate}
+                currencyRate={currencyRate}
                 officialCurrencyRate={officialRate}
                 showComparison={showComparison}
                 compact={compact}

@@ -38,7 +38,12 @@ export function usePricingData() {
     () => Math.max((status?.price as number) ?? 1, 0.001),
     [status?.price]
   )
-  const usdExchangeRate = OFFICIAL_USD_EXCHANGE_RATE
+  const usdExchangeRate = useMemo(() => {
+    const rate = Number(data?.consume_usd_exchange_rate)
+    return Number.isFinite(rate) && rate > 0
+      ? rate
+      : OFFICIAL_USD_EXCHANGE_RATE
+  }, [data?.consume_usd_exchange_rate])
   const topupGroupRatio = useMemo(() => {
     const ratio = Number(data?.topup_group_ratio)
     return Number.isFinite(ratio) && ratio > 0 ? ratio : 1
@@ -59,6 +64,7 @@ export function usePricingData() {
         vendor_name: vendor?.name,
         vendor_icon: vendor?.icon,
         vendor_description: vendor?.description,
+        vendor_official_price_basis: vendor?.official_price_basis,
         group_ratio: data.group_ratio,
       }
     })

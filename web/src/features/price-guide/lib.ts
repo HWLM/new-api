@@ -17,6 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { EXCLUDED_GROUPS } from '@/features/pricing/constants'
+import {
+  getEffectiveOfficialPriceBasis,
+  OFFICIAL_PRICE_BASIS,
+} from '@/features/pricing/lib/official-price-basis'
 import type { PricingModel } from '@/features/pricing/types'
 
 export type PriceGuideGroupOption = {
@@ -38,27 +42,6 @@ export function isDynamicPricingGuideModel(model: PricingModel): boolean {
   return model.billing_mode === 'tiered_expr' && Boolean(model.billing_expr)
 }
 
-export function isVideoPricingGuideModel(model: PricingModel): boolean {
-  const modalities = [
-    ...(model.input_modalities || []),
-    ...(model.output_modalities || []),
-  ].map((item) => item.toLowerCase())
-  const endpointTypes = (model.supported_endpoint_types || []).map((item) =>
-    item.toLowerCase()
-  )
-  const tags = (model.tags || '').toLowerCase()
-  const modelName = (model.model_name || '').toLowerCase()
-
-  return (
-    modalities.includes('video') ||
-    endpointTypes.some(
-      (item) => item.includes('video') || item.includes('seedance')
-    ) ||
-    tags.includes('video') ||
-    /(?:seedance|sora|veo|kling|video|wan-|hunyuanvideo)/i.test(modelName)
-  )
-}
-
 export function getGroupRatioSavingPercent(groupRatio: number): number | null {
   return getSavingPercent(1, groupRatio)
 }
@@ -66,21 +49,10 @@ export function getGroupRatioSavingPercent(groupRatio: number): number | null {
 export function getPriceGuidePricingSource(
   model: PricingModel
 ): PriceGuidePricingSource {
-  const ownerBy = (model.owner_by || '').trim().toLowerCase()
-  if (
-    ownerBy === 'converted' ||
-    ownerBy === 'settlement' ||
-    ownerBy === 'video' ||
-    ownerBy === 'seedance'
-  ) {
-    return 'converted'
-  }
-
-  if (isVideoPricingGuideModel(model)) {
-    return 'converted'
-  }
-
-  return 'official'
+  return getEffectiveOfficialPriceBasis(model) ===
+    OFFICIAL_PRICE_BASIS.ONE_TO_ONE
+    ? 'converted'
+    : 'official'
 }
 
 export function getPriceGuideSavingPercent(params: {
@@ -108,6 +80,46 @@ export function getPriceGuideSavingPercent(params: {
     1,
     (params.selectedGroupRatio * params.priceRate) / params.usdExchangeRate
   )
+}
+
+export function getMaxPriceGuideSavingPercent(params: {
+  models: PricingModel[]
+  selectedGroupRatio: number
+  priceRate: number
+  usdExchangeRate: number
+}): number | null {
+  let maxSavingPercent: number | null = null
+
+  for (const model of params.models) {
+    const savingPercent = getPriceGuideSavingPercent({
+      model,
+      selectedGroupRatio: params.selectedGroupRatio,
+      priceRate: params.priceRate,
+      usdExchangeRate: params.usdExchangeRate,
+    })
+    if (savingPercent == null) continue
+
+    if (maxSavingPercent == null || savingPercent > maxSavingPercent) {
+      maxSavingPercent = savingPercent
+    }
+  }
+
+  return maxSavingPercent
+}
+
+export function getPriceGuideGroupSavingPercent(params: {
+  models: PricingModel[]
+  group: string
+  selectedGroupRatio: number
+  priceRate: number
+  usdExchangeRate: number
+}): number | null {
+  return getMaxPriceGuideSavingPercent({
+    models: filterModelsByGroup(params.models, params.group),
+    selectedGroupRatio: params.selectedGroupRatio,
+    priceRate: params.priceRate,
+    usdExchangeRate: params.usdExchangeRate,
+  })
 }
 
 export function getPriceGuideGroupOptions(
@@ -184,12 +196,12 @@ export function getTokenBaseUsdPrice(
     case 'input':
       return baseUsd
     case 'output':
-      return outputRatio != null && outputRatio >= 0 ? baseUsd * outputRatio : null
+      return outputRatio != null && outputRatio >= 0
+        ? baseUsd * outputRatio
+        : null
     case 'cache': {
       const cacheRatio = toFiniteNumber(model.cache_ratio)
-      return cacheRatio != null && cacheRatio >= 0
-        ? baseUsd * cacheRatio
-        : null
+      return cacheRatio != null && cacheRatio >= 0 ? baseUsd * cacheRatio : null
     }
   }
 }

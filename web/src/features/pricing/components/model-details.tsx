@@ -79,6 +79,10 @@ import {
 } from "../lib/dynamic-price";
 import { parseTags } from "../lib/filters";
 import { getAvailableGroups, isTokenBasedModel } from "../lib/model-helpers";
+import {
+  getEffectiveOfficialPriceBasis,
+  OFFICIAL_PRICE_BASIS,
+} from "../lib/official-price-basis";
 import { formatFixedPrice, formatGroupPrice } from "../lib/price";
 import { isV2Expression } from "../lib/tier-expr-v2";
 import type {
@@ -126,19 +130,28 @@ function getOfficialDiscountFold(params: {
       : (params.model.official_model_ratio ?? 1);
   const officialPrice = Number(officialBase);
 
+  const officialPriceBasis = getEffectiveOfficialPriceBasis(params.model);
+  const requiresExchangeRate =
+    officialPriceBasis === OFFICIAL_PRICE_BASIS.CONSUME_USD_EXCHANGE_RATE;
+
+  if (!Number.isFinite(officialPrice) || officialPrice <= 0) {
+    return null;
+  }
+
   if (
-    !Number.isFinite(params.priceRate) ||
-    !Number.isFinite(params.usdExchangeRate) ||
-    !Number.isFinite(officialPrice) ||
-    params.priceRate <= 0 ||
-    params.usdExchangeRate <= 0 ||
-    officialPrice <= 0
+    requiresExchangeRate &&
+    (!Number.isFinite(params.priceRate) ||
+      !Number.isFinite(params.usdExchangeRate) ||
+      params.priceRate <= 0 ||
+      params.usdExchangeRate <= 0)
   ) {
     return null;
   }
 
-  const platformActualCost = ratio * params.priceRate * topupGroupRatio;
-  const fold = (platformActualCost / params.usdExchangeRate) * 10;
+  const platformActualCost =
+    ratio * topupGroupRatio * (requiresExchangeRate ? params.priceRate : 1);
+  const divisor = requiresExchangeRate ? params.usdExchangeRate : 1;
+  const fold = (platformActualCost / divisor) * 10;
   return fold > 0 && fold < 10 ? fold : null;
 }
 
