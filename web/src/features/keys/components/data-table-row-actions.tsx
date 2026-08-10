@@ -90,6 +90,10 @@ export function DataTableRowActions<TData>({
     loadingKeys,
   } = useApiKeys()
   const isEnabled = apiKey.status === API_KEY_STATUS.ENABLED
+  const isAgentToken = apiKey.is_agent_token === true
+  const agentLockTip = t(
+    'This is an agent apikey; edit or delete it from the user management page.'
+  )
   const { chatPresets, serverAddress } = useChatPresets()
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
   const resolvedRealKey = resolvedKeys[apiKey.id]
@@ -223,13 +227,16 @@ export function DataTableRowActions<TData>({
                 setCurrentRow(apiKey)
                 setOpen('update')
               }}
+              disabled={isAgentToken}
               aria-label={t('Edit')}
             />
           }
         >
           <Edit />
         </TooltipTrigger>
-        <TooltipContent>{t('Edit')}</TooltipContent>
+        <TooltipContent>
+          {isAgentToken ? agentLockTip : t('Edit')}
+        </TooltipContent>
       </Tooltip>
 
       <DataTableRowActionMenu
@@ -309,9 +316,10 @@ export function DataTableRowActions<TData>({
             setCurrentRow(apiKey)
             setOpen('delete')
           }}
+          disabled={isAgentToken}
           className='text-destructive focus:text-destructive'
         >
-          {t('Delete')}
+          {isAgentToken ? agentLockTip : t('Delete')}
           <DropdownMenuShortcut>
             <Trash2 size={16} />
           </DropdownMenuShortcut>

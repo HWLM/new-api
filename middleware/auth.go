@@ -456,6 +456,30 @@ func TokenAuth() func(c *gin.Context) {
 
 		userGroup := userCache.Group
 		tokenGroups := token.GetGroups()
+		// X-Niu-Token-Group 仅供关联用户分组的 token 选择本次请求使用的令牌分组。
+		// 直接关联令牌分组的 token 忽略该 header；用户分组模式下，无效分组被过滤，
+		// 只要仍有一个有效分组，请求就继续使用剩余分组。
+		if TokenSupportsGroupOverride(tokenGroups, userGroup) {
+			if override, ok, err := ReadTokenGroupOverride(c); err != nil {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, err.Error())
+				return
+			} else if ok {
+				usableOverrideGroups := service.GetUserUsableGroupsForDisplay(userGroup, userCache.Role)
+				for group := range usableOverrideGroups {
+					if !ratio_setting.ContainsGroupRatio(group) {
+						delete(usableOverrideGroups, group)
+					}
+				}
+				tokenGroups, err = ResolveTokenGroupOverride(tokenGroups, override, userGroup, usableOverrideGroups)
+				if err != nil {
+					abortWithOpenAiMessage(c, http.StatusForbidden, err.Error())
+					return
+				}
+			}
+		}
+		// 用完即删：内部路由头不透传到下游 relay / 上游 AI 服务，双保险
+		// （另一道保护在 relay/channel/api_request.go 的 passthroughSkipHeaderNamesLower）。
+		c.Request.Header.Del(TokenGroupOverrideHeader)
 		resolvedTokenGroups := tokenGroups
 		if len(tokenGroups) > 0 {
 			usableGroups := service.GetUserUsableGroups(userGroup, userCache.Role)

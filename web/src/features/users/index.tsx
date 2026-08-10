@@ -22,6 +22,7 @@ import { SectionPageLayout } from '@/components/layout'
 
 import { TgNotifySettingsDialog } from './components/dialogs/tg-notify-settings-dialog'
 import { UserQuotaHistoryDialog } from './components/dialogs/user-quota-history-dialog'
+import { AgentApikeyDialog } from './components/dialogs/agent-apikey-dialog'
 import { UsersDeleteDialog } from './components/users-delete-dialog'
 import { UsersMutateDrawer } from './components/users-mutate-drawer'
 import { UsersPrimaryButtons } from './components/users-primary-buttons'
@@ -30,7 +31,8 @@ import { UsersTable } from './components/users-table'
 
 function UsersContent() {
   const { t } = useTranslation()
-  const { open, setOpen, currentRow } = useUsers()
+  const { open, setOpen, currentRow, agentApikey, closeAgentApikey } =
+    useUsers()
 
   return (
     <>
@@ -65,6 +67,12 @@ function UsersContent() {
           }}
         />
       ) : null}
+      <AgentApikeyDialog
+        open={agentApikey !== null}
+        onOpenChange={(isOpen) => !isOpen && closeAgentApikey()}
+        username={agentApikey?.username ?? ''}
+        apikey={agentApikey?.apikey ?? ''}
+      />
     </>
   )
 }

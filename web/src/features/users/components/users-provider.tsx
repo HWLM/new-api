@@ -22,6 +22,11 @@ import useDialogState from '@/hooks/use-dialog'
 
 import { type User, type UsersDialogType } from '../types'
 
+type AgentApikeyState = {
+  username: string
+  apikey: string
+} | null
+
 type UsersContextType = {
   open: UsersDialogType | null
   setOpen: (str: UsersDialogType | null) => void
@@ -29,6 +34,9 @@ type UsersContextType = {
   setCurrentRow: React.Dispatch<React.SetStateAction<User | null>>
   refreshTrigger: number
   triggerRefresh: () => void
+  agentApikey: AgentApikeyState
+  openAgentApikey: (username: string, apikey: string) => void
+  closeAgentApikey: () => void
 }
 
 const UsersContext = React.createContext<UsersContextType | null>(null)
@@ -37,8 +45,12 @@ export function UsersProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useDialogState<UsersDialogType>(null)
   const [currentRow, setCurrentRow] = useState<User | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [agentApikey, setAgentApikey] = useState<AgentApikeyState>(null)
 
   const triggerRefresh = () => setRefreshTrigger((prev) => prev + 1)
+  const openAgentApikey = (username: string, apikey: string) =>
+    setAgentApikey({ username, apikey })
+  const closeAgentApikey = () => setAgentApikey(null)
 
   return (
     <UsersContext
@@ -49,6 +61,9 @@ export function UsersProvider({ children }: { children: React.ReactNode }) {
         setCurrentRow,
         refreshTrigger,
         triggerRefresh,
+        agentApikey,
+        openAgentApikey,
+        closeAgentApikey,
       }}
     >
       {children}

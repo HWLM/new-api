@@ -190,6 +190,30 @@ export function useUsersColumns(): ColumnDef<User>[] {
       meta: { label: t("Business Channel") },
     },
     {
+      accessorKey: "is_agent",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t("Agent Identity")} />
+      ),
+      cell: ({ row }) => {
+        const isAgent = row.original.is_agent === true;
+        return (
+          <StatusBadge
+            label={isAgent ? t("Yes") : t("No")}
+            variant={isAgent ? "success" : "neutral"}
+            copyable={false}
+          />
+        );
+      },
+      filterFn: (row, id, value: string[]) => {
+        if (!value?.length || value.includes("all")) return true;
+        const v = String(row.getValue(id) === true);
+        return value.includes(v);
+      },
+      enableSorting: false,
+      size: 110,
+      meta: { label: t("Agent Identity"), mobileHidden: true },
+    },
+    {
       accessorKey: "allow_online_topup",
       header: t("Allow online top-up"),
       cell: ({ row }) => {
