@@ -251,7 +251,7 @@ export function ModelMutateDrawer({
   const currentModelId = currentRow?.id
   const isEditing = Boolean(currentModelId)
   const officialPriceBasisOptions = useMemo(
-    () => getOfficialPriceBasisOptions(t, true),
+    () => getOfficialPriceBasisOptions(t),
     [t]
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
