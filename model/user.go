@@ -112,6 +112,8 @@ type User struct {
 	IsVipCustomer      bool                       `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
 	BusinessChannel    string                     `json:"business_channel" gorm:"type:varchar(255);default:'';column:business_channel" validate:"max=255"`
 	AllowOnlineTopup   bool                       `json:"allow_online_topup" gorm:"type:bool;default:false;column:allow_online_topup;index"`
+	IsAgent            bool                       `json:"is_agent" gorm:"type:bool;default:false;column:is_agent;index"`
+	AgentTokenId       int                        `json:"agent_token_id" gorm:"type:int;column:agent_token_id"`
 	CreatedAt          int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt        int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion        int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
@@ -387,7 +389,7 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, allowOnlineTopup *bool, createdAtStart, createdAtEnd *int64, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, allowOnlineTopup *bool, isAgent *bool, createdAtStart, createdAtEnd *int64, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -444,6 +446,13 @@ func SearchUsers(keyword string, group string, role *int, status *int, isVip *bo
 			query = query.Where("allow_online_topup = ?", commonTrueVal)
 		} else {
 			query = query.Where("allow_online_topup = ?", commonFalseVal)
+		}
+	}
+	if isAgent != nil {
+		if *isAgent {
+			query = query.Where("is_agent = ?", commonTrueVal)
+		} else {
+			query = query.Where("is_agent = ?", commonFalseVal)
 		}
 	}
 	if createdAtStart != nil {
@@ -624,6 +633,205 @@ func SetUserBusinessChannel(id int, channel string) error {
 		return errors.New("id 为空")
 	}
 	return DB.Model(&User{}).Where("id = ?", id).Update("business_channel", channel).Error
+}
+
+// MarkUserAsAgent 将用户标记为代理商，同时生成一个绑定其分组的代理 Token。
+// 事务内：① 加锁读取 User 校验非已代理；② 生成 sk-key 建 Token（无限额度+永不过期+跟随用户分组，IsAgentToken=true）；
+// ③ 回写 user.is_agent 与 agent_token_id。返回明文 key 供前端一次性展示。
+func MarkUserAsAgent(userId int) (string, error) {
+	if userId == 0 {
+		return "", errors.New("id 为空")
+	}
+	key, err := common.GenerateKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate agent key: %w", err)
+	}
+
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return "", tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var user User
+	if err := lockForUpdate(tx).First(&user, userId).Error; err != nil {
+		tx.Rollback()
+		return "", err
+	}
+	if user.IsAgent {
+		tx.Rollback()
+		return "", errors.New("该用户已是代理商")
+	}
+
+	now := common.GetTimestamp()
+	token := Token{
+		UserId:         user.Id,
+		Name:           fmt.Sprintf("agent-%d", user.Id),
+		Key:            key,
+		Status:         common.TokenStatusEnabled,
+		CreatedTime:    now,
+		AccessedTime:   now,
+		ExpiredTime:    -1,
+		RemainQuota:    0,
+		UnlimitedQuota: true,
+		Group:          user.Group,
+		IsAgentToken:   true,
+	}
+	if err := tx.Create(&token).Error; err != nil {
+		tx.Rollback()
+		return "", err
+	}
+
+	if err := tx.Model(&User{}).Where("id = ?", user.Id).
+		Updates(map[string]interface{}{
+			"is_agent":       true,
+			"agent_token_id": token.Id,
+		}).Error; err != nil {
+		tx.Rollback()
+		return "", err
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// GetAgentApikey 返回用户代理 Token 的明文 key，供管理员在标记之后再次拷贝。
+// 依赖 Token.Key 以明文存储；仅当用户仍处于 IsAgent 状态且对应 Token 存在时才返回。
+func GetAgentApikey(userId int) (string, error) {
+	if userId == 0 {
+		return "", errors.New("id 为空")
+	}
+	var user User
+	if err := DB.Select("id", "is_agent", "agent_token_id").First(&user, userId).Error; err != nil {
+		return "", err
+	}
+	if !user.IsAgent || user.AgentTokenId <= 0 {
+		return "", errors.New("该用户不是代理商")
+	}
+	var token Token
+	if err := DB.Select("id", "key", "user_id").
+		Where("id = ? AND user_id = ?", user.AgentTokenId, user.Id).
+		First(&token).Error; err != nil {
+		return "", err
+	}
+	if token.Key == "" {
+		return "", errors.New("代理 apikey 不存在")
+	}
+	return token.Key, nil
+}
+
+// UnmarkUserAsAgent 取消用户代理身份：删除其代理 Token 并清除标记。
+func UnmarkUserAsAgent(userId int) error {
+	if userId == 0 {
+		return errors.New("id 为空")
+	}
+
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var user User
+	if err := lockForUpdate(tx).First(&user, userId).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if !user.IsAgent {
+		tx.Rollback()
+		return errors.New("该用户不是代理商")
+	}
+
+	var tokenKey string
+	if user.AgentTokenId > 0 {
+		var token Token
+		if err := tx.Where("id = ? AND user_id = ?", user.AgentTokenId, user.Id).First(&token).Error; err == nil {
+			tokenKey = token.Key
+			if err := tx.Delete(&token).Error; err != nil {
+				tx.Rollback()
+				return err
+			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := tx.Model(&User{}).Where("id = ?", user.Id).
+		Updates(map[string]interface{}{
+			"is_agent":       false,
+			"agent_token_id": 0,
+		}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	if tokenKey != "" && common.RedisEnabled {
+		gopool.Go(func() {
+			if err := cacheDeleteToken(tokenKey); err != nil {
+				common.SysLog("failed to delete agent token cache: " + err.Error())
+			}
+		})
+	}
+	return nil
+}
+
+// SyncAgentTokenGroupTx 在同一事务内把代理 Token 的 Group 同步到新值。
+// 使用 lockForUpdate 保证与调用方的用户 group 变更原子性，避免并发写入下的 user/token group 撕裂。
+// 返回被更新的 token key（用于事务提交后失效缓存），若无变更返回空串。
+// 缓存失效由调用方在事务 commit 后完成，避免事务回滚后写入脏缓存。
+func SyncAgentTokenGroupTx(tx *gorm.DB, userId int, newGroup string) (string, error) {
+	if tx == nil || userId == 0 {
+		return "", nil
+	}
+	var user User
+	if err := tx.Select("id", "is_agent", "agent_token_id").First(&user, userId).Error; err != nil {
+		return "", err
+	}
+	if !user.IsAgent || user.AgentTokenId <= 0 {
+		return "", nil
+	}
+	var token Token
+	if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", user.AgentTokenId, user.Id).First(&token).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	if token.Group == newGroup {
+		return "", nil
+	}
+	if err := tx.Model(&Token{}).Where("id = ?", token.Id).Update("group", newGroup).Error; err != nil {
+		return "", err
+	}
+	return token.Key, nil
+}
+
+// InvalidateTokenCacheByKey 供 controller 在事务提交后主动失效指定 token 的 Redis 缓存。
+// 采用 delete 而非 set，避免与 relay 侧的 cacheIncr/DecrTokenQuota 之间产生"覆盖计数"的竞态。
+func InvalidateTokenCacheByKey(key string) {
+	if key == "" || !common.RedisEnabled {
+		return
+	}
+	gopool.Go(func() {
+		if err := cacheDeleteToken(key); err != nil {
+			common.SysLog("failed to invalidate token cache: " + err.Error())
+		}
+	})
 }
 
 // GetUserLogScopeIDs returns the users whose logs are visible through the

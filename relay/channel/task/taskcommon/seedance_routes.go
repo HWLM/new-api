@@ -237,12 +237,15 @@ func resolveSeedanceV3ParameterMappings(parameters, source map[string]any) (map[
 func resolveSeedanceV3ParameterMappingValue(value any, source map[string]any) (any, error) {
 	switch typed := value.(type) {
 	case string:
-		path, mapped := seedanceV3ParameterMappingPath(typed)
+		path, optional, mapped := seedanceV3ParameterMappingPath(typed)
 		if !mapped {
 			return typed, nil
 		}
 		mappedValue, ok := seedanceV3ParameterSourceValue(source, path)
 		if !ok {
+			if optional {
+				return nil, nil
+			}
 			return nil, fmt.Errorf("Seedance mapping source not found: %s", path)
 		}
 		return mappedValue, nil
@@ -263,22 +266,24 @@ func resolveSeedanceV3ParameterMappingValue(value any, source map[string]any) (a
 	}
 }
 
-func seedanceV3ParameterMappingPath(value string) (string, bool) {
+func seedanceV3ParameterMappingPath(value string) (string, bool, bool) {
 	if len(value) < 3 || value[0] != '{' || value[len(value)-1] != '}' {
-		return "", false
+		return "", false, false
 	}
 	path := value[1 : len(value)-1]
+	optional := strings.Contains(path, "?.")
+	path = strings.ReplaceAll(path, "?.", ".")
 	if path == "" || strings.HasPrefix(path, ".") || strings.HasSuffix(path, ".") {
-		return "", false
+		return "", false, false
 	}
 	for _, char := range path {
 		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
 			(char >= '0' && char <= '9') || char == '_' || char == '-' || char == '.' {
 			continue
 		}
-		return "", false
+		return "", false, false
 	}
-	return path, true
+	return path, optional, true
 }
 
 func seedanceV3ParameterSourceValue(source map[string]any, path string) (any, bool) {

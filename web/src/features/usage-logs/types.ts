@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
  * Type definitions for usage logs
  */
 import type { UsageLog } from './data/schema'
+import type { SystemTask } from '../system-settings/types'
 
 // ============================================================================
 // Log Category Types
@@ -75,6 +76,46 @@ export interface TaskLogFilters extends CommonFilters {
  * Union type for all log filters
  */
 export type LogFilters = CommonLogFilters | DrawingLogFilters | TaskLogFilters
+
+// ============================================================================
+// Usage Log Export Task Types
+// ============================================================================
+
+export type UsageLogExportTaskPayload = {
+  start_timestamp: number
+  end_timestamp: number
+  username?: string
+  token_name?: string
+  model_name?: string
+  group?: string
+  request_id?: string
+  upstream_request_id?: string
+  channel?: number
+}
+
+export type UsageLogExportTaskState = {
+  total_days: number
+  processed_days: number
+  file_count: number
+  row_count: number
+  current_day?: string
+  current_file?: string
+  progress: number
+}
+
+export type UsageLogExportTaskResult = {
+  file_name: string
+  object_key: string
+  download_url: string
+  file_count: number
+  row_count: number
+}
+
+export type UsageLogExportTask = SystemTask<
+  UsageLogExportTaskPayload,
+  UsageLogExportTaskState,
+  UsageLogExportTaskResult
+>
 
 // ============================================================================
 // Common Logs Additional Types
@@ -182,6 +223,7 @@ export interface LogOtherData {
   audio_output?: number
   text_input?: number
   text_output?: number
+  input_tokens_total?: number
   cache_tokens?: number
   cache_creation_tokens?: number
   cache_creation_tokens_5m?: number

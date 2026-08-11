@@ -33,6 +33,11 @@ func UsersGroupCol() string {
 	return commonGroupCol
 }
 
+// LogGroupCol returns the DB-safe `logs.group` column reference.
+func LogGroupCol() string {
+	return logGroupCol
+}
+
 func initCol() {
 	// init common column names
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
@@ -320,6 +325,9 @@ func migrateDB() error {
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err
 	}
+	if err := BackfillUserIsAgent(); err != nil {
+		return err
+	}
 	if err := InitializeExternalIdentityClaims(); err != nil {
 		return err
 	}
@@ -424,6 +432,9 @@ func migrateDBFast() error {
 		}
 	}
 	if err := InitializeUserAuthVersions(); err != nil {
+		return err
+	}
+	if err := BackfillUserIsAgent(); err != nil {
 		return err
 	}
 	if err := InitializeExternalIdentityClaims(); err != nil {

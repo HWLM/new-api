@@ -175,6 +175,18 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 		result[r.UserId] = agg
 	}
 
+	// Claude 语义请求的 prompt_tokens 是净输入（不含缓存），补加缓存读取/写入 token，
+	// 与 OpenAI 语义（prompt_tokens 已含缓存）对齐到"总 token 数"口径。
+	claudeExtra, err := SumClaudeCacheTokensByUsers(startTs, endTs, nil)
+	if err != nil {
+		return nil, err
+	}
+	for userId, extra := range claudeExtra {
+		agg := result[userId]
+		agg.Tokens += extra
+		result[userId] = agg
+	}
+
 	type rechargeRow struct {
 		UserId        int
 		TotalRecharge float64
@@ -235,6 +247,16 @@ func sumLogsTodayPerUser(userIds []int, startTs, endTs int64) (map[int]todayLogA
 			Requests: r.RequestCount,
 			Tokens:   r.TotalTokens,
 		}
+	}
+	// Claude 语义请求补加缓存 token，口径同 sumLogsByTimeRange。
+	claudeExtra, err := SumClaudeCacheTokensByUsers(startTs, endTs, userIds)
+	if err != nil {
+		return nil, err
+	}
+	for userId, extra := range claudeExtra {
+		agg := result[userId]
+		agg.Tokens += extra
+		result[userId] = agg
 	}
 	return result, nil
 }

@@ -65,6 +65,8 @@ export const userSchema = z.object({
   is_vip_customer: z.boolean().optional(),
   business_channel: z.string().optional(),
   allow_online_topup: z.boolean().optional(),
+  is_agent: z.boolean().optional(),
+  agent_token_id: z.number().optional(),
   /** 仅 GET /api/user/:id 返回：用户所在分组对应的充值比例，调整额度弹窗回显使用 */
   topup_group_ratio: z.number().optional(),
   admin_permissions: z
@@ -151,6 +153,8 @@ export interface SearchUsersParams {
   /** '' = 不筛选，'true' = 仅重点客户，'false' = 仅非重点客户 */
   is_vip?: string
   allow_online_topup?: string
+  /** '' = 不筛选，'true' = 仅代理商，'false' = 仅非代理商 */
+  is_agent?: string
   /** unix 秒，0/undefined = 不筛选 */
   created_at_start?: number
   /** unix 秒，0/undefined = 不筛选 */

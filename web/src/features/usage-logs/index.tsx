@@ -27,8 +27,11 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CacheStatsDialog } from '@/features/system-settings/general/channel-affinity/cache-stats-dialog'
 import { useSidebarConfig } from '@/hooks/use-sidebar-config'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ErrorLogAlertDialog } from './components/dialogs/error-log-alert-dialog'
+import { ExportTasksPanel } from './components/export-tasks-panel'
 import { UserInfoDialog } from './components/dialogs/user-info-dialog'
 import {
   UsageLogsProvider,
@@ -43,7 +46,6 @@ import {
 } from './section-registry'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
-const TASK_LOG_SECTIONS = ['drawing', 'task'] as const
 
 const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
   common: {
@@ -54,6 +56,9 @@ const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
   },
   task: {
     titleKey: 'Task Logs',
+  },
+  export: {
+    titleKey: 'Export Tasks',
   },
 }
 
@@ -74,18 +79,25 @@ function UsageLogsContent() {
     setAffinityDialogOpen,
   } = useUsageLogsContext()
   const { isAdmin } = useUsageLogAccess()
+  const isRoot = useAuthStore(
+    (state) => (state.auth.user?.role ?? 0) >= ROLE.SUPER_ADMIN
+  )
   const [alertDialogOpen, setAlertDialogOpen] = useState(false)
+  const taskSections = useMemo<UsageLogsSectionId[]>(
+    () => ['drawing', 'task', ...(isRoot ? (['export'] as const) : [])],
+    [isRoot]
+  )
   const tabNavGroups = useMemo<NavGroup[]>(
     () => [
       {
         title: 'Task Logs',
-        items: TASK_LOG_SECTIONS.map((section) => ({
+        items: taskSections.map((section) => ({
           title: SECTION_META[section].titleKey,
           url: `/usage-logs/${section}`,
         })),
       },
     ],
-    []
+    [taskSections]
   )
   const filteredTabGroups = useSidebarConfig(tabNavGroups)
   const visibleSections = useMemo(
@@ -100,6 +112,12 @@ function UsageLogsContent() {
         ),
     [filteredTabGroups]
   )
+  const activeSection = useMemo<UsageLogsSectionId>(() => {
+    if (activeCategory === 'export' && !isRoot) {
+      return 'task'
+    }
+    return activeCategory
+  }, [activeCategory, isRoot])
 
   const handleSectionChange = useCallback(
     (section: string) => {
@@ -112,9 +130,8 @@ function UsageLogsContent() {
   )
 
   const pageMeta =
-    activeCategory === 'common' ? SECTION_META.common : SECTION_META.task
-  const showTaskSwitcher =
-    activeCategory !== 'common' && visibleSections.length > 1
+    activeSection === 'common' ? SECTION_META.common : SECTION_META[activeSection]
+  const showTaskSwitcher = activeSection !== 'common' && visibleSections.length > 1
 
   return (
     <>
@@ -137,7 +154,7 @@ function UsageLogsContent() {
         <SectionPageLayout.Content>
           <div className='flex h-full min-h-0 flex-col gap-4'>
             {showTaskSwitcher && (
-              <Tabs value={activeCategory} onValueChange={handleSectionChange}>
+              <Tabs value={activeSection} onValueChange={handleSectionChange}>
                 <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
                   {visibleSections.map((section) => (
                     <TabsTrigger key={section} value={section}>
@@ -148,7 +165,11 @@ function UsageLogsContent() {
               </Tabs>
             )}
             <div className='min-h-0 flex-1'>
-              <UsageLogsTable logCategory={activeCategory} />
+              {activeSection === 'export' ? (
+                <ExportTasksPanel />
+              ) : (
+                <UsageLogsTable logCategory={activeSection} />
+              )}
             </div>
           </div>
         </SectionPageLayout.Content>

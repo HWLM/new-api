@@ -275,6 +275,12 @@ func InitializeUserAuthVersions() error {
 	return DB.Model(&User{}).Where("auth_version IS NULL OR auth_version < ?", 1).Update("auth_version", 1).Error
 }
 
+// BackfillUserIsAgent 将首次 AutoMigrate 加入 is_agent 列时可能残留的 NULL 值
+// 统一置为 false。避免前端展示为"否"、后端 `WHERE is_agent = false` 却匹配不到的问题。
+func BackfillUserIsAgent() error {
+	return DB.Model(&User{}).Where("is_agent IS NULL").Update("is_agent", false).Error
+}
+
 func updateUserCacheFieldAtVersion(userId int, field string, value interface{}, authVersion int64) error {
 	if !common.RedisEnabled {
 		return nil

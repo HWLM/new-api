@@ -213,6 +213,9 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.POST("/batch_vip", controller.BatchMarkVipCustomer)
 				adminRoute.POST("/batch_online_topup", controller.BatchSetAllowOnlineTopup)
 				adminRoute.POST("/business_channel", controller.SetUserBusinessChannel)
+				adminRoute.POST("/mark_agent", controller.MarkUserAsAgent)
+				adminRoute.POST("/unmark_agent", controller.UnmarkUserAsAgent)
+				adminRoute.GET("/:id/agent_apikey", controller.GetAgentApikey)
 				adminRoute.GET("/tg_notify", controller.GetTgNotifySettings)
 				adminRoute.PUT("/tg_notify", controller.UpdateTgNotifySettings)
 				adminRoute.POST("/tg_notify/trigger", controller.TriggerTgNotifyManually)
@@ -334,6 +337,19 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
+		// 白名单 apikey 接口组：
+		//   /info                 — 代理身份 apikey 查询自身账户概况（handler 内校验 IsAgentToken）
+		//   /model_pricing        — 管理员 apikey 拉全量模型定价（handler 内校验 role>=admin 且非 agent token）
+		//   /group_ratio          — 管理员 apikey 拉全量分组定价（同上）
+		agentRoute := apiRouter.Group("/agent")
+		agentRoute.Use(middleware.CORS(), middleware.CriticalRateLimit(), middleware.TokenAuthReadOnly())
+		{
+			agentRoute.GET("/info", controller.GetAgentInfo)
+			agentRoute.GET("/model_pricing", controller.GetModelPricingForSync)
+			agentRoute.GET("/model_tables", controller.GetModelTablesForSync)
+			agentRoute.GET("/group_ratio", controller.GetGroupRatioForSync)
+		}
+
 		redemptionRoute := apiRouter.Group("/redemption")
 		redemptionRoute.Use(middleware.AdminAuth())
 		{
@@ -358,6 +374,7 @@ func SetApiRouter(router *gin.Engine) {
 		systemTaskRoute.Use(middleware.RootAuth())
 		{
 			systemTaskRoute.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
+			systemTaskRoute.POST("/log-export", controller.CreateUsageLogExportSystemTask)
 			systemTaskRoute.GET("/list", controller.ListSystemTasks)
 			systemTaskRoute.GET("/current", controller.GetCurrentSystemTask)
 			systemTaskRoute.GET("/:task_id", controller.GetSystemTask)
@@ -395,6 +412,7 @@ func SetApiRouter(router *gin.Engine) {
 			userStatsRoute.GET("/details_singleday", controller.GetUserStatsDetailsSingleDay)
 			userStatsRoute.GET("/details_singleday/export", controller.ExportUserStatsDetailsSingleDay)
 			userStatsRoute.GET("/user_trend", controller.GetUserStatsUserTrend)
+			userStatsRoute.POST("/repair_tokens", controller.RepairUserStatsTokens)
 		}
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)

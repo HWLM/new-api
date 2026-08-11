@@ -47,6 +47,7 @@ import { buildSearchParams } from "../lib/filter";
 import { getDefaultTimeRange } from "../lib/utils";
 import type { CommonLogFilters } from "../types";
 import { CommonLogsStats } from "./common-logs-stats";
+import { CommonLogsExportButton } from "./common-logs-export-button";
 import { CompactDateTimeRangePicker } from "./compact-date-time-range-picker";
 import {
   LogsFilterField,
@@ -321,6 +322,12 @@ export function CommonLogsFilterBar<TData>(
       </TooltipContent>
     </Tooltip>
   );
+  const actionStart = (
+    <div className='flex items-center gap-2'>
+      <CommonLogsExportButton />
+      {sensitiveToggle}
+    </div>
+  );
 
   const dateRangeFilter = (
     <LogsFilterField wide>
@@ -448,7 +455,7 @@ export function CommonLogsFilterBar<TData>(
     <LogsFilterToolbar
       table={props.table}
       stats={statsBar}
-      actionStart={sensitiveToggle}
+      actionStart={actionStart}
       primaryFilters={
         <>
           {dateRangeFilter}
