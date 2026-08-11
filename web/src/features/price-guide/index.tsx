@@ -29,6 +29,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PageTransition } from "@/components/page-transition";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -135,10 +136,6 @@ function PriceGuideTopPanel(props: {
   const { t } = useTranslation();
   const exchangeRate = formatExchangeRate(props.usdExchangeRate);
 
-  const selectedGroupNote =
-    props.selectedGroupOption?.description ||
-    props.selectedGroupOption?.label ||
-    "-";
   return (
     <section className="from-primary/10 via-background to-background relative mb-0 overflow-hidden bg-gradient-to-br px-4 py-5 sm:px-6">
       <div
@@ -170,10 +167,6 @@ function PriceGuideTopPanel(props: {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="gap-1 rounded-full">
-              <span className="bg-muted-foreground/60 size-2 rounded-full" />
-              {t("Default cheapest, compare anytime")}
-            </Badge>
             <Button
               onClick={props.onRefresh}
               variant="outline"
@@ -187,12 +180,18 @@ function PriceGuideTopPanel(props: {
 
         <div className="border-primary/20 bg-card/80 rounded-xl border p-4 shadow-sm">
           <div className="flex flex-col lg:flex-row lg:items-start">
-            <div className="min-w-0 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Sparkles className="text-primary size-4" />
-                {t("Select group")}
+            <div className="min-w-0 w-full">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center  text-sm font-medium">
+                  <Sparkles className="text-primary size-4" />
+                  {t("Select group")}
+                </div>
+                <Badge variant="outline" className="gap-1 ml-1 rounded-full">
+                  <span className="bg-muted-foreground/60 size-2 rounded-full" />
+                  {t("Default cheapest, compare anytime")}
+                </Badge>
               </div>
-              <div className="flex flex-wrap items-center">
+              <div className="flex flex-wrap items-center mt-4 mb-4">
                 <div className="w-full lg:max-w-[680px]">
                   <Select
                     value={props.selectedGroup}
@@ -211,9 +210,11 @@ function PriceGuideTopPanel(props: {
                                   hasPositiveSaving(
                                     props.selectedGroupSavingsPercent,
                                   )
-                                    ? `${t("Price savings label")}${formatPercent(
-                                        props.selectedGroupSavingsPercent,
-                                      )}`
+                                    ? t("Save up to {{percent}}", {
+                                        percent: formatPercent(
+                                          props.selectedGroupSavingsPercent,
+                                        ),
+                                      })
                                     : "",
                                 ]
                                   .filter(Boolean)
@@ -237,8 +238,11 @@ function PriceGuideTopPanel(props: {
                                 </span>
                                 {hasPositiveSaving(option.savingPercent) && (
                                   <span className="text-primary text-xs font-medium">
-                                    {t("Price savings label")}
-                                    {formatPercent(option.savingPercent)}
+                                    {t("Save up to {{percent}}", {
+                                      percent: formatPercent(
+                                        option.savingPercent,
+                                      ),
+                                    })}
                                   </span>
                                 )}
                               </span>
@@ -261,40 +265,47 @@ function PriceGuideTopPanel(props: {
                       variant="secondary"
                       className="border-primary/20 bg-primary/10 text-primary gap-1.5 font-medium"
                     >
-                      {t("Price savings label")}:{" "}
-                      {formatPercent(props.selectedGroupSavingsPercent)} 🔥
+                      {t("Save up to {{percent}}", {
+                        percent: formatPercent(
+                          props.selectedGroupSavingsPercent,
+                        ),
+                      })}{" "}
+                      🔥
                     </Badge>
                   )}
                 </div>
               </div>
-              <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-xs">
-                <span className="inline-flex items-center gap-1.5">
-                  <Info className="size-3.5" />
-                  {t(
-                    "{{count}} groups available. Use the dropdown above to switch; prices below update instantly.",
-                    { count: props.groupCount },
-                  )}
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <CreditCard className="size-3.5" />
-                  {t("Recharge 1 CNY = $1 quota")} (1:1)
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <ReceiptText className="size-3.5" />
-                  {t("The “You pay” column below is the actual CNY charge.")}
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <BarChart3 className="size-3.5" />
-                  {t(
-                    "Official prices are converted at the live exchange rate ≈ ¥{{rate}}/$ for comparison only.",
-                    { rate: exchangeRate },
-                  )}
-                </span>
+              <div className="inline-flex items-center text-xs text-muted-foreground gap-1.5 mb-2">
+                <Info className="size-3.5" />
+                {t(
+                  "{{count}} groups available. Use the dropdown above to switch; prices below update instantly.",
+                  { count: props.groupCount },
+                )}
               </div>
+              <Alert className="border-primary/20 bg-primary/5">
+                <AlertDescription>
+                  <div className="text-muted-foreground flex  gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1.5">
+                      <CreditCard className="size-3.5" />
+                      {t("Recharge 1 CNY = $1 quota")} (1:1)
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <ReceiptText className="size-3.5" />
+                      {t(
+                        "The “You pay” column below is the actual CNY charge.",
+                      )}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <BarChart3 className="size-3.5" />
+                      {t(
+                        "Official prices are converted at the live exchange rate ≈ ¥{{rate}}/$ for comparison only.",
+                        { rate: exchangeRate },
+                      )}
+                    </span>
+                  </div>
+                </AlertDescription>
+              </Alert>
             </div>
-          </div>
-          <div className="text-muted-foreground/80 mt-3 text-xs">
-            {selectedGroupNote}
           </div>
         </div>
       </div>
@@ -339,7 +350,9 @@ function PriceRow(props: {
           </span>
         )}
         <span className="text-muted-foreground/50 font-mono text-xs tabular-nums line-through">
+          {props.showOfficialUsd !== false && props.officialUsd != null && "("}
           {formatCnyMoney(officialCny)}
+          {props.showOfficialUsd !== false && props.officialUsd != null && ")"}
         </span>
         <span className="text-primary font-mono text-sm font-bold tabular-nums">
           {formatCnyMoney(actualCny)}
@@ -390,7 +403,9 @@ function DynamicModelCard(props: {
 
           {hasPositiveSaving(savingPercent) && (
             <Badge variant="secondary" className="font-medium">
-              {t("Price savings label")}: {formatPercent(savingPercent)}
+              {t("Price savings label")}
+
+              {formatPercent(savingPercent)}
             </Badge>
           )}
         </div>
@@ -476,7 +491,7 @@ function StaticModelCard(props: {
           </Badge> */}
           {hasPositiveSaving(savingPercent) && (
             <Badge variant="secondary" className="font-medium">
-              {t("Price savings label")}: {formatPercent(savingPercent)}
+              {t("Price savings label")} {formatPercent(savingPercent)}
             </Badge>
           )}
         </div>
@@ -669,12 +684,7 @@ export function PriceGuide() {
       priceRate,
       usdExchangeRate,
     });
-  }, [
-    priceRate,
-    selectedGroupRatio,
-    usdExchangeRate,
-    visibleModels,
-  ]);
+  }, [priceRate, selectedGroupRatio, usdExchangeRate, visibleModels]);
 
   const displayModels = useMemo(
     () =>
