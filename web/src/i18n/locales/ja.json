@@ -5823,6 +5823,19 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Agent Identity": "代理店ステータス",
+    "Agent apikey": "代理店APIキー",
+    "Mark as Agent": "代理店として設定",
+    "Remove Agent Identity": "代理店ステータスを解除",
+    "Marked as agent": "代理店として設定しました",
+    "Agent identity removed": "代理店ステータスを解除しました",
+    "Mark user {{username}} as an agent?": "ユーザー「{{username}}」を代理店として設定しますか？",
+    "After removing the agent identity, users on the associated site will no longer be able to log in. Confirm removal?": "代理店ステータスを解除すると、関連サイトのユーザーはログインできなくなります。解除しますか？",
+    "Agent apikey for user [{{username}}] generated. Please associate it in your agent site.": "ユーザー「{{username}}」の代理店APIキーを生成しました。代理店サイトに関連付けてください。",
+    "Deleted {{count}} API key(s); {{skipped}} agent apikey(s) skipped (unmark agent to delete)": "APIキーを{{count}}件削除しました。代理店APIキー{{skipped}}件はスキップしました（削除するには先に代理店ステータスを解除してください）",
+    "This is an agent apikey; edit or delete it from the user management page.": "これは代理店APIキーです。ユーザー管理ページで編集または削除してください。",
+    "Copy agent apikey": "代理店APIキーをコピー",
+    "Failed to fetch agent apikey": "代理店APIキーの取得に失敗しました"
   }
 }

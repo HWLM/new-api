@@ -5823,6 +5823,19 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Agent Identity": "Tư cách đại lý",
+    "Agent apikey": "API key đại lý",
+    "Mark as Agent": "Đánh dấu là đại lý",
+    "Remove Agent Identity": "Gỡ tư cách đại lý",
+    "Marked as agent": "Đã đánh dấu là đại lý",
+    "Agent identity removed": "Đã gỡ tư cách đại lý",
+    "Mark user {{username}} as an agent?": "Đánh dấu người dùng {{username}} là đại lý?",
+    "After removing the agent identity, users on the associated site will no longer be able to log in. Confirm removal?": "Sau khi gỡ tư cách đại lý, người dùng trên trang liên kết sẽ không thể đăng nhập. Xác nhận gỡ?",
+    "Agent apikey for user [{{username}}] generated. Please associate it in your agent site.": "Đã tạo API key đại lý cho người dùng [{{username}}]. Hãy liên kết key này trên trang đại lý.",
+    "Deleted {{count}} API key(s); {{skipped}} agent apikey(s) skipped (unmark agent to delete)": "Đã xóa {{count}} API key; bỏ qua {{skipped}} API key đại lý (hãy gỡ tư cách đại lý trước khi xóa)",
+    "This is an agent apikey; edit or delete it from the user management page.": "Đây là API key đại lý; hãy sửa hoặc xóa tại trang quản lý người dùng.",
+    "Copy agent apikey": "Sao chép API key đại lý",
+    "Failed to fetch agent apikey": "Không thể lấy API key đại lý"
   }
 }

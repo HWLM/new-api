@@ -5823,6 +5823,19 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Agent Identity": "Статус агента",
+    "Agent apikey": "API-ключ агента",
+    "Mark as Agent": "Назначить агентом",
+    "Remove Agent Identity": "Снять статус агента",
+    "Marked as agent": "Пользователь назначен агентом",
+    "Agent identity removed": "Статус агента снят",
+    "Mark user {{username}} as an agent?": "Назначить пользователя {{username}} агентом?",
+    "After removing the agent identity, users on the associated site will no longer be able to log in. Confirm removal?": "После снятия статуса агента пользователи связанного сайта больше не смогут входить в систему. Продолжить?",
+    "Agent apikey for user [{{username}}] generated. Please associate it in your agent site.": "API-ключ агента для пользователя [{{username}}] создан. Привяжите его на сайте агента.",
+    "Deleted {{count}} API key(s); {{skipped}} agent apikey(s) skipped (unmark agent to delete)": "Удалено API-ключей: {{count}}; пропущено ключей агента: {{skipped}} (сначала снимите статус агента)",
+    "This is an agent apikey; edit or delete it from the user management page.": "Это API-ключ агента. Измените или удалите его на странице управления пользователями.",
+    "Copy agent apikey": "Копировать API-ключ агента",
+    "Failed to fetch agent apikey": "Не удалось получить API-ключ агента"
   }
 }

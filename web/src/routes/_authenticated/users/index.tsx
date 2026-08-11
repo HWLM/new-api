@@ -43,6 +43,10 @@ const usersSearchSchema = z.object({
     .array(z.enum(['all', 'true', 'false']))
     .optional()
     .catch([]),
+  agent: z
+    .array(z.enum(['all', 'true', 'false']))
+    .optional()
+    .catch([]),
   createdStart: z.string().optional().catch(''),
   createdEnd: z.string().optional().catch(''),
 })

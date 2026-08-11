@@ -5823,6 +5823,19 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Agent Identity": "Agent Identity",
+    "Agent apikey": "Agent apikey",
+    "Mark as Agent": "Mark as Agent",
+    "Remove Agent Identity": "Remove Agent Identity",
+    "Marked as agent": "Marked as agent",
+    "Agent identity removed": "Agent identity removed",
+    "Mark user {{username}} as an agent?": "Mark user {{username}} as an agent?",
+    "After removing the agent identity, users on the associated site will no longer be able to log in. Confirm removal?": "After removing the agent identity, users on the associated site will no longer be able to log in. Confirm removal?",
+    "Agent apikey for user [{{username}}] generated. Please associate it in your agent site.": "Agent apikey for user [{{username}}] generated. Please associate it in your agent site.",
+    "Deleted {{count}} API key(s); {{skipped}} agent apikey(s) skipped (unmark agent to delete)": "Deleted {{count}} API key(s); {{skipped}} agent apikey(s) skipped (unmark agent to delete)",
+    "This is an agent apikey; edit or delete it from the user management page.": "This is an agent apikey; edit or delete it from the user management page.",
+    "Copy agent apikey": "Copy agent apikey",
+    "Failed to fetch agent apikey": "Failed to fetch agent apikey"
   }
 }
