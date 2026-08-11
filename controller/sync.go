@@ -19,6 +19,7 @@ package controller
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -137,27 +138,53 @@ func GetModelTablesForSync(c *gin.Context) {
 	}
 
 	var vendors []model.Vendor
-	if err := model.DB.Order("id ASC").Find(&vendors).Error; err != nil {
+	if err := model.DB.Unscoped().Order("id ASC").Find(&vendors).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	var models []model.Model
-	if err := model.DB.Order("id ASC").Find(&models).Error; err != nil {
+	if err := model.DB.Unscoped().Order("id ASC").Find(&models).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	var abilities []model.Ability
-	if err := model.DB.Order("channel_id ASC, model ASC, " + model.UsersGroupCol() + " ASC").Find(&abilities).Error; err != nil {
+	if err := model.DB.Unscoped().Order("channel_id ASC, model ASC, " + model.UsersGroupCol() + " ASC").Find(&abilities).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
+	type vendorSyncRow struct {
+		model.Vendor
+		DeletedAt *time.Time `json:"deleted_at"`
+	}
+	vendorRows := make([]vendorSyncRow, len(vendors))
+	for i := range vendors {
+		vendorRows[i].Vendor = vendors[i]
+		if vendors[i].DeletedAt.Valid {
+			deletedAt := vendors[i].DeletedAt.Time
+			vendorRows[i].DeletedAt = &deletedAt
+		}
+	}
+
+	type modelSyncRow struct {
+		model.Model
+		DeletedAt *time.Time `json:"deleted_at"`
+	}
+	modelRows := make([]modelSyncRow, len(models))
+	for i := range models {
+		modelRows[i].Model = models[i]
+		if models[i].DeletedAt.Valid {
+			deletedAt := models[i].DeletedAt.Time
+			modelRows[i].DeletedAt = &deletedAt
+		}
+	}
+
 	common.ApiSuccess(c, gin.H{
 		"table_order": []string{"vendors", "models", "abilities"},
-		"vendors":     vendors,
-		"models":      models,
+		"vendors":     vendorRows,
+		"models":      modelRows,
 		"abilities":   abilities,
 	})
 }
