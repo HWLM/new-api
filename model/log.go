@@ -875,6 +875,11 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	if common.DataExportEnabled {
 		tokenUsed := params.PromptTokens + params.CompletionTokens
+		// Anthropic 语义下 prompt_tokens 是净输入，cache_tokens 和 cache_creation_tokens
+		// 是额外单独记账的，需要补进总 token 统计；OpenAI 语义此函数返回 0，无副作用。
+		if otherStr != "" {
+			tokenUsed += int(ClaudeCacheTokensFromOther(otherStr))
+		}
 		LogQuotaData(QuotaDataLogParams{
 			UserID:    userId,
 			Username:  username,
