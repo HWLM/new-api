@@ -1,0 +1,569 @@
+{
+  "created_at": "2026-08-07T02:41:49.998Z",
+  "options": [
+    {
+      "key": "AudioCompletionRatio",
+      "value": "{\n  \"gpt-4o-mini-realtime\": 2,\n  \"gpt-4o-mini-tts\": 1,\n  \"gpt-4o-realtime\": 2,\n  \"tts-1\": 0,\n  \"tts-1-1106\": 0,\n  \"tts-1-hd\": 0,\n  \"tts-1-hd-1106\": 0\n}"
+    },
+    {
+      "key": "AudioRatio",
+      "value": "{\n  \"gpt-4o-audio-preview\": 16,\n  \"gpt-4o-mini-audio-preview\": 66.67,\n  \"gpt-4o-mini-realtime-preview\": 16.67,\n  \"gpt-4o-mini-tts\": 25,\n  \"gpt-4o-realtime-preview\": 8\n}"
+    },
+    {
+      "key": "AutoGroups",
+      "value": "[\"default\",\"codex专属\",\"claude专属\",\"codex未限制\"]"
+    },
+    {
+      "key": "CacheRatio",
+      "value": "{\"claude-3-5-haiku-20241022\":0.1,\"claude-3-5-sonnet-20240620\":0.1,\"claude-3-5-sonnet-20241022\":0.1,\"claude-3-7-sonnet-20250219\":0.1,\"claude-3-7-sonnet-20250219-thinking\":0.1,\"claude-3-haiku-20240307\":0.12,\"claude-3-opus-20240229\":0.1,\"claude-3-sonnet-20240229\":0.1,\"claude-haiku-4-5-20251001\":0.1,\"claude-opus-4-1-20250805\":0.1,\"claude-opus-4-1-20250805-thinking\":0.1,\"claude-opus-4-20250514\":0.1,\"claude-opus-4-20250514-thinking\":0.1,\"claude-opus-4-5-20251101\":0.1,\"claude-opus-4-5-20251101-thinking\":0.1,\"claude-opus-4-6\":0.1,\"claude-opus-4-6-high\":0.1,\"claude-opus-4-6-low\":0.1,\"claude-opus-4-6-max\":0.1,\"claude-opus-4-6-medium\":0.1,\"claude-opus-4-6-thinking\":0.1,\"claude-opus-4-7-high\":0.1,\"claude-opus-4-7-low\":0.1,\"claude-opus-4-7-max\":0.1,\"claude-opus-4-7-medium\":0.1,\"claude-opus-4-7-thinking\":0.1,\"claude-opus-4-7-xhigh\":0.1,\"claude-sonnet-4-20250514\":0.1,\"claude-sonnet-4-20250514-thinking\":0.1,\"claude-sonnet-4-5-20250929\":0.1,\"claude-sonnet-4-5-20250929-thinking\":0.1,\"deepseek-chat\":0.25,\"deepseek-coder\":0.25,\"deepseek-reasoner\":0.25,\"gemini-3-flash-preview\":0.1,\"gemini-3-pro-preview\":0.1,\"gemini-3.1-pro-preview\":0.1,\"gpt-4\":0.5,\"gpt-4.1\":0.25,\"gpt-4.1-mini\":0.25,\"gpt-4.1-nano\":0.25,\"gpt-4.5-preview\":0.5,\"gpt-4.5-preview-2025-02-27\":0.5,\"gpt-4o\":0.5,\"gpt-4o-2024-08-06\":0.5,\"gpt-4o-2024-11-20\":0.5,\"gpt-4o-mini\":0.5,\"gpt-4o-mini-2024-07-18\":0.5,\"gpt-4o-mini-realtime-preview\":0.5,\"gpt-4o-realtime-preview\":0.5,\"gpt-5\":0.1,\"gpt-5-2025-08-07\":0.1,\"gpt-5-chat-latest\":0.1,\"gpt-5-mini\":0.1,\"gpt-5-mini-2025-08-07\":0.1,\"gpt-5-nano\":0.1,\"gpt-5-nano-2025-08-07\":0.1,\"o1\":0.5,\"o1-2024-12-17\":0.5,\"o1-mini\":0.5,\"o1-mini-2024-09-12\":0.5,\"o1-preview\":0.5,\"o1-preview-2024-09-12\":0.5,\"o3-mini\":0.5,\"o3-mini-2025-01-31\":0.5,\"gpt-5.5\":0.1,\"accounts/fireworks/models/gpt-oss-120b\":0.1,\"accounts/fireworks/models/gpt-oss-20b\":0.5,\"chatgpt-4o-latest\":0.5,\"databricks-gpt-5\":0.1,\"databricks-gpt-5-1\":0.1,\"databricks-gpt-5-2\":0.09999999999999999,\"databricks-gpt-5-4\":0.1,\"databricks-gpt-5-4-mini\":0.09999999999999999,\"databricks-gpt-5-4-nano\":0.09999999999999999,\"databricks-gpt-5-5\":0.1,\"databricks-gpt-5-mini\":0.1,\"databricks-gpt-5-nano\":0.09999999999999999,\"gpt-4.1-mini-2025-04-14\":0.25,\"gpt-5-1\":0.1,\"gpt-5-2\":0.09999999999999999,\"gpt-5-3-codex\":0.09999999999999999,\"gpt-5-4\":0.1,\"gpt-5-4-mini\":0.09999999999999999,\"gpt-5-4-nano\":0.09999999999999999,\"gpt-5-5\":0.1,\"gpt-5-chat\":0.10400000000000001,\"gpt-5-codex\":0.10400000000000001,\"gpt-5.1\":0.10400000000000001,\"gpt-5.1-chat\":0.1,\"gpt-5.1-chat-latest\":0.10000000000000002,\"gpt-5.1-codex\":0.1,\"gpt-5.1-codex-max\":0.1,\"gpt-5.1-codex-mini\":0.1,\"gpt-5.2\":0.09999999999999999,\"gpt-5.2-chat\":0.09999999999999999,\"gpt-5.2-chat-latest\":0.09999999999999999,\"gpt-5.2-codex\":0.09999999999999999,\"gpt-5.3-chat\":0.09999999999999999,\"gpt-5.3-chat-latest\":0.09999999999999999,\"gpt-5.3-codex\":0.09999999999999999,\"gpt-5.3-codex-spark\":0.09999999999999999,\"gpt-5.4-nano\":0.09999999999999999,\"gpt-5.4-pro\":1,\"gpt-5.5-pro\":1,\"gpt-image-1\":0.25,\"gpt-image-1.5\":0.25,\"hf:openai/gpt-oss-120b\":1,\"openai-gpt-4.1\":0.25,\"openai-gpt-4o\":0.5,\"openai-gpt-4o-mini\":0.5,\"openai-gpt-4o-mini-2024-07-18\":0.5,\"openai-gpt-5\":0.1,\"openai-gpt-5-mini\":0.1,\"openai-gpt-5-nano\":0.09999999999999999,\"openai-gpt-5.1-codex-max\":0.1,\"openai-gpt-5.2\":0.09999999999999999,\"openai-gpt-5.3-codex\":0.09999999999999999,\"openai-gpt-5.4\":0.1,\"openai-gpt-5.4-mini\":0.09999999999999999,\"openai-gpt-5.4-nano\":0.09999999999999999,\"openai-gpt-5.5\":0.1,\"openai-gpt-52\":0.1,\"openai-gpt-52-codex\":0.1,\"openai-gpt-53-codex\":0.1,\"openai-gpt-54\":0.1,\"openai-gpt-54-mini\":0.1,\"openai-gpt-55\":0.1,\"openai-gpt-image-1\":0.25,\"openai-gpt-image-1.5\":0.2,\"openai.gpt-5.4\":0.1,\"openai.gpt-5.5\":0.1,\"openai/gpt-3.5-turbo\":2.5,\"openai/gpt-4.1\":0.25,\"openai/gpt-4.1-mini\":0.25,\"openai/gpt-4.1-nano\":0.25,\"openai/gpt-4o\":0.5,\"openai/gpt-4o-2024-08-06\":0.5,\"openai/gpt-4o-2024-11-20\":0.5,\"openai/gpt-4o-aug\":0.5,\"openai/gpt-4o-mini\":0.5,\"openai/gpt-4o-mini-2024-07-18\":0.5,\"openai/gpt-5\":0.1,\"openai/gpt-5-chat\":0.1,\"openai/gpt-5-chat-latest\":0.1,\"openai/gpt-5-codex\":0.1,\"openai/gpt-5-image\":0.125,\"openai/gpt-5-image-mini\":0.1,\"openai/gpt-5-mini\":0.1,\"openai/gpt-5-nano\":0.09999999999999999,\"openai/gpt-5.1\":0.10400000000000001,\"openai/gpt-5.1-chat\":0.10400000000000001,\"openai/gpt-5.1-chat-latest\":0.1,\"openai/gpt-5.1-codex\":0.10400000000000001,\"openai/gpt-5.1-codex-max\":0.1,\"openai/gpt-5.1-codex-mini\":0.1,\"openai/gpt-5.1-instant\":0.09999999999999999,\"openai/gpt-5.1-thinking\":0.1,\"openai/gpt-5.2\":0.09999999999999999,\"openai/gpt-5.2-chat\":0.09999999999999999,\"openai/gpt-5.2-chat-latest\":0.09999999999999999,\"openai/gpt-5.2-codex\":0.09999999999999999,\"openai/gpt-5.2-instant\":0.09999999999999999,\"openai/gpt-5.3-chat\":0.09999999999999999,\"openai/gpt-5.3-chat-latest\":0.09999999999999999,\"openai/gpt-5.3-codex\":0.09999999999999999,\"openai/gpt-5.3-instant\":0.09999999999999999,\"openai/gpt-5.4\":0.1,\"openai/gpt-5.4-image-2\":0.25,\"openai/gpt-5.4-mini\":0.09999999999999999,\"openai/gpt-5.4-nano\":0.09999999999999999,\"openai/gpt-5.4-pro\":0.1,\"openai/gpt-5.5\":0.1,\"openai/gpt-5.5-instant\":0.1,\"openai/gpt-chat-latest\":0.1,\"openai/gpt-image-1\":0.25,\"openai/gpt-image-1-mini\":0.1,\"openai/gpt-image-1.5\":0.25,\"openai/gpt-image-2\":0.24999504999504996,\"openai/gpt-latest\":0.1,\"openai/gpt-oss-120b\":0.5,\"openai/gpt-oss-120b-fast\":0.09999999999999999,\"openai/gpt-oss-20b\":0.5,\"openai/gpt-oss-safeguard-20b\":0.5,\"openai/gpt-realtime-1.5\":0.1,\"openai/gpt-realtime-2\":0.1,\"openai/gpt-realtime-mini\":0.1,\"xpersona-gpt-5.5\":0.09999999999999999,\"~openai/gpt-latest\":0.1,\"~openai/gpt-mini-latest\":0.09999999999999999,\"Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled\":0.09999999999999999,\"anthropic--claude-3-haiku\":0.12,\"anthropic--claude-3-opus\":0.1,\"anthropic--claude-3-sonnet\":0.09999999999999999,\"anthropic--claude-3.5-sonnet\":0.09999999999999999,\"anthropic--claude-3.7-sonnet\":0.09999999999999999,\"anthropic--claude-4-opus\":0.1,\"anthropic--claude-4-sonnet\":0.09999999999999999,\"anthropic--claude-4.5-haiku\":0.1,\"anthropic--claude-4.5-opus\":0.1,\"anthropic--claude-4.5-sonnet\":0.09999999999999999,\"anthropic--claude-4.6-opus\":0.1,\"anthropic--claude-4.6-sonnet\":0.09999999999999999,\"anthropic--claude-4.7-opus\":0.1,\"anthropic-claude-3-opus\":0.1,\"anthropic-claude-3.5-haiku\":0.09999999999999999,\"anthropic-claude-3.5-sonnet\":0.09999999999999999,\"anthropic-claude-3.7-sonnet\":0.09999999999999999,\"anthropic-claude-4.1-opus\":0.1,\"anthropic-claude-4.5-haiku\":1,\"anthropic-claude-4.5-sonnet\":0.09999999999999999,\"anthropic-claude-4.6-sonnet\":0.09999999999999999,\"anthropic-claude-haiku-4.5\":1,\"anthropic-claude-opus-4\":0.1,\"anthropic-claude-opus-4.5\":0.1,\"anthropic-claude-opus-4.6\":0.1,\"anthropic-claude-opus-4.7\":0.1,\"anthropic-claude-opus-4.8\":0.1,\"anthropic-claude-sonnet-4\":0.09999999999999999,\"anthropic.claude-fable-5\":0.1,\"anthropic.claude-haiku-4-5-20251001-v1:0\":0.1,\"anthropic.claude-opus-4-1-20250805-v1:0\":0.1,\"anthropic.claude-opus-4-5-20251101-v1:0\":0.1,\"anthropic.claude-opus-4-6-v1\":0.1,\"anthropic.claude-opus-4-7\":0.1,\"anthropic.claude-opus-4-8\":0.1,\"anthropic.claude-sonnet-4-5-20250929-v1:0\":0.09999999999999999,\"anthropic.claude-sonnet-4-6\":0.09999999999999999,\"anthropic.claude-sonnet-5\":0.1,\"anthropic/claude-3-5-haiku\":0.09999999999999999,\"anthropic/claude-3-7-sonnet\":0.09999999999999999,\"anthropic/claude-3-haiku\":0.12,\"anthropic/claude-3-opus\":0.1,\"anthropic/claude-3-sonnet\":0.09999999999999999,\"anthropic/claude-3.5-haiku\":0.09999999999999999,\"anthropic/claude-3.5-sonnet\":0.09999999999999999,\"anthropic/claude-3.7-sonnet\":0.09999999999999999,\"anthropic/claude-fable-5\":0.1,\"anthropic/claude-haiku-3\":0.1,\"anthropic/claude-haiku-3.5\":0.1,\"anthropic/claude-haiku-4-5\":0.1,\"anthropic/claude-haiku-4-5-20251001\":0.1,\"anthropic/claude-haiku-4.5\":0.1,\"anthropic/claude-haiku-latest\":0.1,\"anthropic/claude-opus-4\":0.1,\"anthropic/claude-opus-4-1\":0.1,\"anthropic/claude-opus-4-1-20250805\":0.1,\"anthropic/claude-opus-4-20250514\":0.1,\"anthropic/claude-opus-4-5\":0.1,\"anthropic/claude-opus-4-5-20251101\":0.1,\"anthropic/claude-opus-4-6\":0.1,\"anthropic/claude-opus-4-7\":0.1,\"anthropic/claude-opus-4-8\":0.1,\"anthropic/claude-opus-4.1\":0.1,\"anthropic/claude-opus-4.5\":0.1,\"anthropic/claude-opus-4.6\":0.1,\"anthropic/claude-opus-4.6-fast\":0.1,\"anthropic/claude-opus-4.7\":0.1,\"anthropic/claude-opus-4.7-fast\":0.1,\"anthropic/claude-opus-4.7:thinking\":0.1,\"anthropic/claude-opus-4.8\":0.1,\"anthropic/claude-opus-4.8-fast\":0.1,\"anthropic/claude-opus-4.8:thinking\":0.1,\"anthropic/claude-opus-latest\":0.1,\"anthropic/claude-sonnet-3.5\":0.1,\"anthropic/claude-sonnet-3.5-june\":0.1,\"anthropic/claude-sonnet-3.7\":0.1,\"anthropic/claude-sonnet-4\":0.09999999999999999,\"anthropic/claude-sonnet-4-20250514\":0.09999999999999999,\"anthropic/claude-sonnet-4-5\":0.09999999999999999,\"anthropic/claude-sonnet-4-5-20250929\":0.09999999999999999,\"anthropic/claude-sonnet-4-6\":0.09999999999999999,\"anthropic/claude-sonnet-4.5\":0.09999999999999999,\"anthropic/claude-sonnet-4.6\":0.09999999999999999,\"anthropic/claude-sonnet-5\":0.1,\"anthropic/claude-sonnet-latest\":0.1,\"au.anthropic.claude-haiku-4-5-20251001-v1:0\":0.1,\"au.anthropic.claude-opus-4-6-v1\":0.09999999999999999,\"au.anthropic.claude-opus-4-8\":0.1,\"au.anthropic.claude-sonnet-4-5-20250929-v1:0\":0.09999999999999999,\"au.anthropic.claude-sonnet-4-6\":0.1,\"au.anthropic.claude-sonnet-5\":0.1,\"claude-3-5-haiku\":0.09999999999999999,\"claude-3-5-haiku@20241022\":0.09999999999999999,\"claude-3-7-sonnet\":0.09999999999999999,\"claude-3-opus\":0.1,\"claude-3.5-haiku\":0.1,\"claude-3.5-sonnet-v2\":0.10000000000000002,\"claude-3.7-sonnet\":0.10000000000000002,\"claude-4.5-haiku\":0.09999999999999999,\"claude-4.5-opus\":0.1,\"claude-4.5-sonnet\":0.10000000000000002,\"claude-fable-5\":0.1,\"claude-haiku-4-5\":0.1,\"claude-haiku-4-5-20251001-thinking\":0.1,\"claude-haiku-4-5@20251001\":0.1,\"claude-haiku-4.5\":0.1,\"claude-opus-4\":0.1,\"claude-opus-4-0\":0.1,\"claude-opus-4-1\":0.1,\"claude-opus-4-1@20250805\":0.1,\"claude-opus-4-5\":0.1,\"claude-opus-4-5@20251101\":0.1,\"claude-opus-4-6-think\":0.1,\"claude-opus-4-6@default\":0.1,\"claude-opus-4-7\":0.1,\"claude-opus-4-7-fast\":0.1,\"claude-opus-4-7-think\":0.1,\"claude-opus-4-7@default\":0.1,\"claude-opus-4-8\":0.1,\"claude-opus-4-8-fast\":0.09999999999999999,\"claude-opus-4-8-think\":0.1,\"claude-opus-4-8@default\":0.1,\"claude-opus-4.5\":0.1,\"claude-opus-4.6\":0.1,\"claude-opus-4.7\":0.1,\"claude-opus-4.8\":0.1,\"claude-opus-4@20250514\":0.1,\"claude-opus4-7\":0.10000000000000002,\"claude-opus4-8\":0.09982269503546098,\"claude-sonnet-4\":0.09999999999999999,\"claude-sonnet-4-0\":0.09999999999999999,\"claude-sonnet-4-5\":0.09999999999999999,\"claude-sonnet-4-5@20250929\":0.09999999999999999,\"claude-sonnet-4-6-think\":0.09999999999999999,\"claude-sonnet-4-6@default\":0.09999999999999999,\"claude-sonnet-4.5\":0.09999999999999999,\"claude-sonnet-4.6\":0.09999999999999999,\"claude-sonnet-4@20250514\":0.09999999999999999,\"claude-sonnet-5\":0.1,\"claude-sonnet-5@default\":0.1,\"databricks-claude-haiku-4-5\":0.1,\"databricks-claude-opus-4-1\":0.1,\"databricks-claude-opus-4-5\":0.1,\"databricks-claude-opus-4-6\":0.1,\"databricks-claude-opus-4-7\":0.1,\"databricks-claude-sonnet-4\":0.09999999999999999,\"databricks-claude-sonnet-4-5\":0.09999999999999999,\"databricks-claude-sonnet-4-6\":0.09999999999999999,\"eu.anthropic.claude-fable-5\":0.1,\"eu.anthropic.claude-haiku-4-5-20251001-v1:0\":0.09999999999999999,\"eu.anthropic.claude-opus-4-5-20251101-v1:0\":0.1,\"eu.anthropic.claude-opus-4-6-v1\":0.1,\"eu.anthropic.claude-opus-4-7\":0.1,\"eu.anthropic.claude-opus-4-8\":0.1,\"eu.anthropic.claude-sonnet-4-5-20250929-v1:0\":0.1,\"eu.anthropic.claude-sonnet-4-6\":0.1,\"eu.anthropic.claude-sonnet-5\":0.09999999999999999,\"global.anthropic.claude-fable-5\":0.1,\"global.anthropic.claude-haiku-4-5-20251001-v1:0\":0.1,\"global.anthropic.claude-opus-4-5-20251101-v1:0\":0.1,\"global.anthropic.claude-opus-4-6-v1\":0.1,\"global.anthropic.claude-opus-4-7\":0.1,\"global.anthropic.claude-opus-4-8\":0.1,\"global.anthropic.claude-sonnet-4-5-20250929-v1:0\":0.09999999999999999,\"global.anthropic.claude-sonnet-4-6\":0.09999999999999999,\"global.anthropic.claude-sonnet-5\":0.1,\"jp.anthropic.claude-opus-4-7\":0.1,\"jp.anthropic.claude-opus-4-8\":0.1,\"jp.anthropic.claude-sonnet-4-5-20250929-v1:0\":0.09999999999999999,\"jp.anthropic.claude-sonnet-4-6\":0.09999999999999999,\"jp.anthropic.claude-sonnet-5\":0.1,\"stealth/claude-opus-4.6\":0.1,\"stealth/claude-opus-4.7\":0.1,\"stealth/claude-sonnet-4.6\":0.1,\"us.anthropic.claude-fable-5\":0.1,\"us.anthropic.claude-haiku-4-5-20251001-v1:0\":0.1,\"us.anthropic.claude-opus-4-1-20250805-v1:0\":0.1,\"us.anthropic.claude-opus-4-5-20251101-v1:0\":0.1,\"us.anthropic.claude-opus-4-6-v1\":0.1,\"us.anthropic.claude-opus-4-7\":0.1,\"us.anthropic.claude-opus-4-8\":0.1,\"us.anthropic.claude-sonnet-4-5-20250929-v1:0\":0.09999999999999999,\"us.anthropic.claude-sonnet-4-6\":0.09999999999999999,\"us.anthropic.claude-sonnet-5\":0.1,\"~anthropic/claude-fable-latest\":0.1,\"~anthropic/claude-haiku-latest\":0.1,\"~anthropic/claude-opus-latest\":0.1,\"~anthropic/claude-sonnet-latest\":0.1,\"gpt-5.4\":0.1,\"gpt-5.4-mini\":0.09999999999999999,\"claude-sonnet-4-6\":0.166666666667}"
+    },
+    {
+      "key": "CompletionRatio",
+      "value": "{\"gpt-4-all\":2,\"gpt-4-gizmo-*\":2,\"gpt-4o-gizmo-*\":3,\"gpt-image-1\":8,\"gpt-5.5\":6,\"@cf/openai/gpt-oss-120b\":2.142857142857143,\"@cf/openai/gpt-oss-20b\":1.4999999999999998,\"TEE/gpt-oss-120b\":1,\"TEE/gpt-oss-20b\":4,\"accounts/fireworks/models/gpt-oss-120b\":4,\"accounts/fireworks/models/gpt-oss-20b\":4.285714285714286,\"azure-gpt-4-turbo\":3.0017006802721085,\"azure-gpt-4o\":4,\"azure-gpt-4o-mini\":3.9772727272727266,\"cerebras/gpt-oss-120b-cs\":2.142857142857143,\"chatgpt-4o-latest\":4,\"databricks-gpt-5\":8,\"databricks-gpt-5-1\":8,\"databricks-gpt-5-2\":8,\"databricks-gpt-5-4\":6,\"databricks-gpt-5-4-mini\":6,\"databricks-gpt-5-4-nano\":6.25,\"databricks-gpt-5-5\":6,\"databricks-gpt-5-mini\":8,\"databricks-gpt-5-nano\":8,\"databricks-gpt-oss-120b\":3.8888888888888897,\"databricks-gpt-oss-20b\":4,\"gpt-3.5-turbo\":3,\"gpt-3.5-turbo-0125\":3,\"gpt-3.5-turbo-0301\":1.3333333333333333,\"gpt-3.5-turbo-0613\":1.3333333333333333,\"gpt-3.5-turbo-1106\":2,\"gpt-3.5-turbo-instruct\":1.3333333333333333,\"gpt-4\":2,\"gpt-4-32k\":2,\"gpt-4-turbo\":3,\"gpt-4-turbo-vision\":3,\"gpt-4.1\":4,\"gpt-4.1-mini\":4,\"gpt-4.1-mini-2025-04-14\":4,\"gpt-4.1-nano\":4,\"gpt-4o\":4,\"gpt-4o-2024-05-13\":3,\"gpt-4o-2024-08-06\":4,\"gpt-4o-2024-11-20\":4,\"gpt-4o-mini\":4,\"gpt-4o-mini-search-preview\":4,\"gpt-4o-search-preview\":4,\"gpt-5\":8,\"gpt-5-1\":8,\"gpt-5-2\":8,\"gpt-5-3-codex\":8,\"gpt-5-4\":6,\"gpt-5-4-mini\":6,\"gpt-5-4-nano\":6.25,\"gpt-5-5\":6,\"gpt-5-chat\":8,\"gpt-5-chat-latest\":8,\"gpt-5-codex\":8,\"gpt-5-mini\":8,\"gpt-5-nano\":8,\"gpt-5-pro\":8,\"gpt-5-thinking\":8,\"gpt-5.1\":8,\"gpt-5.1-chat\":8,\"gpt-5.1-chat-latest\":8,\"gpt-5.1-codex\":8,\"gpt-5.1-codex-max\":8,\"gpt-5.1-codex-mini\":8,\"gpt-5.2\":8,\"gpt-5.2-chat\":8,\"gpt-5.2-chat-latest\":8,\"gpt-5.2-codex\":8,\"gpt-5.2-pro\":8,\"gpt-5.3-chat\":8,\"gpt-5.3-chat-latest\":8,\"gpt-5.3-codex\":8,\"gpt-5.3-codex-spark\":8,\"gpt-5.3-codex-xhigh\":8,\"gpt-5.4-mini-2026-03-17\":6,\"gpt-5.4-nano\":6.25,\"gpt-5.4-nano-2026-03-17\":6.25,\"gpt-5.4-pro\":6,\"gpt-5.5-pro\":6,\"gpt-image-1.5\":6.4,\"gpt-oss-120b\":3.8888888888888897,\"gpt-oss-20b\":4,\"gpt-oss-safeguard-120b\":4,\"hf:openai/gpt-oss-120b\":1,\"openai-gpt-4.1\":4,\"openai-gpt-4o\":4,\"openai-gpt-4o-2024-11-20\":4,\"openai-gpt-4o-mini\":4,\"openai-gpt-4o-mini-2024-07-18\":4,\"openai-gpt-5\":8,\"openai-gpt-5-mini\":8,\"openai-gpt-5-nano\":8,\"openai-gpt-5.1-codex-max\":8,\"openai-gpt-5.2\":8,\"openai-gpt-5.2-pro\":8,\"openai-gpt-5.3-codex\":8,\"openai-gpt-5.4\":6,\"openai-gpt-5.4-mini\":6,\"openai-gpt-5.4-nano\":6.25,\"openai-gpt-5.4-pro\":6,\"openai-gpt-5.5\":6,\"openai-gpt-52\":7.990867579908676,\"openai-gpt-52-codex\":7.990867579908676,\"openai-gpt-53-codex\":7.990867579908676,\"openai-gpt-54\":6.006389776357828,\"openai-gpt-54-mini\":6,\"openai-gpt-54-pro\":6,\"openai-gpt-55\":6,\"openai-gpt-55-pro\":6,\"openai-gpt-image-1\":8,\"openai-gpt-image-1.5\":2,\"openai-gpt-oss-120b\":4.285714285714286,\"openai-gpt-oss-20b\":9,\"openai.gpt-5.4\":6,\"openai.gpt-5.5\":6,\"openai.gpt-oss-120b\":4,\"openai.gpt-oss-120b-1:0\":4,\"openai.gpt-oss-20b\":4.285714285714286,\"openai.gpt-oss-20b-1:0\":4.285714285714286,\"openai.gpt-oss-safeguard-120b\":4,\"openai.gpt-oss-safeguard-20b\":2.857142857142857,\"openai/chat-completion/models/gpt-oss-120b-high-throughput\":4,\"openai/chat-completion/models/gpt-oss-20b\":4,\"openai/chatgpt-4o-latest\":3.111111111111111,\"openai/gpt-3.5-turbo\":3,\"openai/gpt-3.5-turbo-0613\":2,\"openai/gpt-3.5-turbo-16k\":1.3333333333333333,\"openai/gpt-3.5-turbo-instruct\":1.3333333333333333,\"openai/gpt-3.5-turbo-raw\":3.1111111111111107,\"openai/gpt-4\":2,\"openai/gpt-4-0314\":2,\"openai/gpt-4-1106-preview\":3,\"openai/gpt-4-classic\":2,\"openai/gpt-4-classic-0314\":2,\"openai/gpt-4-turbo\":3,\"openai/gpt-4-turbo-preview\":3.0017006802721085,\"openai/gpt-4.1\":4,\"openai/gpt-4.1-mini\":4,\"openai/gpt-4.1-nano\":4,\"openai/gpt-4o\":4,\"openai/gpt-4o-2024-05-13\":3,\"openai/gpt-4o-2024-08-06\":4,\"openai/gpt-4o-2024-11-20\":4,\"openai/gpt-4o-audio-preview\":4,\"openai/gpt-4o-aug\":4.090909090909091,\"openai/gpt-4o-mini\":3.9772727272727266,\"openai/gpt-4o-mini-2024-07-18\":4,\"openai/gpt-4o-mini-search\":3.857142857142857,\"openai/gpt-4o-mini-search-preview\":3.977272727272727,\"openai/gpt-4o-mini-transcribe\":4,\"openai/gpt-4o-search\":4.090909090909091,\"openai/gpt-4o-search-preview\":4,\"openai/gpt-4o-transcribe\":4,\"openai/gpt-5\":8,\"openai/gpt-5-chat\":8,\"openai/gpt-5-chat-latest\":8,\"openai/gpt-5-codex\":2,\"openai/gpt-5-image\":1,\"openai/gpt-5-image-mini\":0.8,\"openai/gpt-5-mini\":8,\"openai/gpt-5-nano\":8,\"openai/gpt-5-pro\":8,\"openai/gpt-5.1\":8,\"openai/gpt-5.1-2025-11-13\":8,\"openai/gpt-5.1-chat\":8,\"openai/gpt-5.1-chat-latest\":8,\"openai/gpt-5.1-codex\":8,\"openai/gpt-5.1-codex-max\":8,\"openai/gpt-5.1-codex-mini\":8,\"openai/gpt-5.1-instant\":8.181818181818182,\"openai/gpt-5.1-thinking\":8,\"openai/gpt-5.2\":8,\"openai/gpt-5.2-chat\":8,\"openai/gpt-5.2-chat-latest\":8,\"openai/gpt-5.2-codex\":8,\"openai/gpt-5.2-instant\":8.125,\"openai/gpt-5.2-pro\":8,\"openai/gpt-5.3-chat\":8,\"openai/gpt-5.3-chat-latest\":8,\"openai/gpt-5.3-codex\":8,\"openai/gpt-5.3-instant\":8.125,\"openai/gpt-5.4\":6,\"openai/gpt-5.4-image-2\":1.875,\"openai/gpt-5.4-mini\":6,\"openai/gpt-5.4-nano\":6.25,\"openai/gpt-5.4-pro\":6,\"openai/gpt-5.5\":6,\"openai/gpt-5.5-instant\":6,\"openai/gpt-5.5-pro\":6,\"openai/gpt-audio\":4,\"openai/gpt-audio-mini\":4,\"openai/gpt-chat-latest\":6,\"openai/gpt-image-1\":8,\"openai/gpt-image-1-mini\":4,\"openai/gpt-image-1.5\":6.4,\"openai/gpt-image-2\":6.3999999999999995,\"openai/gpt-latest\":6,\"openai/gpt-oss-120b\":5,\"openai/gpt-oss-120b-fast\":5,\"openai/gpt-oss-120b-maas\":4,\"openai/gpt-oss-20b\":3.75,\"openai/gpt-oss-20b-maas\":3.571428571428571,\"openai/gpt-oss-safeguard-20b\":4,\"openai/gpt-realtime-1.5\":4,\"openai/gpt-realtime-2\":6,\"openai/gpt-realtime-mini\":4,\"workers-ai/@cf/openai/gpt-oss-120b\":2.142857142857143,\"workers-ai/@cf/openai/gpt-oss-20b\":1.4999999999999998,\"xpersona-gpt-5.5\":6,\"~openai/gpt-latest\":6,\"~openai/gpt-mini-latest\":6,\"Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled\":1,\"anthropic--claude-3-haiku\":5,\"anthropic--claude-3-opus\":5,\"anthropic--claude-3-sonnet\":5,\"anthropic--claude-3.5-sonnet\":5,\"anthropic--claude-3.7-sonnet\":5,\"anthropic--claude-4-opus\":5,\"anthropic--claude-4-sonnet\":5,\"anthropic--claude-4.5-haiku\":5,\"anthropic--claude-4.5-opus\":5,\"anthropic--claude-4.5-sonnet\":5,\"anthropic--claude-4.6-opus\":5,\"anthropic--claude-4.6-sonnet\":5,\"anthropic--claude-4.7-opus\":5,\"anthropic-claude-3-opus\":5,\"anthropic-claude-3.5-haiku\":5,\"anthropic-claude-3.5-sonnet\":5,\"anthropic-claude-3.7-sonnet\":5,\"anthropic-claude-4.1-opus\":5,\"anthropic-claude-4.5-haiku\":5,\"anthropic-claude-4.5-sonnet\":5,\"anthropic-claude-4.6-sonnet\":5,\"anthropic-claude-haiku-4.5\":5,\"anthropic-claude-opus-4\":5,\"anthropic-claude-opus-4.5\":5,\"anthropic-claude-opus-4.6\":5,\"anthropic-claude-opus-4.7\":5,\"anthropic-claude-opus-4.8\":5,\"anthropic-claude-sonnet-4\":5,\"anthropic.claude-fable-5\":5,\"anthropic.claude-haiku-4-5-20251001-v1:0\":5,\"anthropic.claude-opus-4-1-20250805-v1:0\":5,\"anthropic.claude-opus-4-5-20251101-v1:0\":5,\"anthropic.claude-opus-4-6-v1\":5,\"anthropic.claude-opus-4-7\":5,\"anthropic.claude-opus-4-8\":5,\"anthropic.claude-sonnet-4-5-20250929-v1:0\":5,\"anthropic.claude-sonnet-4-6\":5,\"anthropic.claude-sonnet-5\":5,\"anthropic/claude-3-5-haiku\":5,\"anthropic/claude-3-7-sonnet\":5,\"anthropic/claude-3-haiku\":5,\"anthropic/claude-3-opus\":5,\"anthropic/claude-3-sonnet\":5,\"anthropic/claude-3.5-haiku\":5,\"anthropic/claude-3.5-sonnet\":5,\"anthropic/claude-3.7-sonnet\":5,\"anthropic/claude-fable-5\":5,\"anthropic/claude-haiku-3\":5.238095238095239,\"anthropic/claude-haiku-3.5\":4.999999999999999,\"anthropic/claude-haiku-4-5\":5,\"anthropic/claude-haiku-4-5-20251001\":5,\"anthropic/claude-haiku-4.5\":5,\"anthropic/claude-haiku-latest\":5,\"anthropic/claude-opus-4\":5,\"anthropic/claude-opus-4-1\":5,\"anthropic/claude-opus-4-1-20250805\":5,\"anthropic/claude-opus-4-20250514\":5,\"anthropic/claude-opus-4-5\":5,\"anthropic/claude-opus-4-5-20251101\":5,\"anthropic/claude-opus-4-6\":5,\"anthropic/claude-opus-4-7\":5,\"anthropic/claude-opus-4-8\":5,\"anthropic/claude-opus-4.1\":5,\"anthropic/claude-opus-4.5\":5,\"anthropic/claude-opus-4.6\":5.003401360544218,\"anthropic/claude-opus-4.6-fast\":5,\"anthropic/claude-opus-4.6:thinking\":5.003401360544218,\"anthropic/claude-opus-4.6:thinking:low\":5.003401360544218,\"anthropic/claude-opus-4.6:thinking:max\":5.003401360544218,\"anthropic/claude-opus-4.6:thinking:medium\":5.003401360544218,\"anthropic/claude-opus-4.7\":5.003401360544218,\"anthropic/claude-opus-4.7-fast\":5,\"anthropic/claude-opus-4.7:thinking\":5.003401360544218,\"anthropic/claude-opus-4.8\":5.003401360544218,\"anthropic/claude-opus-4.8-fast\":5,\"anthropic/claude-opus-4.8:thinking\":5.003401360544218,\"anthropic/claude-opus-latest\":5.003401360544218,\"anthropic/claude-sonnet-3.5\":5,\"anthropic/claude-sonnet-3.5-june\":5,\"anthropic/claude-sonnet-3.7\":5,\"anthropic/claude-sonnet-4\":5,\"anthropic/claude-sonnet-4-20250514\":5,\"anthropic/claude-sonnet-4-5\":5,\"anthropic/claude-sonnet-4-5-20250929\":5,\"anthropic/claude-sonnet-4-6\":5,\"anthropic/claude-sonnet-4.5\":5,\"anthropic/claude-sonnet-4.6\":5.011363636363636,\"anthropic/claude-sonnet-4.6:thinking\":5.011363636363636,\"anthropic/claude-sonnet-5\":5,\"anthropic/claude-sonnet-latest\":5.011363636363637,\"au.anthropic.claude-haiku-4-5-20251001-v1:0\":5,\"au.anthropic.claude-opus-4-6-v1\":5,\"au.anthropic.claude-opus-4-8\":5,\"au.anthropic.claude-sonnet-4-5-20250929-v1:0\":5,\"au.anthropic.claude-sonnet-4-6\":5,\"au.anthropic.claude-sonnet-5\":5,\"claude-3-5-haiku\":5,\"claude-3-5-haiku-20241022\":5,\"claude-3-5-haiku-latest\":5,\"claude-3-5-haiku@20241022\":5,\"claude-3-5-sonnet-20240620\":5,\"claude-3-5-sonnet-20241022\":5,\"claude-3-7-sonnet\":5,\"claude-3-7-sonnet-20250219\":5,\"claude-3-haiku-20240307\":5,\"claude-3-opus\":5,\"claude-3-opus-20240229\":5,\"claude-3-sonnet-20240229\":5,\"claude-3.5-haiku\":5,\"claude-3.5-sonnet-v2\":5,\"claude-3.7-sonnet\":5,\"claude-4-5-sonnet\":5.000306842589751,\"claude-4-6-sonnet\":4.991643454038998,\"claude-4.5-haiku\":5,\"claude-4.5-opus\":5,\"claude-4.5-sonnet\":5,\"claude-fable-5\":5,\"claude-haiku-4-5\":5,\"claude-haiku-4-5-20251001\":5,\"claude-haiku-4-5-20251001-thinking\":5,\"claude-haiku-4-5@20251001\":5,\"claude-haiku-4.5\":5,\"claude-opus-4\":5,\"claude-opus-4-0\":5,\"claude-opus-4-1\":5,\"claude-opus-4-1-20250805\":5.0022675736961455,\"claude-opus-4-1-20250805-thinking\":5,\"claude-opus-4-1-thinking\":5.0022675736961455,\"claude-opus-4-1-thinking:1024\":5.0022675736961455,\"claude-opus-4-1-thinking:32000\":5.0022675736961455,\"claude-opus-4-1-thinking:32768\":5.0022675736961455,\"claude-opus-4-1-thinking:8192\":5.0022675736961455,\"claude-opus-4-1@20250805\":5,\"claude-opus-4-20250514\":5.0022675736961455,\"claude-opus-4-5\":5,\"claude-opus-4-5-20251101\":5.003401360544218,\"claude-opus-4-5-20251101-thinking\":5,\"claude-opus-4-5-20251101:thinking\":5.003401360544218,\"claude-opus-4-5@20251101\":5,\"claude-opus-4-6\":5,\"claude-opus-4-6-think\":5,\"claude-opus-4-6-thinking\":5,\"claude-opus-4-6@default\":5,\"claude-opus-4-7\":5,\"claude-opus-4-7-fast\":5,\"claude-opus-4-7-think\":5,\"claude-opus-4-7@default\":5,\"claude-opus-4-8\":5,\"claude-opus-4-8-fast\":5,\"claude-opus-4-8-think\":5,\"claude-opus-4-8@default\":5,\"claude-opus-4-thinking\":5.0022675736961455,\"claude-opus-4-thinking:1024\":5.0022675736961455,\"claude-opus-4-thinking:32000\":5.0022675736961455,\"claude-opus-4-thinking:32768\":5.0022675736961455,\"claude-opus-4-thinking:8192\":5.0022675736961455,\"claude-opus-4.5\":5,\"claude-opus-4.6\":5,\"claude-opus-4.7\":5,\"claude-opus-4.8\":5,\"claude-opus-4@20250514\":5,\"claude-opus4-5\":4.998327759197324,\"claude-opus4-6\":4.998327759197324,\"claude-opus4-7\":4.998214285714286,\"claude-opus4-8\":4.999645390070922,\"claude-sonnet-4\":5,\"claude-sonnet-4-0\":5,\"claude-sonnet-4-20250514\":5.011363636363637,\"claude-sonnet-4-5\":5,\"claude-sonnet-4-5-20250929\":5.011363636363637,\"claude-sonnet-4-5-20250929-thinking\":5.011363636363637,\"claude-sonnet-4-5@20250929\":5,\"claude-sonnet-4-6-think\":5,\"claude-sonnet-4-6-thinking\":5,\"claude-sonnet-4-6@default\":5,\"claude-sonnet-4-thinking\":5.011363636363637,\"claude-sonnet-4-thinking:1024\":5.011363636363637,\"claude-sonnet-4-thinking:32768\":5.011363636363637,\"claude-sonnet-4-thinking:64000\":5.011363636363637,\"claude-sonnet-4-thinking:8192\":5.011363636363637,\"claude-sonnet-4.5\":5,\"claude-sonnet-4.6\":5,\"claude-sonnet-4@20250514\":5,\"claude-sonnet-5\":5,\"claude-sonnet-5@default\":5,\"databricks-claude-haiku-4-5\":5,\"databricks-claude-opus-4-1\":5,\"databricks-claude-opus-4-5\":5,\"databricks-claude-opus-4-6\":5,\"databricks-claude-opus-4-7\":5,\"databricks-claude-sonnet-4\":5,\"databricks-claude-sonnet-4-5\":5,\"databricks-claude-sonnet-4-6\":5,\"deepclaude\":5,\"eu.anthropic.claude-fable-5\":5,\"eu.anthropic.claude-haiku-4-5-20251001-v1:0\":5,\"eu.anthropic.claude-opus-4-5-20251101-v1:0\":5,\"eu.anthropic.claude-opus-4-6-v1\":5,\"eu.anthropic.claude-opus-4-7\":5,\"eu.anthropic.claude-opus-4-8\":5,\"eu.anthropic.claude-sonnet-4-5-20250929-v1:0\":5,\"eu.anthropic.claude-sonnet-4-6\":5,\"eu.anthropic.claude-sonnet-5\":5,\"global.anthropic.claude-fable-5\":5,\"global.anthropic.claude-haiku-4-5-20251001-v1:0\":5,\"global.anthropic.claude-opus-4-5-20251101-v1:0\":5,\"global.anthropic.claude-opus-4-6-v1\":5,\"global.anthropic.claude-opus-4-7\":5,\"global.anthropic.claude-opus-4-8\":5,\"global.anthropic.claude-sonnet-4-5-20250929-v1:0\":5,\"global.anthropic.claude-sonnet-4-6\":5,\"global.anthropic.claude-sonnet-5\":5,\"jp.anthropic.claude-opus-4-7\":5,\"jp.anthropic.claude-opus-4-8\":5,\"jp.anthropic.claude-sonnet-4-5-20250929-v1:0\":5,\"jp.anthropic.claude-sonnet-4-6\":5,\"jp.anthropic.claude-sonnet-5\":5,\"stealth/claude-opus-4.6\":5,\"stealth/claude-opus-4.7\":5,\"stealth/claude-sonnet-4.6\":5,\"us.anthropic.claude-fable-5\":5,\"us.anthropic.claude-haiku-4-5-20251001-v1:0\":5,\"us.anthropic.claude-opus-4-1-20250805-v1:0\":5,\"us.anthropic.claude-opus-4-5-20251101-v1:0\":5,\"us.anthropic.claude-opus-4-6-v1\":5,\"us.anthropic.claude-opus-4-7\":5,\"us.anthropic.claude-opus-4-8\":5,\"us.anthropic.claude-sonnet-4-5-20250929-v1:0\":5,\"us.anthropic.claude-sonnet-4-6\":5,\"us.anthropic.claude-sonnet-5\":5,\"~anthropic/claude-fable-latest\":5,\"~anthropic/claude-haiku-latest\":5,\"~anthropic/claude-opus-latest\":5,\"~anthropic/claude-sonnet-latest\":5,\"doubao-seedance-2-0\":1,\"doubao-seedance-2-0-fast\":1,\"doubao-seedance-2-0-fast-filter-off\":1,\"gpt-5.4\":6,\"gpt-5.4-mini\":6,\"claude-sonnet-4-6\":5}"
+    },
+    {
+      "key": "ConsumeUSDExchangeRate",
+      "value": "5"
+    },
+    {
+      "key": "CreateCacheRatio",
+      "value": "{\"claude-3-5-haiku-20241022\":1.25,\"claude-3-5-sonnet-20240620\":1.25,\"claude-3-5-sonnet-20241022\":1.25,\"claude-3-7-sonnet-20250219\":1.25,\"claude-3-7-sonnet-20250219-thinking\":1.25,\"claude-3-haiku-20240307\":1.25,\"claude-3-opus-20240229\":1.25,\"claude-3-sonnet-20240229\":1.25,\"claude-haiku-4-5-20251001\":1.25,\"claude-opus-4-1-20250805\":1.25,\"claude-opus-4-1-20250805-thinking\":1.25,\"claude-opus-4-20250514\":1.25,\"claude-opus-4-20250514-thinking\":1.25,\"claude-opus-4-5-20251101\":1.25,\"claude-opus-4-5-20251101-thinking\":1.25,\"claude-opus-4-6\":1.25,\"claude-opus-4-6-high\":1.25,\"claude-opus-4-6-low\":1.25,\"claude-opus-4-6-max\":1.25,\"claude-opus-4-6-medium\":1.25,\"claude-opus-4-6-thinking\":1.25,\"claude-opus-4-7-high\":1.25,\"claude-opus-4-7-low\":1.25,\"claude-opus-4-7-max\":1.25,\"claude-opus-4-7-medium\":1.25,\"claude-opus-4-7-thinking\":1.25,\"claude-opus-4-7-xhigh\":1.25,\"claude-sonnet-4-20250514\":1.25,\"claude-sonnet-4-20250514-thinking\":1.25,\"claude-sonnet-4-5-20250929\":1.25,\"claude-sonnet-4-5-20250929-thinking\":1.25,\"claude-opus-4-7\":1.666666666667,\"gpt-5.4\":0.12,\"gpt-5.4-mini\":0.1,\"claude-sonnet-4-6\":2.083333333333}"
+    },
+    {
+      "key": "DefaultUseAutoGroup",
+      "value": "true"
+    },
+    {
+      "key": "DisplayUserSelfGroup",
+      "value": "true"
+    },
+    {
+      "key": "GroupGroupRatio",
+      "value": "{\"vip\":{\"edit_this\":0.9,\"2.x\":2},\"seedance专属分组\":{\"rock_seedance\":0.95}}"
+    },
+    {
+      "key": "GroupRatio",
+      "value": "{\"default\":1,\"claude专属\":2.4,\"codex专属\":0.5,\"gemini专属\":2.5,\"codex未限制\":0.25,\"用户分组\":3,\"svip\":1,\"codex-local\":1,\"vip\":1,\"ssvip\":1,\"优质客户\":1,\"超级VIP\":1,\"合作客户\":1,\"codex生图\":0.25,\"dreamina\":1,\"dreamina_doubao\":1,\"rock_seedance\":0.92,\"seedance专属分组\":1}"
+    },
+    {
+      "key": "ImageRatio",
+      "value": "{\n  \"gpt-image-1\": 2\n}"
+    },
+    {
+      "key": "ModelPrice",
+      "value": "{\n  \"black-forest-labs/flux-1.1-pro\": 0.04,\n  \"dall-e-3\": 0.04,\n  \"gpt-4-gizmo-*\": 0.1,\n  \"gpt-4o-mini-tts\": 0.3,\n  \"imagen-3.0-generate-002\": 0.03,\n  \"mj_blend\": 0.1,\n  \"mj_custom_zoom\": 0,\n  \"mj_describe\": 0.05,\n  \"mj_edits\": 0.1,\n  \"mj_high_variation\": 0.1,\n  \"mj_imagine\": 0.1,\n  \"mj_inpaint\": 0,\n  \"mj_low_variation\": 0.1,\n  \"mj_modal\": 0.1,\n  \"mj_pan\": 0.1,\n  \"mj_reroll\": 0.1,\n  \"mj_shorten\": 0.1,\n  \"mj_upload\": 0.05,\n  \"mj_upscale\": 0.05,\n  \"mj_variation\": 0.1,\n  \"mj_video\": 0.8,\n  \"mj_zoom\": 0.1,\n  \"sora-2\": 0.3,\n  \"sora-2-pro\": 0.5,\n  \"suno_lyrics\": 0.01,\n  \"suno_music\": 0.1,\n  \"swap_face\": 0.05,\n  \"veo-3.0-fast-generate-001\": 0.15,\n  \"veo-3.0-generate-001\": 0.4,\n  \"veo-3.1-fast-generate-preview\": 0.15,\n  \"veo-3.1-generate-preview\": 0.4,\n  \"gpt-image-2\": 3\n}"
+    },
+    {
+      "key": "ModelRatio",
+      "value": "{\"360GPT_S2_V9\":0.8572,\"360gpt-pro\":0.8572,\"360gpt-turbo\":0.0858,\"360gpt-turbo-responsibility-8k\":0.8572,\"360gpt2-pro\":0.8572,\"BLOOMZ-7B\":0.273972602739726,\"ERNIE-3.5-4K-0205\":0.821917808219178,\"ERNIE-3.5-8K\":0.821917808219178,\"ERNIE-3.5-8K-0205\":1.643835616438356,\"ERNIE-3.5-8K-1222\":0.821917808219178,\"ERNIE-4.0-8K\":8.219178082191782,\"ERNIE-Bot-8K\":1.643835616438356,\"ERNIE-Lite-8K-0308\":0.2054794520547945,\"ERNIE-Lite-8K-0922\":0.547945205479452,\"ERNIE-Speed-128K\":0.273972602739726,\"ERNIE-Speed-8K\":0.273972602739726,\"ERNIE-Tiny-8K\":0.0684931506849315,\"Embedding-V1\":0.136986301369863,\"NousResearch/Hermes-4-405B-FP8\":0.8,\"PaLM-2\":1,\"Qwen/Qwen3-235B-A22B-Instruct-2507\":0.3,\"Qwen/Qwen3-235B-A22B-Thinking-2507\":0.6,\"Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8\":0.8,\"SparkDesk-v1.1\":1.2858,\"SparkDesk-v2.1\":1.2858,\"SparkDesk-v3.1\":1.2858,\"SparkDesk-v3.5\":1.2858,\"SparkDesk-v4.0\":1.2858,\"ada\":10,\"babbage\":10,\"babbage-002\":0.2,\"bge-large-en\":0.136986301369863,\"bge-large-zh\":0.136986301369863,\"chatglm_lite\":0.1429,\"chatglm_pro\":0.7143,\"chatglm_std\":0.3572,\"chatglm_turbo\":0.3572,\"chatgpt-4o-latest\":2.5,\"claude-3-5-haiku-20241022\":0.4,\"claude-3-5-sonnet-20240620\":1.5,\"claude-3-5-sonnet-20241022\":1.5,\"claude-3-7-sonnet-20250219\":1.5,\"claude-3-7-sonnet-20250219-thinking\":1.5,\"claude-3-haiku-20240307\":0.125,\"claude-3-opus-20240229\":7.5,\"claude-3-sonnet-20240229\":1.5,\"claude-haiku-4-5-20251001\":0.5,\"claude-opus-4-1-20250805\":7.497,\"claude-opus-4-20250514\":7.497,\"claude-opus-4-5-20251101\":2.499,\"claude-opus-4-6\":2.5,\"claude-opus-4-6-high\":2.5,\"claude-opus-4-6-low\":2.5,\"claude-opus-4-6-max\":2.5,\"claude-opus-4-6-medium\":2.5,\"claude-opus-4-7\":2.5,\"claude-opus-4-7-high\":2.5,\"claude-opus-4-7-low\":2.5,\"claude-opus-4-7-max\":2.5,\"claude-opus-4-7-medium\":2.5,\"claude-opus-4-7-xhigh\":2.5,\"claude-sonnet-4-20250514\":1.496,\"claude-sonnet-4-5-20250929\":1.496,\"code-davinci-edit-001\":10,\"command\":0.5,\"command-light\":0.5,\"command-light-nightly\":0.5,\"command-nightly\":0.5,\"command-r\":0.25,\"command-r-08-2024\":0.075,\"command-r-plus\":1.5,\"command-r-plus-08-2024\":1.25,\"curie\":10,\"davinci\":10,\"davinci-002\":1,\"deepseek-ai/DeepSeek-R1\":0.8,\"deepseek-ai/DeepSeek-R1-0528\":0.8,\"deepseek-ai/DeepSeek-V3-0324\":0.8,\"deepseek-ai/DeepSeek-V3.1\":0.8,\"deepseek-chat\":0.135,\"deepseek-coder\":0.135,\"deepseek-reasoner\":0.275,\"embedding-bert-512-v1\":0.0715,\"embedding_s1_v1\":0.0715,\"gemini-1.5-flash-latest\":0.075,\"gemini-1.5-pro-latest\":1.25,\"gemini-2.0-flash\":0.05,\"gemini-2.5-flash\":0.15,\"gemini-2.5-flash-lite-preview-06-17\":0.05,\"gemini-2.5-flash-lite-preview-thinking-*\":0.05,\"gemini-2.5-flash-preview-04-17\":0.075,\"gemini-2.5-flash-preview-04-17-nothinking\":0.075,\"gemini-2.5-flash-preview-04-17-thinking\":0.075,\"gemini-2.5-flash-preview-05-20\":0.075,\"gemini-2.5-flash-preview-05-20-nothinking\":0.075,\"gemini-2.5-flash-preview-05-20-thinking\":0.075,\"gemini-2.5-flash-thinking-*\":0.075,\"gemini-2.5-pro\":0.625,\"gemini-2.5-pro-exp-03-25\":0.625,\"gemini-2.5-pro-preview-03-25\":0.625,\"gemini-2.5-pro-thinking-*\":0.625,\"gemini-embedding-001\":0.075,\"gemini-robotics-er-1.5-preview\":0.15,\"glm-3-turbo\":0.3572,\"glm-4\":7.143,\"glm-4-0520\":6.8493150684931505,\"glm-4-air\":0.0684931506849315,\"glm-4-airx\":0.684931506849315,\"glm-4-alltools\":6.8493150684931505,\"glm-4-flash\":0,\"glm-4-long\":0.0684931506849315,\"glm-4-plus\":3.4246575342465753,\"glm-4v\":3.4246575342465753,\"glm-4v-plus\":0.684931506849315,\"gpt-3.5-turbo\":0.25,\"gpt-3.5-turbo-0125\":0.25,\"gpt-3.5-turbo-0613\":1.5,\"gpt-3.5-turbo-1106\":0.5,\"gpt-3.5-turbo-16k\":1.5,\"gpt-3.5-turbo-16k-0613\":1.5,\"gpt-3.5-turbo-instruct\":0.75,\"gpt-4\":30,\"gpt-4-0125-preview\":5,\"gpt-4-0613\":15,\"gpt-4-1106-preview\":5,\"gpt-4-1106-vision-preview\":5,\"gpt-4-32k\":30,\"gpt-4-32k-0613\":30,\"gpt-4-all\":15,\"gpt-4-gizmo-*\":15,\"gpt-4-turbo\":5,\"gpt-4-turbo-2024-04-09\":5,\"gpt-4-turbo-preview\":5,\"gpt-4-vision-preview\":5,\"gpt-4.1\":1,\"gpt-4.1-2025-04-14\":1,\"gpt-4.1-mini\":0.2,\"gpt-4.1-mini-2025-04-14\":0.2,\"gpt-4.1-nano\":0.05,\"gpt-4.1-nano-2025-04-14\":0.05,\"gpt-4.5-preview\":37.5,\"gpt-4.5-preview-2025-02-27\":37.5,\"gpt-4o\":1.25,\"gpt-4o-2024-05-13\":2.5,\"gpt-4o-2024-08-06\":1.25,\"gpt-4o-2024-11-20\":1.25,\"gpt-4o-all\":15,\"gpt-4o-audio-preview\":1.25,\"gpt-4o-audio-preview-2024-10-01\":1.25,\"gpt-4o-gizmo-*\":2.5,\"gpt-4o-mini\":0.075,\"gpt-4o-mini-2024-07-18\":0.075,\"gpt-4o-mini-realtime-preview\":0.3,\"gpt-4o-mini-realtime-preview-2024-12-17\":0.3,\"gpt-4o-realtime-preview\":2.5,\"gpt-4o-realtime-preview-2024-10-01\":2.5,\"gpt-4o-realtime-preview-2024-12-17\":2.5,\"gpt-5\":0.625,\"gpt-5-2025-08-07\":0.625,\"gpt-5-chat-latest\":0.5625,\"gpt-5-mini\":0.125,\"gpt-5-mini-2025-08-07\":0.125,\"gpt-5-nano\":0.025,\"gpt-5-nano-2025-08-07\":0.025,\"gpt-image-1\":2.5,\"grok-2\":1,\"grok-2-vision\":1,\"grok-3-beta\":1.5,\"grok-3-fast-beta\":2.5,\"grok-3-mini-beta\":0.15,\"grok-3-mini-fast-beta\":0.3,\"grok-beta\":2.5,\"grok-vision-beta\":2.5,\"hunyuan\":7.143,\"llama-3-sonar-large-32k-chat\":0,\"llama-3-sonar-large-32k-online\":0,\"llama-3-sonar-small-32k-chat\":0.1,\"llama-3-sonar-small-32k-online\":0.1,\"o1\":7.5,\"o1-2024-12-17\":7.5,\"o1-mini\":0.55,\"o1-mini-2024-09-12\":0.55,\"o1-preview\":7.5,\"o1-preview-2024-09-12\":7.5,\"o1-pro\":75,\"o1-pro-2025-03-19\":75,\"o3\":1,\"o3-2025-04-16\":1,\"o3-deep-research\":5,\"o3-deep-research-2025-06-26\":5,\"o3-mini\":0.55,\"o3-mini-2025-01-31\":0.55,\"o3-mini-2025-01-31-high\":0.55,\"o3-mini-2025-01-31-low\":0.55,\"o3-mini-2025-01-31-medium\":0.55,\"o3-mini-high\":0.55,\"o3-mini-low\":0.55,\"o3-mini-medium\":0.55,\"o3-pro\":10,\"o3-pro-2025-06-10\":10,\"o4-mini\":0.55,\"o4-mini-2025-04-16\":0.55,\"o4-mini-deep-research\":1,\"o4-mini-deep-research-2025-06-26\":1,\"openai/gpt-oss-120b\":0.025,\"qwen-plus\":10,\"qwen-turbo\":0.8572,\"semantic_similarity_s1_v1\":0.0715,\"tao-8k\":0.136986301369863,\"text-ada-001\":0.2,\"text-babbage-001\":0.25,\"text-curie-001\":1,\"text-davinci-edit-001\":10,\"text-embedding-004\":0.001,\"text-embedding-3-large\":0.065,\"text-embedding-3-small\":0.01,\"text-embedding-ada-002\":0.05,\"text-embedding-v1\":0.05,\"text-moderation-latest\":0.1,\"text-moderation-stable\":0.1,\"text-search-ada-doc-001\":10,\"tts-1\":7.5,\"tts-1-1106\":7.5,\"tts-1-hd\":15,\"tts-1-hd-1106\":15,\"whisper-1\":15,\"yi-34b-chat-0205\":0.18,\"yi-34b-chat-200k\":0.864,\"yi-large\":1.36986301369863,\"yi-large-preview\":1.36986301369863,\"yi-large-rag\":1.7123287671232876,\"yi-large-rag-preview\":1.7123287671232876,\"yi-large-turbo\":0.821917808219178,\"yi-medium\":0.17123287671232876,\"yi-medium-200k\":0.821917808219178,\"yi-spark\":0.0684931506849315,\"yi-vision\":0.410958904109589,\"yi-vl-plus\":0.432,\"zai-org/GLM-4.5-FP8\":0.8,\"@cf/openai/gpt-oss-120b\":0.175,\"@cf/openai/gpt-oss-20b\":0.1,\"TEE/gpt-oss-120b\":1,\"TEE/gpt-oss-20b\":0.1,\"accounts/fireworks/models/gpt-oss-120b\":0.075,\"accounts/fireworks/models/gpt-oss-20b\":0.035,\"azure-gpt-4-turbo\":4.998,\"azure-gpt-4o\":1.2495,\"azure-gpt-4o-mini\":0.0748,\"cerebras/gpt-oss-120b-cs\":0.175,\"databricks-gpt-5\":0.625,\"databricks-gpt-5-1\":0.625,\"databricks-gpt-5-2\":0.875,\"databricks-gpt-5-4\":1.25,\"databricks-gpt-5-4-mini\":0.375,\"databricks-gpt-5-4-nano\":0.1,\"databricks-gpt-5-5\":2.5,\"databricks-gpt-5-mini\":0.125,\"databricks-gpt-5-nano\":0.025,\"databricks-gpt-oss-120b\":0.036,\"databricks-gpt-oss-20b\":0.025,\"gpt-3.5-turbo-0301\":0.75,\"gpt-4-turbo-vision\":5,\"gpt-4o-mini-search-preview\":0.075,\"gpt-4o-search-preview\":1.25,\"gpt-5-1\":0.625,\"gpt-5-2\":0.875,\"gpt-5-3-codex\":0.875,\"gpt-5-4\":1.25,\"gpt-5-4-mini\":0.375,\"gpt-5-4-nano\":0.1,\"gpt-5-5\":2.5,\"gpt-5-chat\":0.625,\"gpt-5-codex\":0.625,\"gpt-5-pro\":7.5,\"gpt-5-thinking\":0.625,\"gpt-5.1\":0.625,\"gpt-5.1-chat\":0.625,\"gpt-5.1-chat-latest\":0.625,\"gpt-5.1-codex\":0.625,\"gpt-5.1-codex-max\":0.5625,\"gpt-5.1-codex-mini\":0.125,\"gpt-5.2\":0.875,\"gpt-5.2-chat\":0.875,\"gpt-5.2-chat-latest\":0.875,\"gpt-5.2-codex\":0.875,\"gpt-5.2-pro\":9.45,\"gpt-5.3-chat\":0.875,\"gpt-5.3-chat-latest\":0.875,\"gpt-5.3-codex\":0.875,\"gpt-5.3-codex-spark\":0.875,\"gpt-5.3-codex-xhigh\":0.875,\"gpt-5.4-mini-2026-03-17\":0.375,\"gpt-5.4-nano\":0.1,\"gpt-5.4-nano-2026-03-17\":0.1,\"gpt-5.4-pro\":15,\"gpt-5.5\":2.5,\"gpt-5.5-pro\":15,\"gpt-image-1.5\":2.5,\"gpt-oss-120b\":0.036,\"gpt-oss-20b\":0.025,\"gpt-oss-safeguard-120b\":0.075,\"hf:openai/gpt-oss-120b\":0.05,\"openai-gpt-4.1\":1,\"openai-gpt-4o\":1.25,\"openai-gpt-4o-2024-11-20\":1.5625,\"openai-gpt-4o-mini\":0.075,\"openai-gpt-4o-mini-2024-07-18\":0.09375,\"openai-gpt-5\":0.625,\"openai-gpt-5-mini\":0.125,\"openai-gpt-5-nano\":0.025,\"openai-gpt-5.1-codex-max\":0.625,\"openai-gpt-5.2\":0.875,\"openai-gpt-5.2-pro\":10.5,\"openai-gpt-5.3-codex\":0.875,\"openai-gpt-5.4\":1.25,\"openai-gpt-5.4-mini\":0.375,\"openai-gpt-5.4-nano\":0.1,\"openai-gpt-5.4-pro\":15,\"openai-gpt-5.5\":2.5,\"openai-gpt-52\":1.095,\"openai-gpt-52-codex\":1.095,\"openai-gpt-53-codex\":1.095,\"openai-gpt-54\":1.565,\"openai-gpt-54-mini\":0.46875,\"openai-gpt-54-pro\":18.75,\"openai-gpt-55\":3.125,\"openai-gpt-55-pro\":18.75,\"openai-gpt-image-1\":2.5,\"openai-gpt-image-1.5\":2.5,\"openai-gpt-oss-120b\":0.035,\"openai-gpt-oss-20b\":0.025,\"openai.gpt-5.4\":1.375,\"openai.gpt-5.5\":2.75,\"openai.gpt-oss-120b\":0.075,\"openai.gpt-oss-120b-1:0\":0.075,\"openai.gpt-oss-20b\":0.035,\"openai.gpt-oss-20b-1:0\":0.035,\"openai.gpt-oss-safeguard-120b\":0.075,\"openai.gpt-oss-safeguard-20b\":0.035,\"openai/chat-completion/models/gpt-oss-120b-high-throughput\":0.045,\"openai/chat-completion/models/gpt-oss-20b\":0.0225,\"openai/chatgpt-4o-latest\":2.25,\"openai/gpt-3.5-turbo\":0.25,\"openai/gpt-3.5-turbo-0613\":0.5,\"openai/gpt-3.5-turbo-16k\":1.5,\"openai/gpt-3.5-turbo-instruct\":0.75,\"openai/gpt-3.5-turbo-raw\":0.225,\"openai/gpt-4\":15,\"openai/gpt-4-0314\":15,\"openai/gpt-4-1106-preview\":5,\"openai/gpt-4-classic\":13.5,\"openai/gpt-4-classic-0314\":13.5,\"openai/gpt-4-turbo\":5,\"openai/gpt-4-turbo-preview\":4.998,\"openai/gpt-4.1\":1,\"openai/gpt-4.1-mini\":0.2,\"openai/gpt-4.1-nano\":0.05,\"openai/gpt-4o\":1.2495,\"openai/gpt-4o-2024-05-13\":2.5,\"openai/gpt-4o-2024-08-06\":1.2495,\"openai/gpt-4o-2024-11-20\":1.25,\"openai/gpt-4o-audio-preview\":1.25,\"openai/gpt-4o-aug\":1.1,\"openai/gpt-4o-mini\":0.0748,\"openai/gpt-4o-mini-2024-07-18\":0.075,\"openai/gpt-4o-mini-search\":0.07,\"openai/gpt-4o-mini-search-preview\":0.044,\"openai/gpt-4o-mini-transcribe\":0.625,\"openai/gpt-4o-search\":1.1,\"openai/gpt-4o-search-preview\":0.735,\"openai/gpt-4o-transcribe\":1.25,\"openai/gpt-5\":0.625,\"openai/gpt-5-chat\":0.625,\"openai/gpt-5-chat-latest\":0.625,\"openai/gpt-5-codex\":4.998,\"openai/gpt-5-image\":5,\"openai/gpt-5-image-mini\":1.25,\"openai/gpt-5-mini\":0.125,\"openai/gpt-5-nano\":0.025,\"openai/gpt-5-pro\":7.5,\"openai/gpt-5.1\":0.625,\"openai/gpt-5.1-2025-11-13\":0.625,\"openai/gpt-5.1-chat\":0.625,\"openai/gpt-5.1-chat-latest\":0.625,\"openai/gpt-5.1-codex\":0.625,\"openai/gpt-5.1-codex-max\":1.25,\"openai/gpt-5.1-codex-mini\":0.125,\"openai/gpt-5.1-instant\":0.55,\"openai/gpt-5.1-thinking\":0.625,\"openai/gpt-5.2\":0.875,\"openai/gpt-5.2-chat\":0.875,\"openai/gpt-5.2-chat-latest\":0.875,\"openai/gpt-5.2-codex\":0.875,\"openai/gpt-5.2-instant\":0.8,\"openai/gpt-5.2-pro\":10.5,\"openai/gpt-5.3-chat\":0.875,\"openai/gpt-5.3-chat-latest\":0.875,\"openai/gpt-5.3-codex\":0.875,\"openai/gpt-5.3-instant\":0.8,\"openai/gpt-5.4\":1.25,\"openai/gpt-5.4-image-2\":4,\"openai/gpt-5.4-mini\":0.375,\"openai/gpt-5.4-nano\":0.1,\"openai/gpt-5.4-pro\":15,\"openai/gpt-5.5\":2.5,\"openai/gpt-5.5-instant\":2.5,\"openai/gpt-5.5-pro\":15,\"openai/gpt-audio\":1.25,\"openai/gpt-audio-mini\":0.3,\"openai/gpt-chat-latest\":2.5,\"openai/gpt-image-1\":2.5,\"openai/gpt-image-1-mini\":1,\"openai/gpt-image-1.5\":2.5,\"openai/gpt-image-2\":2.52525,\"openai/gpt-latest\":2.5,\"openai/gpt-oss-120b-fast\":0.05,\"openai/gpt-oss-120b-maas\":0.045,\"openai/gpt-oss-20b\":0.02,\"openai/gpt-oss-20b-maas\":0.035,\"openai/gpt-oss-safeguard-20b\":0.0375,\"openai/gpt-realtime-1.5\":2,\"openai/gpt-realtime-2\":2,\"openai/gpt-realtime-mini\":0.3,\"workers-ai/@cf/openai/gpt-oss-120b\":0.175,\"workers-ai/@cf/openai/gpt-oss-20b\":0.1,\"xpersona-gpt-5.5\":1.5,\"~openai/gpt-latest\":2.5,\"~openai/gpt-mini-latest\":0.375,\"Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled\":0.153,\"anthropic--claude-3-haiku\":0.125,\"anthropic--claude-3-opus\":7.5,\"anthropic--claude-3-sonnet\":1.5,\"anthropic--claude-3.5-sonnet\":1.5,\"anthropic--claude-3.7-sonnet\":1.5,\"anthropic--claude-4-opus\":7.5,\"anthropic--claude-4-sonnet\":1.5,\"anthropic--claude-4.5-haiku\":0.5,\"anthropic--claude-4.5-opus\":2.5,\"anthropic--claude-4.5-sonnet\":1.5,\"anthropic--claude-4.6-opus\":2.5,\"anthropic--claude-4.6-sonnet\":1.5,\"anthropic--claude-4.7-opus\":2.5,\"anthropic-claude-3-opus\":7.5,\"anthropic-claude-3.5-haiku\":0.4,\"anthropic-claude-3.5-sonnet\":1.5,\"anthropic-claude-3.7-sonnet\":1.5,\"anthropic-claude-4.1-opus\":7.5,\"anthropic-claude-4.5-haiku\":0.5,\"anthropic-claude-4.5-sonnet\":1.5,\"anthropic-claude-4.6-sonnet\":1.5,\"anthropic-claude-haiku-4.5\":0.5,\"anthropic-claude-opus-4\":7.5,\"anthropic-claude-opus-4.5\":2.5,\"anthropic-claude-opus-4.6\":2.5,\"anthropic-claude-opus-4.7\":2.5,\"anthropic-claude-opus-4.8\":2.5,\"anthropic-claude-sonnet-4\":1.5,\"anthropic.claude-fable-5\":5,\"anthropic.claude-haiku-4-5-20251001-v1:0\":0.5,\"anthropic.claude-opus-4-1-20250805-v1:0\":7.5,\"anthropic.claude-opus-4-5-20251101-v1:0\":2.5,\"anthropic.claude-opus-4-6-v1\":2.5,\"anthropic.claude-opus-4-7\":2.5,\"anthropic.claude-opus-4-8\":2.5,\"anthropic.claude-sonnet-4-5-20250929-v1:0\":1.5,\"anthropic.claude-sonnet-4-6\":1.5,\"anthropic.claude-sonnet-5\":1,\"anthropic/claude-3-5-haiku\":0.4,\"anthropic/claude-3-7-sonnet\":1.5,\"anthropic/claude-3-haiku\":0.125,\"anthropic/claude-3-opus\":7.5,\"anthropic/claude-3-sonnet\":1.5,\"anthropic/claude-3.5-haiku\":0.4,\"anthropic/claude-3.5-sonnet\":1.5,\"anthropic/claude-3.7-sonnet\":1.5,\"anthropic/claude-fable-5\":5,\"anthropic/claude-haiku-3\":0.105,\"anthropic/claude-haiku-3.5\":0.34,\"anthropic/claude-haiku-4-5\":0.5,\"anthropic/claude-haiku-4-5-20251001\":0.5,\"anthropic/claude-haiku-4.5\":0.5,\"anthropic/claude-haiku-latest\":0.5,\"anthropic/claude-opus-4\":7.5,\"anthropic/claude-opus-4-1\":7.5,\"anthropic/claude-opus-4-1-20250805\":7.5,\"anthropic/claude-opus-4-20250514\":7.5,\"anthropic/claude-opus-4-5\":2.5,\"anthropic/claude-opus-4-5-20251101\":2.5,\"anthropic/claude-opus-4-6\":2.5,\"anthropic/claude-opus-4-7\":2.5,\"anthropic/claude-opus-4-8\":2.5,\"anthropic/claude-opus-4.1\":7.5,\"anthropic/claude-opus-4.5\":2.5,\"anthropic/claude-opus-4.6\":2.499,\"anthropic/claude-opus-4.6-fast\":15,\"anthropic/claude-opus-4.6:thinking\":2.499,\"anthropic/claude-opus-4.6:thinking:low\":2.499,\"anthropic/claude-opus-4.6:thinking:max\":2.499,\"anthropic/claude-opus-4.6:thinking:medium\":2.499,\"anthropic/claude-opus-4.7\":2.499,\"anthropic/claude-opus-4.7-fast\":15,\"anthropic/claude-opus-4.7:thinking\":2.499,\"anthropic/claude-opus-4.8\":2.499,\"anthropic/claude-opus-4.8-fast\":5,\"anthropic/claude-opus-4.8:thinking\":2.499,\"anthropic/claude-opus-latest\":2.499,\"anthropic/claude-sonnet-3.5\":1.3,\"anthropic/claude-sonnet-3.5-june\":1.3,\"anthropic/claude-sonnet-3.7\":1.3,\"anthropic/claude-sonnet-4\":1.5,\"anthropic/claude-sonnet-4-20250514\":1.5,\"anthropic/claude-sonnet-4-5\":1.5,\"anthropic/claude-sonnet-4-5-20250929\":1.5,\"anthropic/claude-sonnet-4-6\":1.5,\"anthropic/claude-sonnet-4.5\":1.5,\"anthropic/claude-sonnet-4.6\":1.496,\"anthropic/claude-sonnet-4.6:thinking\":1.496,\"anthropic/claude-sonnet-5\":1,\"anthropic/claude-sonnet-latest\":1.496,\"au.anthropic.claude-haiku-4-5-20251001-v1:0\":0.5,\"au.anthropic.claude-opus-4-6-v1\":8.25,\"au.anthropic.claude-opus-4-8\":2.5,\"au.anthropic.claude-sonnet-4-5-20250929-v1:0\":1.5,\"au.anthropic.claude-sonnet-4-6\":1.65,\"au.anthropic.claude-sonnet-5\":1,\"claude-3-5-haiku\":0.4,\"claude-3-5-haiku-latest\":0.4,\"claude-3-5-haiku@20241022\":0.4,\"claude-3-7-sonnet\":1.5,\"claude-3-opus\":7.5,\"claude-3.5-haiku\":0.39999999999999997,\"claude-3.5-sonnet-v2\":1.5,\"claude-3.7-sonnet\":1.5,\"claude-4-5-sonnet\":1.6295,\"claude-4-6-sonnet\":1.795,\"claude-4.5-haiku\":0.5,\"claude-4.5-opus\":2.5,\"claude-4.5-sonnet\":1.5,\"claude-fable-5\":5,\"claude-haiku-4-5\":0.5,\"claude-haiku-4-5-20251001-thinking\":0.5,\"claude-haiku-4-5@20251001\":0.5,\"claude-haiku-4.5\":0.5,\"claude-opus-4\":7.5,\"claude-opus-4-0\":7.5,\"claude-opus-4-1\":7.5,\"claude-opus-4-1-20250805-thinking\":7.5,\"claude-opus-4-1-thinking\":7.497,\"claude-opus-4-1-thinking:1024\":7.497,\"claude-opus-4-1-thinking:32000\":7.497,\"claude-opus-4-1-thinking:32768\":7.497,\"claude-opus-4-1-thinking:8192\":7.497,\"claude-opus-4-1@20250805\":7.5,\"claude-opus-4-5\":2.5,\"claude-opus-4-5-20251101-thinking\":2.5,\"claude-opus-4-5-20251101:thinking\":2.499,\"claude-opus-4-5@20251101\":2.5,\"claude-opus-4-6-think\":2.5,\"claude-opus-4-6-thinking\":2.5,\"claude-opus-4-6@default\":2.5,\"claude-opus-4-7-fast\":18,\"claude-opus-4-7-think\":2.5,\"claude-opus-4-7@default\":2.5,\"claude-opus-4-8\":2.5,\"claude-opus-4-8-fast\":6,\"claude-opus-4-8-think\":2.5,\"claude-opus-4-8@default\":2.5,\"claude-opus-4-thinking\":7.497,\"claude-opus-4-thinking:1024\":7.497,\"claude-opus-4-thinking:32000\":7.497,\"claude-opus-4-thinking:32768\":7.497,\"claude-opus-4-thinking:8192\":7.497,\"claude-opus-4.5\":2.5,\"claude-opus-4.6\":2.5,\"claude-opus-4.7\":2.5,\"claude-opus-4.8\":2.5,\"claude-opus-4@20250514\":7.5,\"claude-opus4-5\":2.99,\"claude-opus4-6\":2.99,\"claude-opus4-7\":2.8,\"claude-opus4-8\":2.82,\"claude-sonnet-4\":1.5,\"claude-sonnet-4-0\":1.5,\"claude-sonnet-4-5\":1.5,\"claude-sonnet-4-5-20250929-thinking\":1.496,\"claude-sonnet-4-5@20250929\":1.5,\"claude-sonnet-4-6-think\":1.5,\"claude-sonnet-4-6-thinking\":1.5,\"claude-sonnet-4-6@default\":1.5,\"claude-sonnet-4-thinking\":1.496,\"claude-sonnet-4-thinking:1024\":1.496,\"claude-sonnet-4-thinking:32768\":1.496,\"claude-sonnet-4-thinking:64000\":1.496,\"claude-sonnet-4-thinking:8192\":1.496,\"claude-sonnet-4.5\":1.5,\"claude-sonnet-4.6\":1.5,\"claude-sonnet-4@20250514\":1.5,\"claude-sonnet-5\":1,\"claude-sonnet-5@default\":1,\"databricks-claude-haiku-4-5\":0.5,\"databricks-claude-opus-4-1\":7.5,\"databricks-claude-opus-4-5\":2.5,\"databricks-claude-opus-4-6\":2.5,\"databricks-claude-opus-4-7\":2.5,\"databricks-claude-sonnet-4\":1.5,\"databricks-claude-sonnet-4-5\":1.5,\"databricks-claude-sonnet-4-6\":1.5,\"deepclaude\":1.5,\"eu.anthropic.claude-fable-5\":5.5,\"eu.anthropic.claude-haiku-4-5-20251001-v1:0\":0.55,\"eu.anthropic.claude-opus-4-5-20251101-v1:0\":2.75,\"eu.anthropic.claude-opus-4-6-v1\":2.75,\"eu.anthropic.claude-opus-4-7\":2.75,\"eu.anthropic.claude-opus-4-8\":2.75,\"eu.anthropic.claude-sonnet-4-5-20250929-v1:0\":1.65,\"eu.anthropic.claude-sonnet-4-6\":1.65,\"eu.anthropic.claude-sonnet-5\":1.1,\"global.anthropic.claude-fable-5\":5,\"global.anthropic.claude-haiku-4-5-20251001-v1:0\":0.5,\"global.anthropic.claude-opus-4-5-20251101-v1:0\":2.5,\"global.anthropic.claude-opus-4-6-v1\":2.5,\"global.anthropic.claude-opus-4-7\":2.5,\"global.anthropic.claude-opus-4-8\":2.5,\"global.anthropic.claude-sonnet-4-5-20250929-v1:0\":1.5,\"global.anthropic.claude-sonnet-4-6\":1.5,\"global.anthropic.claude-sonnet-5\":1,\"jp.anthropic.claude-opus-4-7\":2.5,\"jp.anthropic.claude-opus-4-8\":2.5,\"jp.anthropic.claude-sonnet-4-5-20250929-v1:0\":1.5,\"jp.anthropic.claude-sonnet-4-6\":1.5,\"jp.anthropic.claude-sonnet-5\":1,\"stealth/claude-opus-4.6\":2,\"stealth/claude-opus-4.7\":2,\"stealth/claude-sonnet-4.6\":1.2,\"us.anthropic.claude-fable-5\":5,\"us.anthropic.claude-haiku-4-5-20251001-v1:0\":0.5,\"us.anthropic.claude-opus-4-1-20250805-v1:0\":7.5,\"us.anthropic.claude-opus-4-5-20251101-v1:0\":2.5,\"us.anthropic.claude-opus-4-6-v1\":2.5,\"us.anthropic.claude-opus-4-7\":2.5,\"us.anthropic.claude-opus-4-8\":2.5,\"us.anthropic.claude-sonnet-4-5-20250929-v1:0\":1.5,\"us.anthropic.claude-sonnet-4-6\":1.5,\"us.anthropic.claude-sonnet-5\":1,\"~anthropic/claude-fable-latest\":5,\"~anthropic/claude-haiku-latest\":0.5,\"~anthropic/claude-opus-latest\":2.5,\"~anthropic/claude-sonnet-latest\":1,\"doubao-seedance-2-0\":7,\"doubao-seedance-2-0-fast\":5.6,\"doubao-seedance-2-0-fast-filter-off\":5.6,\"doubao-seedance-2-0-260128\":23.03,\"gpt-5.4\":1.25,\"gpt-5.4-mini\":0.375,\"claude-sonnet-4-6\":1.5,\"doubao-seedance-2-0-filter-off\":25,\"dreamina-seedance-2-0-hc\":25}"
+    },
+    {
+      "key": "Price",
+      "value": "2"
+    },
+    {
+      "key": "PricingDiscountColumnEnabled",
+      "value": "true"
+    },
+    {
+      "key": "TopupGroupRatio",
+      "value": "{\"default\":1,\"svip\":1.4,\"vip\":0.98,\"ssvip\":0.5,\"优质客户\":2.1,\"超级VIP\":0.5,\"合作客户\":0.7}"
+    },
+    {
+      "key": "USDExchangeRate",
+      "value": "1"
+    },
+    {
+      "key": "UserUsableGroups",
+      "value": "{\"default\":\"默认分组\",\"claude专属\":\"claude全模型分组\",\"codex专属\":\"\",\"gemini专属\":\"gemini专属分组\",\"codex未限制\":\"codex未限制分组-允许第三方客户端连接\",\"codex-local\":\"\",\"codex生图\":\"codex生图\",\"dreamina\":\"dreamina-seedance-\",\"dreamina_doubao\":\"dreamina_doubao\",\"rock_seedance\":\"seedance\"}"
+    },
+    {
+      "key": "billing_setting.billing_expr",
+      "value": "{\"dreamina-seedance-2-0-hc\":\"(tier(\\\"base\\\", p * 50 + c * 0)) * (param(\\\"resolution\\\") == \\\"720p\\\" ? 1 : 1) * (param(\\\"resolution\\\") == \\\"1080p\\\" ? 1.08 : 1) * (param(\\\"resolution\\\") == \\\"4k\\\" ? 0.56 : 1)\",\"doubao-seedance-2-0-filter-off\":\"v2:resolution == \\\"480p\\\" && has_video ? tier(\\\"480p\\\", 4.3 * (p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)) / 1000000) : resolution == \\\"480p\\\" && !has_video ? tier(\\\"480p\\\", 7 * (p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)) / 1000000) : resolution == \\\"720p\\\" && has_video ? tier(\\\"720p\\\", 4.3 * (p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)) / 1000000) : resolution == \\\"720p\\\" && !has_video ? tier(\\\"720p\\\", 7 * (p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)) / 1000000) : resolution == \\\"1080p\\\" && has_video ? tier(\\\"1080p\\\", 4.7 * (p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)) / 1000000) : resolution == \\\"1080p\\\" && !has_video ? tier(\\\"1080p\\\", 7.7 * (p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)) / 1000000) : resolution == \\\"4k\\\" && has_video ? tier(\\\"4k\\\", 2.4 * (p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)) / 1000000) : resolution == \\\"4k\\\" && !has_video ? tier(\\\"4k\\\", 4 * (p > 0 ? p : (seconds > 0 ? 50000 * seconds : 180000000)) / 1000000) : tier(\\\"fallback\\\", 0)\",\"gpt-5.4\":\"len <= 272000 ? tier(\\\"standard\\\", p * 2.5 + c * 15 + cr * 0.25) : tier(\\\"long_context\\\", p * 5 + c * 22.5 + cr * 0.5)\"}"
+    },
+    {
+      "key": "billing_setting.billing_mode",
+      "value": "{\"dreamina-seedance-2-0-hc\":\"tiered_expr\",\"doubao-seedance-2-0-filter-off\":\"tiered_expr\",\"gpt-5.4\":\"tiered_expr\"}"
+    },
+    {
+      "key": "group_ratio_setting.user_group_visible_groups",
+      "value": "{\"default\":[],\"用户分组\":[\"default\",\"claude专属\",\"codex专属\",\"gemini专属\"],\"svip\":[\"claude专属\",\"codex未限制\",\"codex专属\"],\"seedance专属分组\":[\"default\",\"claude专属\",\"codex专属\",\"gemini专属\",\"codex未限制\",\"codex-local\",\"codex生图\",\"dreamina\",\"dreamina_doubao\",\"rock_seedance\"]}"
+    }
+  ],
+  "vendors": [
+    {
+      "id": "1",
+      "name": "OpenAI",
+      "description": "OpenAI",
+      "icon": "OpenAI",
+      "status": "1",
+      "created_time": "1780317842",
+      "updated_time": "1780317842",
+      "deleted_at": null,
+      "official_price_basis": null
+    },
+    {
+      "id": "2",
+      "name": "Anthropic",
+      "description": "",
+      "icon": "Claude.Color",
+      "status": "1",
+      "created_time": "1780625272",
+      "updated_time": "1780625272",
+      "deleted_at": null,
+      "official_price_basis": null
+    },
+    {
+      "id": "3",
+      "name": "Google",
+      "description": "",
+      "icon": "Gemini.Color",
+      "status": "1",
+      "created_time": "1782973204",
+      "updated_time": "1782973204",
+      "deleted_at": null,
+      "official_price_basis": null
+    },
+    {
+      "id": "4",
+      "name": "讯飞",
+      "description": "",
+      "icon": "Spark.Color",
+      "status": "1",
+      "created_time": "0",
+      "updated_time": "1786068588",
+      "deleted_at": null,
+      "official_price_basis": "one_to_one"
+    },
+    {
+      "id": "5",
+      "name": "字节跳动",
+      "description": "",
+      "icon": "Doubao.Color",
+      "status": "1",
+      "created_time": "0",
+      "updated_time": "1786068574",
+      "deleted_at": null,
+      "official_price_basis": "one_to_one"
+    }
+  ],
+  "models": [
+    {
+      "id": "1",
+      "model_name": "claude-opus-4-6",
+      "description": "Claude Opus 4.6 是 Anthropic 最新发布的旗舰级 AI 模型，在专业任务处理、长上下文理解和多智能体协作方面实现了重大突破。",
+      "icon": "Anthropic",
+      "tags": "对话,识图,工具",
+      "vendor_id": "1",
+      "endpoints": "[\"anthropic\",\"openai\"]",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779195129",
+      "updated_time": "1779195173",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "2",
+      "model_name": "claude-opus-4-7",
+      "description": "Claude Opus 4.7 支持 100 万令牌上下文窗口 、128k 最大输出令牌、 自适应思维 ，以及与 Claude Opus 4.6 相同的工具和平台功能。",
+      "icon": "Anthropic",
+      "tags": "对话,识图,工具",
+      "vendor_id": "1",
+      "endpoints": "[\"anthropic\",\"openai\"]",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779195217",
+      "updated_time": "1779195231",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "3",
+      "model_name": "gpt-5.5",
+      "description": "",
+      "icon": "OpenAI",
+      "tags": "",
+      "vendor_id": "1",
+      "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n\"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1780317944",
+      "updated_time": "1780655444",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "4",
+      "model_name": "claude-opus-4-7",
+      "description": "",
+      "icon": "Anthropic",
+      "tags": "",
+      "vendor_id": "2",
+      "endpoints": "{\n  \"anthropic\": {\n    \"path\": \"/v1/messages\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1780717437",
+      "updated_time": "1780725043",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "5",
+      "model_name": "claude-sonnet-4-6",
+      "description": "Claude Sonnet 4.6 可大规模提供前沿智能，专为编码、代理和企业工作流而打造。",
+      "icon": "Anthropic",
+      "tags": "对话,识图,工具",
+      "vendor_id": "1",
+      "endpoints": "[\"anthropic\",\"openai\"]",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779195931",
+      "updated_time": "1779196008",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "6",
+      "model_name": "claude-haiku-4-5-20251001",
+      "description": "Claude Haiku 4.5 是速度最快、性价比最高的模型，在编码、计算机使用和代理任务方面的表现与 Sonnet 4 相当。",
+      "icon": "Anthropic",
+      "tags": "对话,识图,思考,工具",
+      "vendor_id": "1",
+      "endpoints": "[\"anthropic\",\"openai\"]",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779196210",
+      "updated_time": "1779196210",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "7",
+      "model_name": "gpt-image-2",
+      "description": "GPT Image 2 是我们最先进的图像生成模型，支持快速、高质量的图像生成和编辑。它支持灵活的图像尺寸和高保真图像输入。",
+      "icon": "OpenAI",
+      "tags": "绘画,dall-e-3格式",
+      "vendor_id": "2",
+      "endpoints": "{\n  \"image-generation\": {\n    \"path\": \"/v1/images/generations\",\n    \"method\": \"POST\"\n  },\n  \"image-edits\": {\n    \"path\": \"/v1/images/edits\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779433801",
+      "updated_time": "1779435497",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "8",
+      "model_name": "gpt-5.4",
+      "description": "GPT-5.4是我们用于复杂专业工作的前沿模型。加后缀high/low/medium/xhigh代表思考努力程度",
+      "icon": "OpenAI",
+      "tags": "对话,识图,工具",
+      "vendor_id": "2",
+      "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779433972",
+      "updated_time": "1779434144",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "9",
+      "model_name": "gpt-5.4-mini",
+      "description": "GPT-5.4mini将GPT-5.4的优势融入到一个更快、更高效的模型中，专为高负载工作量设计。",
+      "icon": "OpenAI",
+      "tags": "对话,识图,思考,工具",
+      "vendor_id": "2",
+      "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779434025",
+      "updated_time": "1779434165",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "10",
+      "model_name": "gpt-5.4-nano",
+      "description": "GPT‑5.4 nano 是 GPT‑5.4 最轻量、最快速的版本，专为对速度和成本要求极高的任务而设计。",
+      "icon": "OpenAI",
+      "tags": "对话,识图,思考,工具",
+      "vendor_id": "2",
+      "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "0",
+      "sync_official": "1",
+      "created_time": "1779434257",
+      "updated_time": "1779434257",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "11",
+      "model_name": "gpt-5.5",
+      "description": "GPT-5.5是OpenAI于2026年4月24日发布的旗舰大语言模型，定位为面向实际工作与智能体的新型智能，核心突破在于自主规划与执行多步骤复杂任务，擅长编程、计算机操作、科研分析等领域，并以更少Token消耗实现更高效率。加后缀high/low/medium/xhigh代表思考努力程度",
+      "icon": "OpenAI",
+      "tags": "对话,识图,思考,工具",
+      "vendor_id": "2",
+      "endpoints": "{\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"openai-response\": {\n    \"path\": \"/v1/responses\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779434350",
+      "updated_time": "1779434440",
+      "deleted_at": "2026-07-16T08:45:11.825Z",
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "14",
+      "model_name": "gemini-3.5-flash",
+      "description": "Gemini 3.5 Flash 已正式发布 (GA)，性能稳定，可大规模用于生产环境。作为我们最智能的 Flash 模型，它在智能体执行、编码和长期任务方面可大规模提供持续的领先性能。",
+      "icon": "Gemini",
+      "tags": "对话,工具,识图",
+      "vendor_id": "3",
+      "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779786312",
+      "updated_time": "1779786312",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "15",
+      "model_name": "gemini-3.1-flash-tts-preview",
+      "description": "gemini-3.1-flash-tts-preview文字转语音音频模型经过优化，可实现高性价比、低延迟、可控的语音生成。",
+      "icon": "Gemini",
+      "tags": "音频",
+      "vendor_id": "3",
+      "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  },\n  \"geminitts\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779786789",
+      "updated_time": "1779786789",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "16",
+      "model_name": "gemini-3-pro-image-preview",
+      "description": "Nano Banana pro是Google Gemini系列中的下一代AI图像生成与编辑模型,是Gemini 2.5 Flash Image(Nano Banana)的升级版。该模型融合多模态Transformer和扩散模型,原生支持2K(2048×2048)及4K分辨率输出,在图像质量、文字渲染、物理推理等方面实现显著提升。",
+      "icon": "Gemini",
+      "tags": "绘画",
+      "vendor_id": "3",
+      "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779786852",
+      "updated_time": "1779786852",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "17",
+      "model_name": "gemini-3.1-flash-image-preview",
+      "description": "Nano Banana 2 以主流价格提供高质量的图片生成和对话式编辑功能，延迟时间短。",
+      "icon": "Gemini",
+      "tags": "绘画",
+      "vendor_id": "3",
+      "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779786895",
+      "updated_time": "1779786895",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "18",
+      "model_name": "gemini-3.1-pro-preview",
+      "description": "Gemini 3.1 是谷歌迄今为止最智能的模型系列，以先进的推理能力为基础。它旨在通过掌握智能体工作流、自主编码和复杂的多模态任务，将任何想法变为现实。gemini-3.1-pro-preview 最适合需要广泛的世界知识和跨模态的高级推理的复杂任务。",
+      "icon": "Gemini",
+      "tags": "对话,思考,多模态",
+      "vendor_id": "3",
+      "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779786951",
+      "updated_time": "1779786951",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "19",
+      "model_name": "gemini-3-flash-preview",
+      "description": "gemini-3-flash-preview我们打造的最智能的模型，兼具速度和前沿智能，并具备出色的搜索和接地能力。",
+      "icon": "Gemini",
+      "tags": "对话,识图,工具",
+      "vendor_id": "3",
+      "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779786995",
+      "updated_time": "1779786995",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "20",
+      "model_name": "gemini-3.1-flash-lite",
+      "description": "Google 旗下最具成本效益的模型，针对高容量智能体任务、翻译和简单的数据处理进行了优化。",
+      "icon": "Gemini",
+      "tags": "对话,工具,识图",
+      "vendor_id": "3",
+      "endpoints": "{\n  \"gemini\": {\n    \"path\": \"/v1beta/models/{model}:generateContent\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1779787093",
+      "updated_time": "1779787093",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "24",
+      "model_name": "claude-opus-4-8",
+      "description": "claude-opus-4-8 是目前 Anthropic 最强的“能一个人扛住长时间复杂工作的工具”，特别适合开发者做大项目、建 Agent，或者对质量和自主性要求极高的场景",
+      "icon": "Anthropic",
+      "tags": "对话,识图,工具",
+      "vendor_id": "1",
+      "endpoints": "{\n  \"anthropic\": {\n    \"path\": \"/v1/messages\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1780035110",
+      "updated_time": "1780035349",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "25",
+      "model_name": "claude-fable-5",
+      "description": "Claude‑fable‑5 是 Anthropic 推出的公开可用的高性能大型语言模型，具备超长上下文、多模态理解、复杂推理与企业级知识工作能力，同时带有严格安全保护。",
+      "icon": "Anthropic",
+      "tags": "对话,识图,工具",
+      "vendor_id": "1",
+      "endpoints": "{\n  \"anthropic\": {\n    \"path\": \"/v1/messages\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1781076859",
+      "updated_time": "1781076859",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "26",
+      "model_name": "claude-sonnet-5",
+      "description": "Claude Sonnet 5 默认支持 100 万令牌上下文窗口（100万 令牌既是默认也是最大值;没有更小的上下文变体）、128k 最大输出令牌、自适应思维，以及与 Claude Sonnet 4.6 相同的工具和平台功能，除了优先级（Priority Tier）功能，Claude Sonnet 5 不支持优先级。",
+      "icon": "Anthropic",
+      "tags": "对话,识图,工具",
+      "vendor_id": "1",
+      "endpoints": "[\"anthropic\",\"openai\"]",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1782878767",
+      "updated_time": "1782878767",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "27",
+      "model_name": "glm-5.2",
+      "description": "GLM-5.2 是面向长任务时代的旗舰模型。支持真正可用的 1M 上下文，可承载项目级工程上下文，长程任务执行更稳定、工程规范遵循更可靠，一次任务即可完成从需求到多端部署的完整开发链路。",
+      "icon": "Zhipu",
+      "tags": "对话,工具",
+      "vendor_id": "4",
+      "endpoints": "{\n  \"anthropic\": {\n    \"path\": \"/v1/messages\",\n    \"method\": \"POST\"\n  },\n  \"openai\": {\n    \"path\": \"/v1/chat/completions\",\n    \"method\": \"POST\"\n  }\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1782910139",
+      "updated_time": "1782911387",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "28",
+      "model_name": "dreamina-seedance-2-0-hc",
+      "description": "豆包视频生成",
+      "icon": "Volcengine",
+      "tags": "",
+      "vendor_id": "5",
+      "endpoints": "{\n  \"video-generation\": \"{\\\"path\\\":\\\"/api/v3/contents/generations/tasks,\\\"method\\\":\\\"POST\\\"}\"\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1784342985",
+      "updated_time": "1784519340",
+      "deleted_at": "2026-07-20T06:32:01.408Z",
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "29",
+      "model_name": "doubao-seedance-2-0-filter-off",
+      "description": "doubao-seedance-2-0-filter-off视频",
+      "icon": "Volcengine",
+      "tags": "",
+      "vendor_id": "5",
+      "endpoints": "{\n  \"video-generations\": \"{\\\"path\\\":\\\"/api/v3/contents/generations/tasks,\\\"method\\\":\\\"POST\\\"}\"\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1784358322",
+      "updated_time": "1784517741",
+      "deleted_at": "2026-07-20T06:30:54.751Z",
+      "name_rule": "0",
+      "official_price_basis": null
+    },
+    {
+      "id": "30",
+      "model_name": "doubao-seedance-2-0-filter-off",
+      "description": "",
+      "icon": "Volcengine",
+      "tags": "",
+      "vendor_id": "5",
+      "endpoints": "{\n  \"video-generation\": \"{\\\"path\\\":\\\"/api/v3/contents/generations/tasks,\\\"method\\\":\\\"POST\\\"}\"\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1784529112",
+      "updated_time": "1786068609",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": "one_to_one"
+    },
+    {
+      "id": "31",
+      "model_name": "dreamina-seedance-2-0-hc",
+      "description": "",
+      "icon": "Volcengine",
+      "tags": "",
+      "vendor_id": "5",
+      "endpoints": "{\n  \"video-generation\": \"{\\\"path\\\":\\\"/api/v3/contents/generations/tasks,\\\"method\\\":\\\"POST\\\"}\"\n}",
+      "status": "1",
+      "sync_official": "1",
+      "created_time": "1784529148",
+      "updated_time": "1786068622",
+      "deleted_at": null,
+      "name_rule": "0",
+      "official_price_basis": "one_to_one"
+    }
+  ],
+  "prefill_groups": []
+}

@@ -16,35 +16,38 @@ import (
 )
 
 type Pricing struct {
-	ModelName              string                  `json:"model_name"`
-	Description            string                  `json:"description,omitempty"`
-	Icon                   string                  `json:"icon,omitempty"`
-	Tags                   string                  `json:"tags,omitempty"`
-	VendorID               int                     `json:"vendor_id,omitempty"`
-	QuotaType              int                     `json:"quota_type"`
-	ModelRatio             float64                 `json:"model_ratio"`
-	ModelPrice             float64                 `json:"model_price"`
-	OfficialModelRatio     float64                 `json:"official_model_ratio,omitempty"`
-	OfficialModelPrice     float64                 `json:"official_model_price,omitempty"`
-	OwnerBy                string                  `json:"owner_by"`
-	CompletionRatio        float64                 `json:"completion_ratio"`
-	CacheRatio             *float64                `json:"cache_ratio,omitempty"`
-	CreateCacheRatio       *float64                `json:"create_cache_ratio,omitempty"`
-	ImageRatio             *float64                `json:"image_ratio,omitempty"`
-	AudioRatio             *float64                `json:"audio_ratio,omitempty"`
-	AudioCompletionRatio   *float64                `json:"audio_completion_ratio,omitempty"`
-	EnableGroup            []string                `json:"enable_groups"`
-	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
-	BillingMode            string                  `json:"billing_mode,omitempty"`
-	BillingExpr            string                  `json:"billing_expr,omitempty"`
-	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	ModelName                string                  `json:"model_name"`
+	Description              string                  `json:"description,omitempty"`
+	Icon                     string                  `json:"icon,omitempty"`
+	Tags                     string                  `json:"tags,omitempty"`
+	VendorID                 int                     `json:"vendor_id,omitempty"`
+	VendorOfficialPriceBasis string                  `json:"vendor_official_price_basis,omitempty"`
+	QuotaType                int                     `json:"quota_type"`
+	ModelRatio               float64                 `json:"model_ratio"`
+	ModelPrice               float64                 `json:"model_price"`
+	OfficialModelRatio       float64                 `json:"official_model_ratio,omitempty"`
+	OfficialModelPrice       float64                 `json:"official_model_price,omitempty"`
+	OwnerBy                  string                  `json:"owner_by"`
+	OfficialPriceBasis       string                  `json:"official_price_basis,omitempty"`
+	CompletionRatio          float64                 `json:"completion_ratio"`
+	CacheRatio               *float64                `json:"cache_ratio,omitempty"`
+	CreateCacheRatio         *float64                `json:"create_cache_ratio,omitempty"`
+	ImageRatio               *float64                `json:"image_ratio,omitempty"`
+	AudioRatio               *float64                `json:"audio_ratio,omitempty"`
+	AudioCompletionRatio     *float64                `json:"audio_completion_ratio,omitempty"`
+	EnableGroup              []string                `json:"enable_groups"`
+	SupportedEndpointTypes   []constant.EndpointType `json:"supported_endpoint_types"`
+	BillingMode              string                  `json:"billing_mode,omitempty"`
+	BillingExpr              string                  `json:"billing_expr,omitempty"`
+	PricingVersion           string                  `json:"pricing_version,omitempty"`
 }
 
 type PricingVendor struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Icon        string `json:"icon,omitempty"`
+	ID                 int    `json:"id"`
+	Name               string `json:"name"`
+	Description        string `json:"description,omitempty"`
+	Icon               string `json:"icon,omitempty"`
+	OfficialPriceBasis string `json:"official_price_basis,omitempty"`
 }
 
 var (
@@ -279,10 +282,11 @@ func updatePricing() {
 	vendorsList = make([]PricingVendor, 0, len(vendorMap))
 	for _, v := range vendorMap {
 		vendorsList = append(vendorsList, PricingVendor{
-			ID:          v.Id,
-			Name:        v.Name,
-			Description: v.Description,
-			Icon:        v.Icon,
+			ID:                 v.Id,
+			Name:               v.Name,
+			Description:        v.Description,
+			Icon:               v.Icon,
+			OfficialPriceBasis: DefaultOfficialPriceBasis(v.OfficialPriceBasis),
 		})
 	}
 
@@ -385,9 +389,11 @@ func updatePricing() {
 	pricingMap = make([]Pricing, 0)
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
-			ModelName:              model,
-			EnableGroup:            groups.Items(),
-			SupportedEndpointTypes: modelSupportEndpointTypes[model],
+			ModelName:                model,
+			EnableGroup:              groups.Items(),
+			SupportedEndpointTypes:   modelSupportEndpointTypes[model],
+			OfficialPriceBasis:       OfficialPriceBasisConsumeUSDExchangeRate,
+			VendorOfficialPriceBasis: OfficialPriceBasisConsumeUSDExchangeRate,
 		}
 
 		// 补充模型元数据（描述、标签、供应商、状态）
@@ -400,6 +406,10 @@ func updatePricing() {
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
+			pricing.OfficialPriceBasis = DefaultOfficialPriceBasis(meta.OfficialPriceBasis)
+			if vendor, ok := vendorMap[meta.VendorID]; ok && vendor != nil {
+				pricing.VendorOfficialPriceBasis = DefaultOfficialPriceBasis(vendor.OfficialPriceBasis)
+			}
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		if findPrice {
@@ -445,7 +455,7 @@ func updatePricing() {
 
 	// 防止大更新后数据不通用
 	if len(pricingMap) > 0 {
-		pricingMap[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
+		pricingMap[0].PricingVersion = "9f6d1d3d2d7e4c0aa9f7fb7a7f1a6d21"
 	}
 
 	// 刷新缓存映射，供高并发快速查询

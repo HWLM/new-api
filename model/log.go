@@ -32,6 +32,10 @@ func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm
 	return tx.Where(column+" = ?", value), nil
 }
 
+func ApplyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {
+	return applyExplicitLogTextFilter(tx, column, value)
+}
+
 // applyLogUsernameFilter 与 applyExplicitLogTextFilter 语义一致，只是在精确匹配路径上
 // 额外去 users 表按 display_name 反查，让"输入 username 或显示名称都能查到同一个用户"。
 // logs 表只存了 username 快照，没有 display_name 列，只能通过 users 表反查出对应 username 集合再 IN。
@@ -52,6 +56,10 @@ func applyLogUsernameFilter(tx *gorm.DB, column string, value string) (*gorm.DB,
 		return tx.Where(column+" = ?", value), nil
 	}
 	return tx.Where(column+" IN ?", usernames), nil
+}
+
+func ApplyLogUsernameFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {
+	return applyLogUsernameFilter(tx, column, value)
 }
 
 // resolveLogUsernameCandidates 返回一个 username 集合：至少包含入参本身，

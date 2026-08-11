@@ -18,10 +18,21 @@ import (
 // instances and each run is recorded as one task row. Call this before
 // service.StartSystemTaskRunner.
 func RegisterScheduledSystemTasks() {
+	service.RegisterSystemTaskHandler(usageLogExportHandler{})
 	service.RegisterSystemTaskHandler(channelTestHandler{})
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+}
+
+type usageLogExportHandler struct{}
+
+func (usageLogExportHandler) Type() string { return model.SystemTaskTypeLogExport }
+
+func (usageLogExportHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	if err := service.RunUsageLogExportTask(ctx, task, runnerID); err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+	}
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and

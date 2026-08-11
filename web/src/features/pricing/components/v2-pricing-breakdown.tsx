@@ -54,6 +54,10 @@ type V2PricingBreakdownProps = {
   // term). Callers pass the viewing group's ratio so the marketplace shows
   // group-adjusted prices instead of raw base prices. Defaults to 1 (base).
   groupRatioMultiplier?: number
+  currencySymbol?: string
+  currencyRate?: number
+  officialCurrencyRate?: number
+  showComparison?: boolean
 }
 
 // Per-1M-tokens semantics: v2 quotaConversion multiplies by QuotaPerUnit, so
@@ -95,11 +99,23 @@ export function V2PricingBreakdown({
   compact = false,
   embedded = false,
   groupRatioMultiplier = 1,
+  currencySymbol,
+  currencyRate,
+  officialCurrencyRate,
+  showComparison = false,
 }: V2PricingBreakdownProps) {
   const { t } = useTranslation()
   const currency = useSystemConfigStore((s) => s.config.currency)
 
   const { symbol, rate } = useMemo(() => {
+    if (
+      currencySymbol &&
+      currencyRate != null &&
+      Number.isFinite(currencyRate) &&
+      currencyRate > 0
+    ) {
+      return { symbol: currencySymbol, rate: currencyRate }
+    }
     if (currency.quotaDisplayType === 'CNY') {
       return { symbol: '¥', rate: currency.usdExchangeRate || 7 }
     }
@@ -110,7 +126,13 @@ export function V2PricingBreakdown({
       }
     }
     return { symbol: '$', rate: 1 }
-  }, [currency])
+  }, [currency, currencyRate, currencySymbol])
+  const officialRate =
+    officialCurrencyRate != null &&
+    Number.isFinite(officialCurrencyRate) &&
+    officialCurrencyRate > 0
+      ? officialCurrencyRate
+      : rate
 
   // Fold the group ratio into the currency rate — every price shown by
   // MatrixTable / TierList / HumanFormula multiplies by this, so a single
@@ -225,20 +247,24 @@ export function V2PricingBreakdown({
           matrix={matrix}
           symbol={symbol}
           rate={effectiveRate}
+          officialRate={officialRate}
           compact={compact}
           embedded={embedded}
           matchedTierLabel={matchedTierLabel ?? null}
           matchedCellKey={matchedMatrixCellKey}
+          showComparison={showComparison}
           t={t}
         />
       ) : (
         <TierList
           tiers={tiers}
           symbol={symbol}
-          rate={effectiveRate}
+          currencyRate={effectiveRate}
+          officialRate={officialRate}
           compact={compact}
           embedded={embedded}
           matchedTierLabel={matchedTierLabel ?? null}
+          showComparison={showComparison}
           t={t}
         />
       )}
@@ -272,10 +298,12 @@ type MatrixTableProps = {
   matrix: VisualMatrixV2
   symbol: string
   rate: number
+  officialRate: number
   compact: boolean
   embedded: boolean
   matchedTierLabel: string | null
   matchedCellKey: string | null
+  showComparison: boolean
   t: (key: string) => string
 }
 
@@ -283,10 +311,12 @@ function MatrixTable({
   matrix,
   symbol,
   rate,
+  officialRate,
   compact,
   embedded,
   matchedTierLabel,
   matchedCellKey,
+  showComparison,
   t,
 }: MatrixTableProps) {
   // Enumerate the Cartesian product deterministically so cell keys match the
@@ -364,17 +394,32 @@ function MatrixTable({
                   ))}
                   <td className='px-3 py-2 text-left'>
                     <div className='flex flex-wrap items-center gap-1.5'>
-                      {value > 0 ? (
-                        <>
+                      {(() => {
+                        if (value <= 0) {
+                          return <span>-</span>
+                        }
+                        if (showComparison) {
+                          return (
+                            <span className='inline-flex flex-col items-end'>
+                              <span className='text-muted-foreground/50 font-mono text-[10px] line-through'>
+                                {`${symbol}${(value * officialRate).toFixed(4)}`}
+                              </span>
+                              <span className='font-mono font-semibold text-amber-600 dark:text-amber-400'>
+                                {`${symbol}${(value * rate).toFixed(4)}`}
+                              </span>
+                            </span>
+                          )
+                        }
+                        return (
                           <span className='font-mono font-semibold text-amber-600 dark:text-amber-400'>
                             {`${symbol}${(value * rate).toFixed(4)}`}
-                          </span>{' '}
-                          <span className='text-muted-foreground text-xs'>
-                            {unitSuffix}
                           </span>
-                        </>
-                      ) : (
-                        <span>-</span>
+                        )
+                      })()}
+                      {value > 0 && (
+                        <span className='text-muted-foreground text-xs'>
+                          {unitSuffix}
+                        </span>
                       )}
                       {isMatched && (
                         <Badge
@@ -399,20 +444,24 @@ function MatrixTable({
 type TierListProps = {
   tiers: VisualTierV2[]
   symbol: string
-  rate: number
+  currencyRate: number
+  officialRate: number
   compact: boolean
   embedded: boolean
   matchedTierLabel: string | null
+  showComparison: boolean
   t: (key: string) => string
 }
 
 function TierList({
   tiers,
   symbol,
-  rate,
+  currencyRate,
+  officialRate,
   compact,
   embedded,
   matchedTierLabel,
+  showComparison,
   t,
 }: TierListProps) {
   const normalizedMatched = normalizeTierLabel(matchedTierLabel ?? undefined)
@@ -471,7 +520,9 @@ function TierList({
                 <HumanFormula
                   tier={tier}
                   currencySymbol={symbol}
-                  currencyRate={rate}
+                  currencyRate={currencyRate}
+                  officialCurrencyRate={officialRate}
+                  showComparison={showComparison}
                   compact
                 />
               </div>
@@ -559,7 +610,9 @@ function TierList({
               <HumanFormula
                 tier={tier}
                 currencySymbol={symbol}
-                currencyRate={rate}
+                currencyRate={currencyRate}
+                officialCurrencyRate={officialRate}
+                showComparison={showComparison}
                 compact={compact}
               />
             ),

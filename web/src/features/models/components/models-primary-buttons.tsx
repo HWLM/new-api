@@ -40,7 +40,7 @@ import { useModels } from './models-provider'
 
 export function ModelsPrimaryButtons() {
   const { t } = useTranslation()
-  const { setOpen, setCurrentRow } = useModels()
+  const { setOpen, setCurrentRow, setCurrentVendor } = useModels()
 
   const handleCreateModel = () => {
     setCurrentRow(null)
@@ -60,7 +60,8 @@ export function ModelsPrimaryButtons() {
   }
 
   const handleManageVendors = () => {
-    setOpen('create-vendor') // Will be a separate vendors management dialog
+    setCurrentVendor(null)
+    setOpen('manage-vendors')
   }
 
   return (

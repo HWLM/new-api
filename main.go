@@ -122,7 +122,7 @@ func main() {
 		}
 		go controller.AutomaticallyUpdateChannels(frequency)
 	}
-	
+
 	// Wire task polling adaptor factory (breaks service -> relay import cycle).
 	// Must run before the system task runner starts: the async_task_poll handler
 	// calls service.RunTaskPollingOnce, which needs this factory set.
@@ -216,6 +216,18 @@ func main() {
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
 
+	workerOnly := common.GetEnvOrDefaultBool("WORKER_ONLY", false)
+	if workerOnly {
+		common.SysLog(fmt.Sprintf("%s %s worker-only mode ready in %d ms", common.SystemName, common.Version, time.Since(startTime).Milliseconds()))
+		waitForShutdownSignal(func() {
+			if common.DataExportEnabled {
+				model.SaveQuotaDataCache()
+			}
+		})
+		common.SysLog("worker exited")
+		return
+	}
+
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
@@ -283,23 +295,19 @@ func main() {
 	time.Sleep(100 * time.Millisecond)
 
 	common.LogStartupSuccess(startTime, port)
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	common.SysLog(fmt.Sprintf("received signal: %v, shutting down...", sig))
-
-	// SSE streams may run for minutes; give them time to finish before forced exit
-	shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
-	}
-	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
-	if common.DataExportEnabled {
-		model.SaveQuotaDataCache()
-	}
+	waitForShutdownSignal(func() {
+		// SSE streams may run for minutes; give them time to finish before forced exit
+		shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
+		}
+		// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
+		if common.DataExportEnabled {
+			model.SaveQuotaDataCache()
+		}
+	})
 	common.SysLog("server exited")
 }
 
@@ -344,6 +352,16 @@ func InjectGoogleAnalytics() {
 	analyticsInject := []byte(analyticsInjectBuilder.String())
 	placeholder := []byte("<!--Google Analytics-->\n")
 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
+}
+
+func waitForShutdownSignal(shutdown func()) {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
+	common.SysLog(fmt.Sprintf("received signal: %v, shutting down...", sig))
+	if shutdown != nil {
+		shutdown()
+	}
 }
 
 func InitResources() error {
