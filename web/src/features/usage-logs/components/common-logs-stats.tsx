@@ -53,6 +53,7 @@ export function CommonLogsStats() {
   const { scope: accessScope, userId, isAdmin } = useUsageLogAccess()
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
+  const canViewSubStats = isAdmin
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['usage-logs-stats', accessScope, userId, searchParams],
@@ -80,9 +81,9 @@ export function CommonLogsStats() {
     return (
       <div className='flex items-center gap-2'>
         <Skeleton className='h-7 w-[150px] rounded-md' />
-        <Skeleton className='h-7 w-[120px] rounded-md' />
-        <Skeleton className='h-7 w-[120px] rounded-md' />
-        <Skeleton className='h-7 w-[120px] rounded-md' />
+        {canViewSubStats && <Skeleton className='h-7 w-[120px] rounded-md' />}
+        {canViewSubStats && <Skeleton className='h-7 w-[120px] rounded-md' />}
+        {canViewSubStats && <Skeleton className='h-7 w-[120px] rounded-md' />}
         <Skeleton className='h-7 w-[100px] rounded-md' />
         <Skeleton className='h-7 w-[100px] rounded-md' />
       </div>
@@ -101,21 +102,27 @@ export function CommonLogsStats() {
         value={sensitiveVisible ? formatLogQuota(totalQuota) : '••••'}
         accent='bg-sky-500/70'
       />
-      <StatBadge
-        label={t('Sub Usage')}
-        value={sensitiveVisible ? formatLogQuota(subQuota) : '••••'}
-        accent='bg-emerald-500/70'
-      />
-      <StatBadge
-        label={t('Other Usage')}
-        value={sensitiveVisible ? formatLogQuota(otherQuota) : '••••'}
-        accent='bg-amber-500/70'
-      />
-      <StatBadge
-        label={t('Sub Total Tokens')}
-        value={sensitiveVisible ? formatCompactNumber(subTokens) : '••••'}
-        accent='bg-violet-500/70'
-      />
+      {canViewSubStats && (
+        <StatBadge
+          label={t('Sub Usage')}
+          value={sensitiveVisible ? formatLogQuota(subQuota) : '••••'}
+          accent='bg-emerald-500/70'
+        />
+      )}
+      {canViewSubStats && (
+        <StatBadge
+          label={t('Other Usage')}
+          value={sensitiveVisible ? formatLogQuota(otherQuota) : '••••'}
+          accent='bg-amber-500/70'
+        />
+      )}
+      {canViewSubStats && (
+        <StatBadge
+          label={t('Sub Total Tokens')}
+          value={sensitiveVisible ? formatCompactNumber(subTokens) : '••••'}
+          accent='bg-violet-500/70'
+        />
+      )}
       <StatBadge
         label={t('RPM')}
         value={stats?.rpm || 0}

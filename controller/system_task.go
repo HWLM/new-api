@@ -34,6 +34,50 @@ func CreateLogCleanupSystemTask(c *gin.Context) {
 	})
 }
 
+func CreateUsageLogExportSystemTask(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	if startTimestamp <= 0 || endTimestamp <= 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "start_timestamp and end_timestamp are required",
+		})
+		return
+	}
+	if endTimestamp <= startTimestamp {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "end_timestamp must be greater than start_timestamp",
+		})
+		return
+	}
+
+	channel, _ := strconv.Atoi(c.Query("channel"))
+	payload := service.UsageLogExportTaskPayload{
+		StartTimestamp:    startTimestamp,
+		EndTimestamp:      endTimestamp,
+		Username:          c.Query("username"),
+		TokenName:         c.Query("token_name"),
+		ModelName:         c.Query("model_name"),
+		Group:             c.Query("group"),
+		RequestID:         c.Query("request_id"),
+		UpstreamRequestID: c.Query("upstream_request_id"),
+		Channel:           channel,
+	}
+
+	task, _, err := service.StartUsageLogExportTask(payload)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    task.ToResponse(),
+	})
+}
+
 func GetCurrentSystemTask(c *gin.Context) {
 	taskType := c.Query("type")
 	if taskType == "" {
