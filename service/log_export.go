@@ -24,7 +24,6 @@ const (
 	usageLogExportTaskType        = model.SystemTaskTypeLogExport
 	usageLogExportContentType     = "application/zip"
 	usageLogExportDefaultPrefix   = "usage-logs-export"
-	usageLogExportMaxRowsPerFile  = 20000
 	usageLogExportQueryBatchSize  = 1000
 	usageLogExportSheetTitleLabel = "消耗明细"
 )
@@ -337,7 +336,6 @@ func buildUsageLogExportFilesForDay(
 	cursor := usageLogExportCursor{}
 	files := make([]usageLogExportArchiveFile, 0, 1)
 	var totalRows int64
-	partIndex := 1
 	var workbook *usageLogExportWorkbook
 
 	finalizeCurrent := func() error {
@@ -376,22 +374,6 @@ func buildUsageLogExportFilesForDay(
 					payload,
 					dayRange.dayStart,
 					locLabel,
-					partIndex,
-				)
-				if err != nil {
-					return nil, totalRows, err
-				}
-			}
-			if workbook.rowCount() >= usageLogExportMaxRowsPerFile {
-				if err := finalizeCurrent(); err != nil {
-					return nil, totalRows, err
-				}
-				partIndex++
-				workbook, err = newUsageLogExportWorkbook(
-					payload,
-					dayRange.dayStart,
-					locLabel,
-					partIndex,
 				)
 				if err != nil {
 					return nil, totalRows, err
@@ -506,12 +488,9 @@ func fetchUsageLogExportRows(tx *gorm.DB, cursor usageLogExportCursor, limit int
 	return rows, nil
 }
 
-func newUsageLogExportWorkbook(payload UsageLogExportTaskPayload, dayStart time.Time, locLabel string, partIndex int) (*usageLogExportWorkbook, error) {
+func newUsageLogExportWorkbook(payload UsageLogExportTaskPayload, dayStart time.Time, locLabel string) (*usageLogExportWorkbook, error) {
 	file := excelize.NewFile()
-	sheetName := dayStart.Format("01-02")
-	if partIndex > 1 {
-		sheetName = fmt.Sprintf("%s_%02d", sheetName, partIndex)
-	}
+	sheetName := dayStart.Format("2006-01-02")
 	defaultSheet := file.GetSheetName(0)
 	if defaultSheet != sheetName {
 		file.SetSheetName(defaultSheet, sheetName)
@@ -527,7 +506,7 @@ func newUsageLogExportWorkbook(payload UsageLogExportTaskPayload, dayStart time.
 		file:      file,
 		sheetName: sheetName,
 		title:     title,
-		partName:  fmt.Sprintf("%s_%s", dayStart.Format("2006-01-02"), fmt.Sprintf("part%02d", partIndex)),
+		partName:  dayStart.Format("2006-01-02"),
 		rowIndex:  7,
 		styles:    styles,
 	}
@@ -895,7 +874,9 @@ func buildUsageLogExportWorkbookFile(
 	partIndex int,
 	rows []usageLogExportRow,
 ) (usageLogExportArchiveFile, error) {
-	workbook, err := newUsageLogExportWorkbook(payload, dayStart, locLabel, partIndex)
+	_ = dayEnd
+	_ = partIndex
+	workbook, err := newUsageLogExportWorkbook(payload, dayStart, locLabel)
 	if err != nil {
 		return usageLogExportArchiveFile{}, err
 	}
