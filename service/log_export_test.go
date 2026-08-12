@@ -46,6 +46,12 @@ func TestBuildUsageLogExportArchiveBaseName(t *testing.T) {
 	assert.Equal(t, "mr_li_2026-07-08_to_2026-07-14_usage", buildUsageLogExportArchiveBaseName(payload, loc))
 }
 
+func TestSanitizeFileNamePartKeepsOnlySafeCharacters(t *testing.T) {
+	assert.Equal(t, "mr_li_2026_07_08_to_2026_07_14_usage", sanitizeFileNamePart("mr li@2026/07/08_to:2026-07-14 usage"))
+	assert.Equal(t, "abc-123_def", sanitizeFileNamePart("abc-123@def"))
+	assert.Equal(t, "", sanitizeFileNamePart("   "))
+}
+
 func TestSanitizeUsageLogExportTableNameAddsValidPrefix(t *testing.T) {
 	assert.Equal(t, "usage_2026_07_30_part01", sanitizeUsageLogExportTableName("2026_07_30_part01"))
 	assert.Equal(t, "usage_export", sanitizeUsageLogExportTableName(""))
