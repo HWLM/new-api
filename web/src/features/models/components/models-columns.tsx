@@ -37,10 +37,11 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import {
   getModelStatusConfig,
   getNameRuleConfig,
+  getOfficialPriceBasisConfig,
   getQuotaTypeConfig,
 } from '../constants'
 import { parseModelTags, formatEndpointsDisplay } from '../lib'
-import type { Model, Vendor } from '../types'
+import type { Model, OfficialPriceBasis, Vendor } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 import { DescriptionCell } from './description-cell'
 
@@ -60,6 +61,7 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
   const NAME_RULE_CONFIG = getNameRuleConfig(t)
   const MODEL_STATUS_CONFIG = getModelStatusConfig(t)
   const QUOTA_TYPE_CONFIG = getQuotaTypeConfig(t)
+  const OFFICIAL_PRICE_BASIS_CONFIG = getOfficialPriceBasisConfig(t)
 
   const vendorMap: Record<number, Vendor> = {}
   vendors.forEach((v) => {
@@ -399,6 +401,37 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
         )
       },
       size: 150,
+      enableSorting: false,
+    },
+
+    // Official Price Basis column
+    {
+      accessorKey: 'official_price_basis',
+      header: t('Source type'),
+      meta: { mobileHidden: true },
+      cell: ({ row }) => {
+        const value = row.getValue('official_price_basis')
+        let basis: OfficialPriceBasis = 'auto'
+        if (
+          value === 'one_to_one' ||
+          value === 'consume_usd_exchange_rate'
+        ) {
+          basis = value
+        }
+        const config = OFFICIAL_PRICE_BASIS_CONFIG[basis]
+
+        return (
+          <StatusBadge
+            variant={basis === 'one_to_one' ? 'info' : 'neutral'}
+            size='sm'
+            copyable={false}
+            className='-ml-1.5 max-w-none shrink-0'
+          >
+            {config.label}
+          </StatusBadge>
+        )
+      },
+      size: 170,
       enableSorting: false,
     },
 

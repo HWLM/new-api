@@ -25,7 +25,13 @@ export type PricingVendor = {
   name: string
   icon?: string
   description?: string
+  official_price_basis?: OfficialPriceBasis
 }
+
+export type OfficialPriceBasis =
+  | 'auto'
+  | 'one_to_one'
+  | 'consume_usd_exchange_rate'
 
 export type PricingModel = {
   id: number
@@ -36,11 +42,14 @@ export type PricingModel = {
   vendor_name?: string
   vendor_icon?: string
   vendor_description?: string
+  vendor_official_price_basis?: OfficialPriceBasis
   quota_type: number
   model_ratio: number
   completion_ratio: number
   official_model_ratio?: number
   official_model_price?: number
+  owner_by?: string
+  official_price_basis?: OfficialPriceBasis
   model_price?: number
   cache_ratio?: number | null
   create_cache_ratio?: number | null
@@ -100,6 +109,7 @@ export type PricingData = {
   supported_endpoint: Record<string, string>
   auto_groups: string[]
   topup_group_ratio?: number
+  consume_usd_exchange_rate?: number
   pricing_discount_column_enabled?: boolean
 }
 

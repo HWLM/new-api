@@ -30,6 +30,11 @@ export interface BoundChannel {
   type: number
 }
 
+export type OfficialPriceBasis =
+  | 'auto'
+  | 'one_to_one'
+  | 'consume_usd_exchange_rate'
+
 /**
  * Model entity from API
  */
@@ -43,6 +48,7 @@ export interface Model {
   endpoints?: string
   status: number
   sync_official: number
+  official_price_basis?: OfficialPriceBasis
   created_time: number
   updated_time: number
   name_rule: number
@@ -62,6 +68,7 @@ export interface Vendor {
   name: string
   description?: string
   icon?: string
+  official_price_basis?: OfficialPriceBasis
   status: number
   created_time: number
   updated_time: number
@@ -238,6 +245,9 @@ export const modelFormSchema = z.object({
   name_rule: z.number().min(0).max(3).default(0),
   status: z.boolean().default(true),
   sync_official: z.boolean().default(true),
+  official_price_basis: z
+    .enum(['auto', 'one_to_one', 'consume_usd_exchange_rate'])
+    .default('consume_usd_exchange_rate'),
 })
 
 export type ModelFormValues = z.infer<typeof modelFormSchema>
@@ -250,6 +260,9 @@ export const vendorFormSchema = z.object({
   name: z.string().min(1, 'Vendor name is required'),
   description: z.string().default(''),
   icon: z.string().default(''),
+  official_price_basis: z
+    .enum(['auto', 'one_to_one', 'consume_usd_exchange_rate'])
+    .default('consume_usd_exchange_rate'),
   status: z.number().default(1),
 })
 

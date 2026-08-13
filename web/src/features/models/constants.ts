@@ -16,9 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 
-import type { NameRule, ModelStatus, SyncSource } from './types'
+import type {
+  NameRule,
+  ModelStatus,
+  OfficialPriceBasis,
+  SyncSource,
+} from './types'
 
 // ============================================================================
 // Pagination
@@ -149,6 +154,65 @@ export function getQuotaTypeConfig(
   return {
     0: { label: t('Usage-based'), color: 'violet' },
     1: { label: t('Per-call'), color: 'teal' },
+  }
+}
+
+export function getOfficialPriceBasisOptions(
+  t: TFunction,
+  includeAuto = false
+) {
+  const options: Array<{
+    label: string
+    value: OfficialPriceBasis
+    description: string
+  }> = [
+    {
+      label: t('Foreign'),
+      value: 'consume_usd_exchange_rate',
+      description: t(
+        'Use foreign source pricing converted by ConsumeUSDExchangeRate.'
+      ),
+    },
+    {
+      label: t('Domestic'),
+      value: 'one_to_one',
+      description: t(
+        'Use domestic source pricing without exchange-rate conversion.'
+      ),
+    },
+  ]
+
+  if (includeAuto) {
+    options.unshift({
+      label: t('Auto'),
+      value: 'auto',
+      description: t('Use automatic model-source detection for discounts.'),
+    })
+  }
+
+  return options
+}
+
+export function getOfficialPriceBasisConfig(
+  t: TFunction
+): Record<OfficialPriceBasis, { label: string; description: string }> {
+  return {
+    auto: {
+      label: t('Auto'),
+      description: t('Use automatic model-source detection for discounts.'),
+    },
+    consume_usd_exchange_rate: {
+      label: t('Foreign'),
+      description: t(
+        'Use foreign source pricing converted by ConsumeUSDExchangeRate.'
+      ),
+    },
+    one_to_one: {
+      label: t('Domestic'),
+      description: t(
+        'Use domestic source pricing without exchange-rate conversion.'
+      ),
+    },
   }
 }
 

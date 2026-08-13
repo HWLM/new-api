@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: new-api-export-worker
+  labels:
+    app: new-api-export-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: new-api-export-worker
+  template:
+    metadata:
+      labels:
+        app: new-api-export-worker
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: export-worker
+          image: calciumion/new-api:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # 必須：worker-only 會跳過 HTTP server，只保留任務 runner
+            - name: WORKER_ONLY
+              value: "true"
+            # 必須：system task runner 只會在 master node 啟動
+            - name: NODE_TYPE
+              value: "master"
+            # 建議：固定節點名，方便看監控與日誌
+            - name: NODE_NAME
+              value: export-worker-1
+            # 必填：與 API pod 共用同一組資料庫與 Redis
+            - name: SQL_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: new-api-secrets
+                  key: sql_dsn
+            - name: REDIS_CONN_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: new-api-secrets
+                  key: redis_conn_string
+            - name: TZ
+              value: Asia/Taipei
+            # 若匯出要上傳 object storage，這些設定要與 API pod 一致
+            - name: ImageResultObjectStoreEnabled
+              value: "true"
+            - name: ImageResultObjectStore
+              valueFrom:
+                secretKeyRef:
+                  name: new-api-secrets
+                  key: image_result_object_store
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: new-api-data

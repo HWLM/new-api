@@ -4,6 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -58,7 +59,9 @@ func GetPricing(c *gin.Context) {
 
 	usableGroup = service.GetUserUsableGroups(group, userRole)
 	displayUsableGroup = service.GetUserUsableGroupsForDisplay(group, userRole)
-	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	if userRole < common.RoleRootUser {
+		pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	}
 	// check groupRatio contains displayUsableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := displayUsableGroup[group]; !ok {
@@ -91,8 +94,9 @@ func GetPricing(c *gin.Context) {
 		"supported_endpoint":              model.GetSupportedEndpointMap(),
 		"auto_groups":                     service.GetUserAutoGroup(group, userRole),
 		"topup_group_ratio":               topupGroupRatio,
+		"consume_usd_exchange_rate":       operation_setting.GetConsumeUSDExchangeRate(),
 		"pricing_discount_column_enabled": common.PricingDiscountColumnEnabled,
-		"pricing_version":                 "a42d372ccf0b5dd13ecf71203521f9d2",
+		"pricing_version":                 "9f6d1d3d2d7e4c0aa9f7fb7a7f1a6d21",
 	})
 }
 

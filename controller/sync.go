@@ -19,6 +19,7 @@ package controller
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -105,13 +106,8 @@ func GetModelPricingForSync(c *gin.Context) {
 //
 // 覆盖的 options 表 key：
 //   - 独立 key（4）：GroupRatio / GroupGroupRatio / UserUsableGroups / TopupGroupRatio
-//   - 新配置前缀 key（4）：group_ratio_setting.group_ratio /
-//     group_ratio_setting.group_group_ratio /
-//     group_ratio_setting.group_special_usable_group /
+//   - 新配置前缀 key（2）：group_ratio_setting.group_special_usable_group /
 //     group_ratio_setting.user_group_visible_groups
-//
-// 说明：老 key 和新前缀 key 是历史遗留的两套并存机制，本站启动加载时先读老 key、再被同名
-// 的新前缀 key 覆盖，同步时两套都下发保证对端两种加载路径都拿到一致数据。
 func GetGroupRatioForSync(c *gin.Context) {
 	if !requireAdminApikey(c) {
 		return
@@ -122,8 +118,6 @@ func GetGroupRatioForSync(c *gin.Context) {
 		"GroupGroupRatio":  ratio_setting.GroupGroupRatio2JSONString(),
 		"UserUsableGroups": setting.UserUsableGroups2JSONString(),
 		"TopupGroupRatio":  common.TopupGroupRatio2JSONString(),
-		"group_ratio_setting.group_ratio":                ratio_setting.GroupRatio2JSONString(),
-		"group_ratio_setting.group_group_ratio":          ratio_setting.GroupGroupRatio2JSONString(),
 		"group_ratio_setting.group_special_usable_group": groupSetting.GroupSpecialUsableGroup.MarshalJSONString(),
 		"group_ratio_setting.user_group_visible_groups":  ratio_setting.UserGroupVisibleGroups2JSONString(),
 	})
@@ -137,27 +131,53 @@ func GetModelTablesForSync(c *gin.Context) {
 	}
 
 	var vendors []model.Vendor
-	if err := model.DB.Order("id ASC").Find(&vendors).Error; err != nil {
+	if err := model.DB.Unscoped().Order("id ASC").Find(&vendors).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	var models []model.Model
-	if err := model.DB.Order("id ASC").Find(&models).Error; err != nil {
+	if err := model.DB.Unscoped().Order("id ASC").Find(&models).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	var abilities []model.Ability
-	if err := model.DB.Order("channel_id ASC, model ASC, " + model.UsersGroupCol() + " ASC").Find(&abilities).Error; err != nil {
+	if err := model.DB.Unscoped().Order("channel_id ASC, model ASC, " + model.UsersGroupCol() + " ASC").Find(&abilities).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
+	type vendorSyncRow struct {
+		model.Vendor
+		DeletedAt *time.Time `json:"deleted_at"`
+	}
+	vendorRows := make([]vendorSyncRow, len(vendors))
+	for i := range vendors {
+		vendorRows[i].Vendor = vendors[i]
+		if vendors[i].DeletedAt.Valid {
+			deletedAt := vendors[i].DeletedAt.Time
+			vendorRows[i].DeletedAt = &deletedAt
+		}
+	}
+
+	type modelSyncRow struct {
+		model.Model
+		DeletedAt *time.Time `json:"deleted_at"`
+	}
+	modelRows := make([]modelSyncRow, len(models))
+	for i := range models {
+		modelRows[i].Model = models[i]
+		if models[i].DeletedAt.Valid {
+			deletedAt := models[i].DeletedAt.Time
+			modelRows[i].DeletedAt = &deletedAt
+		}
+	}
+
 	common.ApiSuccess(c, gin.H{
 		"table_order": []string{"vendors", "models", "abilities"},
-		"vendors":     vendors,
-		"models":      models,
+		"vendors":     vendorRows,
+		"models":      modelRows,
 		"abilities":   abilities,
 	})
 }

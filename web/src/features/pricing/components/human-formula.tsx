@@ -32,24 +32,34 @@ type HumanFormulaProps = {
   tier: VisualTierV2
   currencySymbol: string
   currencyRate: number
+  officialCurrencyRate?: number
+  showComparison?: boolean
   className?: string
   // When true, render a single-line dense form (for tables/cards).
   compact?: boolean
 }
 
 // Renders a tier's pricing formula as a human-readable expression, e.g.
-// "每次基础 $0.30 + 每秒 $0.05 + 每 1M tokens $7.70". Falls back to "免费"
+// "每次基础 $0.30 + 每秒 $0.05 + 每 1M tokens $7.70". Falls back to "Free (no cost)"
 // when the tier has no non-zero terms. Every amount is scaled by currencyRate
 // and prefixed with currencySymbol so it matches the site's currency setting.
 export function HumanFormula({
   tier,
   currencySymbol,
   currencyRate,
+  officialCurrencyRate,
+  showComparison = false,
   className,
   compact = false,
 }: HumanFormulaProps) {
   const { t } = useTranslation()
   const terms = tierFormulaTerms(tier)
+  const comparisonRate =
+    officialCurrencyRate != null &&
+    Number.isFinite(officialCurrencyRate) &&
+    officialCurrencyRate > 0
+      ? officialCurrencyRate
+      : null
 
   if (terms.length === 0) {
     return (
@@ -66,18 +76,28 @@ export function HumanFormula({
         className
       )}
     >
-      {terms.map((term, i) => (
-        <span key={i} className='inline-flex items-baseline gap-1'>
+      {terms.map((term, i) => {
+        const termKey = [
+          term.unitKey,
+          term.variableExpr || '',
+          term.variableLabel || '',
+          term.amount,
+        ].join(':')
+        return (
+        <span key={termKey} className='inline-flex items-baseline gap-1'>
           {i > 0 && <span className='text-muted-foreground'>+</span>}
           <HumanTerm
             term={term}
             currencySymbol={currencySymbol}
             currencyRate={currencyRate}
+            officialCurrencyRate={comparisonRate}
+            showComparison={showComparison}
             t={t}
             compact={compact}
           />
         </span>
-      ))}
+        )
+      })}
     </span>
   )
 }
@@ -86,42 +106,63 @@ function HumanTerm({
   term,
   currencySymbol,
   currencyRate,
+  officialCurrencyRate,
+  showComparison,
   t,
   compact,
 }: {
   term: HumanFormulaTerm
   currencySymbol: string
   currencyRate: number
+  officialCurrencyRate: number | null
+  showComparison: boolean
   t: (key: string) => string
   compact: boolean
 }) {
-  const amount = `${currencySymbol}${(term.amount * currencyRate).toFixed(4)}`
+  const actualAmount = `${currencySymbol}${(term.amount * currencyRate).toFixed(4)}`
+  const officialAmount =
+    officialCurrencyRate != null
+      ? `${currencySymbol}${(term.amount * officialCurrencyRate).toFixed(4)}`
+      : null
+
+  const amountNode =
+    showComparison && officialAmount ? (
+      <span className='inline-flex flex-col items-end leading-tight'>
+        <span className='font-mono text-[10px] text-muted-foreground/50 line-through tabular-nums'>
+          {officialAmount}
+        </span>
+        <span className='font-mono font-semibold tabular-nums'>{actualAmount}</span>
+      </span>
+    ) : (
+      <span className='font-mono font-semibold tabular-nums'>{actualAmount}</span>
+    )
+
   switch (term.unitKey) {
     case 'flat':
       return (
         <span>
           <span className='text-muted-foreground'>{t('Per call')}</span>{' '}
-          <span className='font-mono font-semibold'>{amount}</span>
+          {amountNode}
         </span>
       )
     case 'per second':
       return (
         <span>
-          <span className='font-mono font-semibold'>{amount}</span>
-          <span className='text-muted-foreground'> × {t('seconds')}</span>
+          {amountNode}
+          <span className='text-muted-foreground'> 脳 {t('seconds')}</span>
         </span>
       )
     case 'per n':
       return (
         <span>
-          <span className='font-mono font-semibold'>{amount}</span>
-          <span className='text-muted-foreground'> × {t('n (count)')}</span>
+          {amountNode}
+          <span className='text-muted-foreground'> 脳 {t('n (count)')}</span>
         </span>
       )
     case 'per 1M tokens':
       return (
         <span>
-          <span className='font-mono font-semibold'>{amount}</span>
+          {amountNode}
           <span className='text-muted-foreground'>
             {' '}
             / 1M {t('tokens')}
@@ -132,10 +173,10 @@ function HumanTerm({
       const label = term.variableLabel || term.variableExpr || ''
       return (
         <span>
-          <span className='font-mono font-semibold'>{amount}</span>
+          {amountNode}
           <span className='text-muted-foreground'>
             {' '}
-            × {compact ? label : label}
+            脳 {compact ? label : label}
           </span>
         </span>
       )
@@ -144,7 +185,7 @@ function HumanTerm({
 }
 
 // Renders a list of tier conditions as human-readable phrases joined by
-// "且"/"and". Empty list renders nothing (caller decides whether to show
+// "and". Empty list renders nothing (caller decides whether to show
 // "Always matches").
 export function HumanConditions({
   conditions,
@@ -161,8 +202,9 @@ export function HumanConditions({
         const h = conditionHumanForm(cond)
         const subject = h.subjectRaw ?? t(h.subjectKey)
         const verb = t(h.verbKey)
+        const conditionKey = [h.subjectKey, subject, verb, h.object].join(':')
         return (
-          <span key={i}>
+          <span key={conditionKey}>
             {i > 0 && <span className='mx-1 text-muted-foreground'>{t('and')}</span>}
             <span className='font-medium'>{subject}</span>{' '}
             <span className='text-muted-foreground'>{verb}</span>
