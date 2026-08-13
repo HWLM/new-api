@@ -146,21 +146,21 @@ export function CommonLogsStats() {
       {canViewSubStats && (
         <StatBadge
           label={t('Sub Usage')}
-          value={sensitiveVisible ? formatLogQuota(subQuota) : '••••'}
+          value={displayValue(formatLogQuota(subQuota))}
           accent='bg-emerald-500/70'
         />
       )}
       {canViewSubStats && (
         <StatBadge
           label={t('Other Usage')}
-          value={sensitiveVisible ? formatLogQuota(otherQuota) : '••••'}
+          value={displayValue(formatLogQuota(otherQuota))}
           accent='bg-amber-500/70'
         />
       )}
       {canViewSubStats && (
         <StatBadge
           label={t('Sub Total Tokens')}
-          value={sensitiveVisible ? formatCompactNumber(subTokens) : '••••'}
+          value={displayValue(formatCompactNumber(subTokens))}
           accent='bg-violet-500/70'
         />
       )}
