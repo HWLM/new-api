@@ -121,6 +121,12 @@ func TestSetVideoRouter(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "Seedance V3 asset POST /api/v3/open/GetAsset",
+			method:   http.MethodPost,
+			path:     "/api/v3/open/GetAsset",
+			expected: true,
+		},
+		{
 			name:     "Seedance V3 asset POST /v3/open/GetAsset",
 			method:   http.MethodPost,
 			path:     "/v3/open/GetAsset",
@@ -137,7 +143,7 @@ func TestSetVideoRouter(t *testing.T) {
 	}
 
 	// Verify total number of routes
-	expectedRouteCount := 15
+	expectedRouteCount := 16
 	assert.Equal(t, expectedRouteCount, len(routes), "should register exactly %d routes", expectedRouteCount)
 }
 
@@ -154,5 +160,6 @@ func TestSetVideoRouterRegistersSeedanceV3Contract(t *testing.T) {
 	assert.True(t, routes[http.MethodPost+" /api/v3/contents/generations/tasks"])
 	assert.True(t, routes[http.MethodGet+" /api/v3/contents/generations/tasks/:task_id"])
 	assert.True(t, routes[http.MethodPost+" /api/v3/open/CreateAsset"])
+	assert.True(t, routes[http.MethodPost+" /api/v3/open/GetAsset"])
 	assert.False(t, routes[http.MethodPost+" /v3/open/CreateAsset"])
 }

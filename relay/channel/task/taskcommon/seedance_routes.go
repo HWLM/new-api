@@ -13,7 +13,10 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 )
 
-const seedanceTaskIDPlaceholder = "{task_id}"
+const (
+	seedanceTaskIDPlaceholder  = "{task_id}"
+	seedanceAssetIDPlaceholder = "{asset_id}"
+)
 
 const SeedanceTaskGetRouteBodyKey = "seedance_v3_task_get_route"
 
@@ -38,7 +41,9 @@ func NormalizeSeedanceV3Route(baseURL string, route *dto.SeedanceV3Route, defaul
 		}
 		target = baseURL + target
 	}
-	parsed, err := url.Parse(strings.ReplaceAll(target, seedanceTaskIDPlaceholder, "task-id"))
+	validationTarget := strings.ReplaceAll(target, seedanceTaskIDPlaceholder, "task-id")
+	validationTarget = strings.ReplaceAll(validationTarget, seedanceAssetIDPlaceholder, "asset-id")
+	parsed, err := url.Parse(validationTarget)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return nil, fmt.Errorf("invalid Seedance upstream target: %s", target)
 	}
@@ -51,6 +56,21 @@ func NormalizeSeedanceV3Route(baseURL string, route *dto.SeedanceV3Route, defaul
 		Parameters:      route.Parameters,
 		ResponseMapping: route.ResponseMapping,
 	}, nil
+}
+
+func ResolveSeedanceV3AssetGetRoute(baseURL string, route *dto.SeedanceV3Route, assetID string) (*dto.SeedanceV3Route, error) {
+	normalized, err := NormalizeSeedanceV3Route(baseURL, route, http.MethodPost)
+	if err != nil || normalized == nil {
+		return normalized, err
+	}
+	if strings.Contains(normalized.Target, seedanceAssetIDPlaceholder) {
+		assetID = strings.TrimSpace(assetID)
+		if assetID == "" {
+			return nil, fmt.Errorf("asset ID is required for Seedance upstream target")
+		}
+		normalized.Target = strings.ReplaceAll(normalized.Target, seedanceAssetIDPlaceholder, url.PathEscape(assetID))
+	}
+	return normalized, nil
 }
 
 func ResolveSeedanceV3TaskGetRoute(baseURL string, route *dto.SeedanceV3Route, taskID string) (*dto.SeedanceV3Route, error) {
@@ -133,6 +153,32 @@ func ApplySeedanceV3RouteParameters(requestBody io.Reader, route *dto.SeedanceV3
 	return bytes.NewReader(merged), nil
 }
 
+// ApplySeedanceV3RouteQueryParameters resolves configured parameters from a
+// JSON request body and appends them to a GET route's query string.
+func ApplySeedanceV3RouteQueryParameters(target string, requestBody io.Reader, route *dto.SeedanceV3Route) (string, error) {
+	if route == nil || len(route.Parameters) == 0 {
+		return target, nil
+	}
+	bodyBytes, err := io.ReadAll(requestBody)
+	if err != nil {
+		return "", err
+	}
+	current := map[string]any{}
+	if len(bytes.TrimSpace(bodyBytes)) > 0 {
+		if err := common.Unmarshal(bodyBytes, &current); err != nil {
+			return "", fmt.Errorf("invalid Seedance request parameters: %w", err)
+		}
+		if current == nil {
+			current = map[string]any{}
+		}
+	}
+	parameters, err := resolveSeedanceV3ParameterMappings(route.Parameters, current)
+	if err != nil {
+		return "", err
+	}
+	return applySeedanceV3QueryParameters(target, parameters)
+}
+
 // ApplySeedanceV3RouteResponseMapping transforms an upstream JSON response
 // before the provider adaptor parses it. An empty mapping preserves the exact
 // response bytes, while null removes a field.
@@ -191,12 +237,15 @@ func resolveSeedanceV3ParameterMappings(parameters, source map[string]any) (map[
 func resolveSeedanceV3ParameterMappingValue(value any, source map[string]any) (any, error) {
 	switch typed := value.(type) {
 	case string:
-		path, mapped := seedanceV3ParameterMappingPath(typed)
+		path, optional, mapped := seedanceV3ParameterMappingPath(typed)
 		if !mapped {
 			return typed, nil
 		}
 		mappedValue, ok := seedanceV3ParameterSourceValue(source, path)
 		if !ok {
+			if optional {
+				return nil, nil
+			}
 			return nil, fmt.Errorf("Seedance mapping source not found: %s", path)
 		}
 		return mappedValue, nil
@@ -217,22 +266,24 @@ func resolveSeedanceV3ParameterMappingValue(value any, source map[string]any) (a
 	}
 }
 
-func seedanceV3ParameterMappingPath(value string) (string, bool) {
+func seedanceV3ParameterMappingPath(value string) (string, bool, bool) {
 	if len(value) < 3 || value[0] != '{' || value[len(value)-1] != '}' {
-		return "", false
+		return "", false, false
 	}
 	path := value[1 : len(value)-1]
+	optional := strings.Contains(path, "?.")
+	path = strings.ReplaceAll(path, "?.", ".")
 	if path == "" || strings.HasPrefix(path, ".") || strings.HasSuffix(path, ".") {
-		return "", false
+		return "", false, false
 	}
 	for _, char := range path {
 		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
 			(char >= '0' && char <= '9') || char == '_' || char == '-' || char == '.' {
 			continue
 		}
-		return "", false
+		return "", false, false
 	}
-	return path, true
+	return path, optional, true
 }
 
 func seedanceV3ParameterSourceValue(source map[string]any, path string) (any, bool) {

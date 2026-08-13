@@ -33,6 +33,7 @@ type Token struct {
 	WeeklyUsed         int            `json:"weekly_used" gorm:"-"`
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	IsAgentToken       bool           `json:"is_agent_token" gorm:"type:bool;column:is_agent_token;index"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
@@ -475,38 +476,55 @@ func CountUserTokens(userId int) (int64, error) {
 	return total, err
 }
 
-// BatchDeleteTokens 删除指定用户的一组令牌，返回成功删除数量
-func BatchDeleteTokens(ids []int, userId int) (int, error) {
+// BatchDeleteTokens 删除指定用户的一组令牌，返回成功删除数量和被跳过的代理身份 apikey 数量。
+// 代理身份 apikey 不在批删范围内，必须通过取消代理身份来清理。
+func BatchDeleteTokens(ids []int, userId int) (deleted int, skippedAgent int, err error) {
 	if len(ids) == 0 {
-		return 0, errors.New("ids 不能为空！")
+		return 0, 0, errors.New("ids 不能为空！")
 	}
 
 	tx := DB.Begin()
 
-	var tokens []Token
-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
+	var allTokens []Token
+	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&allTokens).Error; err != nil {
 		tx.Rollback()
-		return 0, err
+		return 0, 0, err
 	}
 
-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {
+	deletableIds := make([]int, 0, len(allTokens))
+	deletableTokens := make([]Token, 0, len(allTokens))
+	for _, tok := range allTokens {
+		if tok.IsAgentToken {
+			skippedAgent++
+			continue
+		}
+		deletableIds = append(deletableIds, tok.Id)
+		deletableTokens = append(deletableTokens, tok)
+	}
+
+	if len(deletableIds) == 0 {
 		tx.Rollback()
-		return 0, err
+		return 0, skippedAgent, nil
+	}
+
+	if err := tx.Where("user_id = ? AND id IN (?)", userId, deletableIds).Delete(&Token{}).Error; err != nil {
+		tx.Rollback()
+		return 0, 0, err
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	if common.RedisEnabled {
 		gopool.Go(func() {
-			for _, t := range tokens {
+			for _, t := range deletableTokens {
 				_ = cacheDeleteToken(t.Key)
 			}
 		})
 	}
 
-	return len(tokens), nil
+	return len(deletableTokens), skippedAgent, nil
 }
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {

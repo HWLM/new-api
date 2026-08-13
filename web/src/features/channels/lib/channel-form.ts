@@ -296,6 +296,18 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    seedance_asset_get_method: z
+      .enum(['GET', 'POST', 'PUT', 'PATCH'])
+      .optional(),
+    seedance_asset_get_target: z.string().optional(),
+    seedance_asset_get_parameters: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    seedance_asset_get_response_mapping: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
     seedance_task_create_method: z
       .enum(['GET', 'POST', 'PUT', 'PATCH'])
       .optional(),
@@ -323,10 +335,7 @@ export const channelFormSchema = z
     video_request_format_by_model: z
       .string()
       .optional()
-      .refine(
-        isOptionalVideoRequestFormatMapping,
-        ERROR_MESSAGES.INVALID_JSON
-      ),
+      .refine(isOptionalVideoRequestFormatMapping, ERROR_MESSAGES.INVALID_JSON),
     // Field passthrough controls (stored in settings JSON)
     allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
     disable_store: z.boolean().optional(), // OpenAI only
@@ -504,6 +513,10 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   seedance_asset_create_target: '',
   seedance_asset_create_parameters: '{}',
   seedance_asset_create_response_mapping: '{}',
+  seedance_asset_get_method: 'POST',
+  seedance_asset_get_target: '',
+  seedance_asset_get_parameters: '{}',
+  seedance_asset_get_response_mapping: '{}',
   seedance_task_create_method: 'POST',
   seedance_task_create_target: '',
   seedance_task_create_parameters: '{}',
@@ -562,8 +575,7 @@ export function transformChannelToFormDefaults(
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
         http_protocol: protocol,
-        http2_connection_shards:
-          protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
+        http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -596,6 +608,10 @@ export function transformChannelToFormDefaults(
   let seedanceAssetCreateTarget = ''
   let seedanceAssetCreateParameters = '{}'
   let seedanceAssetCreateResponseMapping = '{}'
+  let seedanceAssetGetMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' = 'POST'
+  let seedanceAssetGetTarget = ''
+  let seedanceAssetGetParameters = '{}'
+  let seedanceAssetGetResponseMapping = '{}'
   let seedanceTaskCreateMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' = 'POST'
   let seedanceTaskCreateTarget = ''
   let seedanceTaskCreateParameters = '{}'
@@ -656,6 +672,20 @@ export function transformChannelToFormDefaults(
         )
         seedanceAssetCreateResponseMapping = JSON.stringify(
           seedanceRoutes.asset_create.response_mapping || {},
+          null,
+          2
+        )
+      }
+      if (seedanceRoutes?.asset_get) {
+        seedanceAssetGetMethod = seedanceRoutes.asset_get.method || 'POST'
+        seedanceAssetGetTarget = seedanceRoutes.asset_get.target || ''
+        seedanceAssetGetParameters = JSON.stringify(
+          seedanceRoutes.asset_get.parameters || {},
+          null,
+          2
+        )
+        seedanceAssetGetResponseMapping = JSON.stringify(
+          seedanceRoutes.asset_get.response_mapping || {},
           null,
           2
         )
@@ -744,6 +774,10 @@ export function transformChannelToFormDefaults(
     seedance_asset_create_target: seedanceAssetCreateTarget,
     seedance_asset_create_parameters: seedanceAssetCreateParameters,
     seedance_asset_create_response_mapping: seedanceAssetCreateResponseMapping,
+    seedance_asset_get_method: seedanceAssetGetMethod,
+    seedance_asset_get_target: seedanceAssetGetTarget,
+    seedance_asset_get_parameters: seedanceAssetGetParameters,
+    seedance_asset_get_response_mapping: seedanceAssetGetResponseMapping,
     seedance_task_create_method: seedanceTaskCreateMethod,
     seedance_task_create_target: seedanceTaskCreateTarget,
     seedance_task_create_parameters: seedanceTaskCreateParameters,
@@ -846,6 +880,23 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
       routes.asset_create = {
         method: formData.seedance_asset_create_method || 'POST',
         target: assetCreateTarget,
+        ...(Object.keys(parameters).length > 0 ? { parameters } : {}),
+        ...(Object.keys(responseMapping).length > 0
+          ? { response_mapping: responseMapping }
+          : {}),
+      }
+    }
+    const assetGetTarget = formData.seedance_asset_get_target?.trim()
+    if (assetGetTarget) {
+      const parameters = JSON.parse(
+        formData.seedance_asset_get_parameters?.trim() || '{}'
+      ) as Record<string, unknown>
+      const responseMapping = JSON.parse(
+        formData.seedance_asset_get_response_mapping?.trim() || '{}'
+      ) as Record<string, unknown>
+      routes.asset_get = {
+        method: formData.seedance_asset_get_method || 'POST',
+        target: assetGetTarget,
         ...(Object.keys(parameters).length > 0 ? { parameters } : {}),
         ...(Object.keys(responseMapping).length > 0
           ? { response_mapping: responseMapping }

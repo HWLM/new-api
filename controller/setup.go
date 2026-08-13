@@ -102,6 +102,7 @@ func PostSetup(c *gin.Context) {
 			})
 			return
 		}
+		totalQuota := int64(100000000)
 		rootUser := model.User{
 			Username:    req.Username,
 			Password:    hashedPassword,
@@ -110,6 +111,7 @@ func PostSetup(c *gin.Context) {
 			DisplayName: "Root User",
 			AccessToken: nil,
 			Quota:       100000000,
+			TotalQuota:  &totalQuota,
 		}
 		err = model.DB.Create(&rootUser).Error
 		if err != nil {

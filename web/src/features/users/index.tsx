@@ -17,8 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
+
 import { SectionPageLayout } from '@/components/layout'
+
 import { TgNotifySettingsDialog } from './components/dialogs/tg-notify-settings-dialog'
+import { UserQuotaHistoryDialog } from './components/dialogs/user-quota-history-dialog'
+import { AgentApikeyDialog } from './components/dialogs/agent-apikey-dialog'
 import { UsersDeleteDialog } from './components/users-delete-dialog'
 import { UsersMutateDrawer } from './components/users-mutate-drawer'
 import { UsersPrimaryButtons } from './components/users-primary-buttons'
@@ -27,7 +31,8 @@ import { UsersTable } from './components/users-table'
 
 function UsersContent() {
   const { t } = useTranslation()
-  const { open, setOpen, currentRow } = useUsers()
+  const { open, setOpen, currentRow, agentApikey, closeAgentApikey } =
+    useUsers()
 
   return (
     <>
@@ -50,6 +55,23 @@ function UsersContent() {
       <TgNotifySettingsDialog
         open={open === 'tg-settings'}
         onOpenChange={(isOpen) => !isOpen && setOpen(null)}
+      />
+      {open === 'quota-history' && currentRow ? (
+        <UserQuotaHistoryDialog
+          open
+          onOpenChange={(isOpen) => !isOpen && setOpen(null)}
+          user={{
+            id: currentRow.id,
+            username: currentRow.username,
+            quota: currentRow.quota,
+          }}
+        />
+      ) : null}
+      <AgentApikeyDialog
+        open={agentApikey !== null}
+        onOpenChange={(isOpen) => !isOpen && closeAgentApikey()}
+        username={agentApikey?.username ?? ''}
+        apikey={agentApikey?.apikey ?? ''}
       />
     </>
   )

@@ -179,3 +179,31 @@ func TestSumUsedQuotaAppliesBusinessScopeToAllStatistics(t *testing.T) {
 	assert.Equal(t, 1, normalStat.Rpm)
 	assert.Equal(t, 5, normalStat.Tpm)
 }
+
+func TestSumUsedQuotaSubtractsRefundsWithoutCountingThemAsTraffic(t *testing.T) {
+	truncateTables(t)
+
+	subTags := operation_setting.GetSubChannelTags()
+	require.NotEmpty(t, subTags)
+	subTag := subTags[0]
+	require.NoError(t, DB.Create(&[]Channel{
+		{Id: 601, Type: 1, Key: "sub-key", Name: "sub", Tag: &subTag},
+		{Id: 602, Type: 1, Key: "other-key", Name: "other"},
+	}).Error)
+
+	now := time.Now().Unix()
+	require.NoError(t, LOG_DB.Create(&[]Log{
+		{Id: 21, UserId: 201, Type: LogTypeConsume, ChannelId: 601, Quota: 100, PromptTokens: 10, CompletionTokens: 5, CreatedAt: now, Other: `{}`},
+		{Id: 22, UserId: 201, Type: LogTypeRefund, ChannelId: 601, Quota: 40, PromptTokens: 1000, CompletionTokens: 1000, CreatedAt: now, Other: `{}`},
+		{Id: 23, UserId: 201, Type: LogTypeConsume, ChannelId: 602, Quota: 80, PromptTokens: 4, CompletionTokens: 5, CreatedAt: now, Other: `{}`},
+		{Id: 24, UserId: 201, Type: LogTypeRefund, ChannelId: 602, Quota: 30, PromptTokens: 1000, CompletionTokens: 1000, CreatedAt: now, Other: `{}`},
+	}).Error)
+
+	stat, err := SumUsedQuota(nil, LogTypeUnknown, now-10, now+10, "", "", "", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, 110, stat.Quota)
+	assert.Equal(t, 60, stat.SubQuota)
+	assert.Equal(t, int64(15), stat.SubTokens)
+	assert.Equal(t, 2, stat.Rpm)
+	assert.Equal(t, 24, stat.Tpm)
+}

@@ -51,8 +51,18 @@ export function ApiKeysMultiDeleteDialog<TData>({
       const result = await batchDeleteApiKeys(ids)
 
       if (result.success) {
-        const count = result.data || ids.length
-        toast.success(t('Successfully deleted {{count}} API key(s)', { count }))
+        const count = result.count ?? result.data ?? ids.length
+        const skippedAgent = result.skipped_agent ?? 0
+        if (skippedAgent > 0) {
+          toast.warning(
+            t(
+              'Deleted {{count}} API key(s); {{skipped}} agent apikey(s) skipped (unmark agent to delete)',
+              { count, skipped: skippedAgent }
+            )
+          )
+        } else {
+          toast.success(t('Successfully deleted {{count}} API key(s)', { count }))
+        }
         table.resetRowSelection()
         triggerRefresh()
         onOpenChange(false)

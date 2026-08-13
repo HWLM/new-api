@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,6 +79,18 @@ func truncate(t *testing.T) {
 func seedUser(t *testing.T, id int, quota int) {
 	t.Helper()
 	user := &model.User{Id: id, Username: "test_user", Quota: quota, Status: common.UserStatusEnabled}
+	require.NoError(t, model.DB.Create(user).Error)
+}
+
+func seedBilledUser(t *testing.T, id int, quota int, usedQuota int) {
+	t.Helper()
+	user := &model.User{
+		Id:        id,
+		Username:  "test_user",
+		Quota:     quota,
+		UsedQuota: usedQuota,
+		Status:    common.UserStatusEnabled,
+	}
 	require.NoError(t, model.DB.Create(user).Error)
 }
 
@@ -176,6 +189,13 @@ func getUserQuota(t *testing.T, id int) int {
 	return user.Quota
 }
 
+func getUserUsedQuota(t *testing.T, id int) int {
+	t.Helper()
+	quota, err := model.GetUserUsedQuota(id)
+	require.NoError(t, err)
+	return quota
+}
+
 func getTokenRemainQuota(t *testing.T, id int) int {
 	t.Helper()
 	var token model.Token
@@ -221,6 +241,28 @@ func countLogs(t *testing.T) int64 {
 	return count
 }
 
+func TestBillingSessionWalletSnapshotCoversPreConsumeAndSettlement(t *testing.T) {
+	truncate(t)
+	const userID = 1001
+	seedUser(t, userID, 10000)
+
+	ctx, _ := gin.CreateTestContext(nil)
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:       userID,
+		IsPlayground: true,
+	}
+	session, apiErr := NewBillingSession(ctx, relayInfo, 3000)
+	require.Nil(t, apiErr)
+	require.NotNil(t, session)
+	require.NoError(t, session.Settle(2000))
+
+	require.NotNil(t, relayInfo.UserQuotaBefore)
+	require.NotNil(t, relayInfo.UserQuotaAfter)
+	assert.Equal(t, int64(10000), *relayInfo.UserQuotaBefore)
+	assert.Equal(t, int64(8000), *relayInfo.UserQuotaAfter)
+	assert.Equal(t, 8000, getUserQuota(t, userID))
+}
+
 // ===========================================================================
 // RefundTaskQuota tests
 // ===========================================================================
@@ -233,7 +275,7 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	const initQuota, preConsumed = 10000, 3000
 	const tokenRemain = 5000
 
-	seedUser(t, userID, initQuota)
+	seedBilledUser(t, userID, initQuota, preConsumed)
 	seedToken(t, tokenID, userID, "sk-test-key", tokenRemain)
 	seedChannel(t, channelID)
 
@@ -244,6 +286,8 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 
 	// User quota should increase by preConsumed
 	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
+	assert.Zero(t, getUserUsedQuota(t, userID))
+	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID)+getUserUsedQuota(t, userID))
 
 	// Token remain_quota should increase, used_quota should decrease
 	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
@@ -255,6 +299,10 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed, log.Quota)
 	assert.Equal(t, "test-model", log.ModelName)
+	require.NotNil(t, log.BeforeQuota)
+	require.NotNil(t, log.AfterQuota)
+	assert.Equal(t, int64(initQuota), *log.BeforeQuota)
+	assert.Equal(t, int64(initQuota+preConsumed), *log.AfterQuota)
 	assert.Zero(t, task.Quota)
 	assert.Zero(t, getTaskQuota(t, task.ID))
 }
@@ -268,7 +316,7 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 	const subTotal, subUsed int64 = 100000, 50000
 	const tokenRemain = 8000
 
-	seedUser(t, userID, 0)
+	seedBilledUser(t, userID, 0, preConsumed)
 	seedToken(t, tokenID, userID, "sk-sub-key", tokenRemain)
 	seedChannel(t, channelID)
 	seedSubscription(t, subID, userID, subTotal, subUsed)
@@ -280,6 +328,7 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 
 	// Subscription used should decrease by preConsumed
 	assert.Equal(t, subUsed-int64(preConsumed), getSubscriptionUsed(t, subID))
+	assert.Zero(t, getUserUsedQuota(t, userID))
 
 	// Token should also be refunded
 	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
@@ -316,7 +365,7 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	const userID, channelID = 4, 4
 	const initQuota, preConsumed = 10000, 1500
 
-	seedUser(t, userID, initQuota)
+	seedBilledUser(t, userID, initQuota, preConsumed)
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0) // TokenId=0
@@ -326,6 +375,7 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 
 	// User quota refunded
 	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
+	assert.Zero(t, getUserUsedQuota(t, userID))
 
 	// Log created
 	log := getLastLog(t)
@@ -358,7 +408,7 @@ func TestRefundTaskQuota_ConcurrentCallsRefundOnce(t *testing.T) {
 	const initQuota, preConsumed = 10000, 2500
 	const tokenRemain = 6000
 
-	seedUser(t, userID, initQuota)
+	seedBilledUser(t, userID, initQuota, preConsumed)
 	seedToken(t, tokenID, userID, "sk-refund-once", tokenRemain)
 	seedChannel(t, channelID)
 
@@ -382,6 +432,7 @@ func TestRefundTaskQuota_ConcurrentCallsRefundOnce(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
+	assert.Zero(t, getUserUsedQuota(t, userID))
 	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, -preConsumed, getTokenUsedQuota(t, tokenID))
 	assert.Equal(t, int64(1), countLogs(t))
@@ -426,7 +477,7 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 	const actualQuota = 3000 // under-charged by 1000
 	const tokenRemain = 5000
 
-	seedUser(t, userID, initQuota)
+	seedBilledUser(t, userID, initQuota, preConsumed)
 	seedToken(t, tokenID, userID, "sk-recalc-pos", tokenRemain)
 	seedChannel(t, channelID)
 
@@ -439,6 +490,7 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 
 	// User quota should decrease by the delta (1000 additional charge)
 	assert.Equal(t, initQuota-(actualQuota-preConsumed), getUserQuota(t, userID))
+	assert.Equal(t, actualQuota, getUserUsedQuota(t, userID))
 
 	// Token should also be charged the delta
 	assert.Equal(t, tokenRemain-(actualQuota-preConsumed), getTokenRemainQuota(t, tokenID))
@@ -468,7 +520,7 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	const actualQuota = 3000 // over-charged by 2000
 	const tokenRemain = 5000
 
-	seedUser(t, userID, initQuota)
+	seedBilledUser(t, userID, initQuota, preConsumed)
 	seedToken(t, tokenID, userID, "sk-recalc-neg", tokenRemain)
 	seedChannel(t, channelID)
 
@@ -478,6 +530,8 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 
 	// User quota should increase by abs(delta) = 2000 (refund overpayment)
 	assert.Equal(t, initQuota+(preConsumed-actualQuota), getUserQuota(t, userID))
+	assert.Equal(t, actualQuota, getUserUsedQuota(t, userID))
+	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID)+getUserUsedQuota(t, userID))
 
 	// Token should be refunded the difference
 	assert.Equal(t, tokenRemain+(preConsumed-actualQuota), getTokenRemainQuota(t, tokenID))
@@ -490,6 +544,10 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed-actualQuota, log.Quota)
+	require.NotNil(t, log.BeforeQuota)
+	require.NotNil(t, log.AfterQuota)
+	assert.Equal(t, int64(initQuota), *log.BeforeQuota)
+	assert.Equal(t, int64(initQuota+preConsumed-actualQuota), *log.AfterQuota)
 }
 
 func TestRecalculateTaskQuotaByTokensUsesFrozenGroupRatio(t *testing.T) {
@@ -615,7 +673,7 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 	const subTotal, subUsed int64 = 100000, 50000
 	const tokenRemain = 8000
 
-	seedUser(t, userID, 0)
+	seedBilledUser(t, userID, 0, preConsumed)
 	seedToken(t, tokenID, userID, "sk-sub-recalc", tokenRemain)
 	seedChannel(t, channelID)
 	seedSubscription(t, subID, userID, subTotal, subUsed)
@@ -626,6 +684,7 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 
 	// Subscription used should decrease by delta (refund 3000)
 	assert.Equal(t, subUsed-int64(preConsumed-actualQuota), getSubscriptionUsed(t, subID))
+	assert.Equal(t, actualQuota, getUserUsedQuota(t, userID))
 
 	// Token refunded
 	assert.Equal(t, tokenRemain+(preConsumed-actualQuota), getTokenRemainQuota(t, tokenID))

@@ -15,6 +15,30 @@ const (
 	BillingSourceSubscription = "subscription"
 )
 
+func resetUserQuotaSnapshot(relayInfo *relaycommon.RelayInfo) {
+	if relayInfo == nil {
+		return
+	}
+	quota := int64(relayInfo.UserQuota)
+	relayInfo.UserQuotaBefore = &quota
+	relayInfo.UserQuotaAfter = &quota
+}
+
+// applyUserQuotaSnapshotDelta records a wallet balance change. delta is the
+// signed change to the remaining quota, so deductions are negative.
+func applyUserQuotaSnapshotDelta(relayInfo *relaycommon.RelayInfo, delta int) {
+	if relayInfo == nil {
+		return
+	}
+	if relayInfo.UserQuotaBefore == nil {
+		before := int64(relayInfo.UserQuota)
+		relayInfo.UserQuotaBefore = &before
+	}
+	relayInfo.UserQuota += delta
+	after := int64(relayInfo.UserQuota)
+	relayInfo.UserQuotaAfter = &after
+}
+
 // PreConsumeBilling 根据用户计费偏好创建 BillingSession 并执行预扣费。
 // 会话存储在 relayInfo.Billing 上，供后续 Settle / Refund 使用。
 func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
@@ -91,5 +115,6 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 	if quotaDelta != 0 {
 		return PostConsumeQuota(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true)
 	}
+	resetUserQuotaSnapshot(relayInfo)
 	return nil
 }

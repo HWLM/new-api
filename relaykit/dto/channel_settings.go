@@ -123,6 +123,7 @@ func (s ChannelOtherSettings) ValidateVideoRequestFormats() error {
 
 type SeedanceV3Routes struct {
 	AssetCreate *SeedanceV3Route `json:"asset_create,omitempty"`
+	AssetGet    *SeedanceV3Route `json:"asset_get,omitempty"`
 	TaskCreate  *SeedanceV3Route `json:"task_create,omitempty"`
 	TaskGet     *SeedanceV3Route `json:"task_get,omitempty"`
 }
@@ -147,6 +148,7 @@ func (c *SeedanceV3Routes) Validate() error {
 		route *SeedanceV3Route
 	}{
 		{name: "asset_create", route: c.AssetCreate},
+		{name: "asset_get", route: c.AssetGet},
 		{name: "task_create", route: c.TaskCreate},
 		{name: "task_get", route: c.TaskGet},
 	}

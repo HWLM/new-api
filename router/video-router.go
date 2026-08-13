@@ -18,13 +18,15 @@ func SetVideoRouter(router *gin.Engine) {
 
 	// wetoken 海外版本 sd2.0 素材接口：
 	//   POST /api/v3/open/CreateAsset 上传素材，返回 asset://<id>
-	//   POST /v3/open/GetAsset     查询素材状态
+	//   POST /api/v3/open/GetAsset 查询素材状态
+	//   POST /v3/open/GetAsset     查询素材状态（兼容旧路径）
 	// 中间件按 body 里的 model 选渠道，controller 直接透传给上游（AssetBaseUrl 未配置时用主 base URL）。
-	seedanceV3AssetCreateRouter := router.Group("/api/v3/open")
-	seedanceV3AssetCreateRouter.Use(middleware.RouteTag("relay"))
-	seedanceV3AssetCreateRouter.Use(middleware.SeedanceV3AssetRequestConvert(), middleware.TokenAuth(), middleware.Distribute())
+	seedanceV3AssetRouter := router.Group("/api/v3/open")
+	seedanceV3AssetRouter.Use(middleware.RouteTag("relay"))
+	seedanceV3AssetRouter.Use(middleware.SeedanceV3AssetRequestConvert(), middleware.TokenAuth(), middleware.Distribute())
 	{
-		seedanceV3AssetCreateRouter.POST("/CreateAsset", controller.RelaySeedanceV3Asset)
+		seedanceV3AssetRouter.POST("/CreateAsset", controller.RelaySeedanceV3Asset)
+		seedanceV3AssetRouter.POST("/GetAsset", controller.RelaySeedanceV3Asset)
 	}
 	seedanceV3AssetGetRouter := router.Group("/v3/open")
 	seedanceV3AssetGetRouter.Use(middleware.RouteTag("relay"))

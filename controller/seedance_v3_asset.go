@@ -22,10 +22,11 @@ import (
 
 const seedanceV3AssetLogResultKey = "seedance_v3_asset_log_result"
 
-// RelaySeedanceV3Asset 处理 SeedanceV3 素材接口的两条路由：
+// RelaySeedanceV3Asset 处理 SeedanceV3 素材接口：
 //
 //   - POST /api/v3/open/CreateAsset 上传素材，返回 {"id": "asset-xxxxxx"}
-//   - POST /v3/open/GetAsset     查询素材，返回资产详情
+//   - POST /api/v3/open/GetAsset 查询素材，返回资产详情
+//   - POST /v3/open/GetAsset     查询素材，兼容旧路径
 //
 // 该 controller 是一个简单透传：
 //  1. 从渠道拿到素材上传专用的 base URL（OtherSettings.AssetBaseUrl，未配置时回落到主 base URL）
@@ -45,6 +46,7 @@ func RelaySeedanceV3Asset(c *gin.Context) {
 	}
 	baseURL := strings.TrimRight(common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl), "/")
 	var customAssetCreateRoute *dto.SeedanceV3Route
+	var customAssetGetRoute *dto.SeedanceV3Route
 	// OtherSettings.AssetBaseUrl 优先
 	if s, ok := common.GetContextKey(c, constant.ContextKeyChannelOtherSetting); ok {
 		if os, ok := s.(dto.ChannelOtherSettings); ok {
@@ -54,9 +56,17 @@ func RelaySeedanceV3Asset(c *gin.Context) {
 			if os.SeedanceV3Routes != nil && os.SeedanceV3Routes.AssetCreate.IsConfigured() {
 				customAssetCreateRoute = os.SeedanceV3Routes.AssetCreate
 			}
+			if os.SeedanceV3Routes != nil && os.SeedanceV3Routes.AssetGet.IsConfigured() {
+				customAssetGetRoute = os.SeedanceV3Routes.AssetGet
+			}
 		}
 	}
-	customRouteNeedsBaseURL := customAssetCreateRoute == nil || strings.HasPrefix(strings.TrimSpace(customAssetCreateRoute.Target), "/")
+	action := path.Base(c.Request.URL.Path)
+	customRoute := customAssetCreateRoute
+	if action == "GetAsset" {
+		customRoute = customAssetGetRoute
+	}
+	customRouteNeedsBaseURL := customRoute == nil || strings.HasPrefix(strings.TrimSpace(customRoute.Target), "/")
 	if baseURL == "" && customRouteNeedsBaseURL {
 		respondAssetError(c, http.StatusBadGateway, "channel base URL is empty")
 		return
@@ -87,26 +97,36 @@ func RelaySeedanceV3Asset(c *gin.Context) {
 	assetLogBody = bodyBytes
 
 	// URL 组装：路径 = 入口 path 的最后一段（CreateAsset / GetAsset），保持 base + /v3/open/<action> 的形状
-	action := path.Base(c.Request.URL.Path)
 	var modelRequest struct {
 		Model string `json:"model"`
+		ID    string `json:"Id"`
 	}
 	if err := common.Unmarshal(bodyBytes, &modelRequest); err != nil {
 		respondAssetError(c, http.StatusBadRequest, "invalid asset request body: "+err.Error())
 		return
 	}
 	assetLogModel = modelRequest.Model
-	if action == "CreateAsset" && customAssetCreateRoute != nil {
-		route, err := taskcommon.NormalizeSeedanceV3Route(baseURL, customAssetCreateRoute, http.MethodPost)
+	if customRoute != nil {
+		var route *dto.SeedanceV3Route
+		var err error
+		if action == "GetAsset" {
+			route, err = taskcommon.ResolveSeedanceV3AssetGetRoute(baseURL, customRoute, modelRequest.ID)
+		} else {
+			route, err = taskcommon.NormalizeSeedanceV3Route(baseURL, customRoute, http.MethodPost)
+		}
 		if err != nil {
 			respondAssetError(c, http.StatusBadRequest, err.Error())
 			return
 		}
 		if modelRequest.Model == dto.SeedanceV3ModelName {
-			relaySDRealMaxCreateAssetCustom(c, route, apiKey, bodyBytes)
+			if action == "CreateAsset" {
+				relaySDRealMaxCreateAssetCustom(c, route, apiKey, bodyBytes)
+				return
+			}
+			relaySeedanceV3AssetCustom(c, route, apiKey, bodyBytes)
 			return
 		}
-		relaySeedanceV3CreateAssetCustom(c, route, apiKey, bodyBytes)
+		relaySeedanceV3AssetCustom(c, route, apiKey, bodyBytes)
 		return
 	}
 	if modelRequest.Model == dto.SeedanceV3ModelName {
@@ -160,7 +180,7 @@ func RelaySeedanceV3Asset(c *gin.Context) {
 	_, _ = c.Writer.Write(respBody)
 }
 
-func relaySeedanceV3CreateAssetCustom(c *gin.Context, route *dto.SeedanceV3Route, apiKey string, bodyBytes []byte) {
+func relaySeedanceV3AssetCustom(c *gin.Context, route *dto.SeedanceV3Route, apiKey string, bodyBytes []byte) {
 	status, responseBody, contentType, err := executeSeedanceV3AssetRoute(c, route, apiKey, bodyBytes)
 	if err != nil {
 		respondAssetError(c, http.StatusBadGateway, "upstream request failed: "+err.Error())
@@ -226,16 +246,28 @@ func relaySDRealMaxCreateAssetCustom(c *gin.Context, route *dto.SeedanceV3Route,
 }
 
 func executeSeedanceV3AssetRoute(c *gin.Context, route *dto.SeedanceV3Route, apiKey string, bodyBytes []byte) (int, []byte, string, error) {
-	requestBody, err := taskcommon.ApplySeedanceV3RouteParameters(bytes.NewReader(bodyBytes), route)
-	if err != nil {
-		return 0, nil, "", err
+	target := route.Target
+	var err error
+	var requestBody io.Reader
+	if route.Method == http.MethodGet {
+		target, err = taskcommon.ApplySeedanceV3RouteQueryParameters(target, bytes.NewReader(bodyBytes), route)
+		if err != nil {
+			return 0, nil, "", err
+		}
+	} else {
+		requestBody, err = taskcommon.ApplySeedanceV3RouteParameters(bytes.NewReader(bodyBytes), route)
+		if err != nil {
+			return 0, nil, "", err
+		}
 	}
-	request, err := http.NewRequestWithContext(c.Request.Context(), route.Method, route.Target, requestBody)
+	request, err := http.NewRequestWithContext(c.Request.Context(), route.Method, target, requestBody)
 	if err != nil {
 		return 0, nil, "", err
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
+	if route.Method != http.MethodGet {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	proxy := ""
 	if s, ok := common.GetContextKey(c, constant.ContextKeyChannelSetting); ok {

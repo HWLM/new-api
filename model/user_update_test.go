@@ -92,6 +92,75 @@ func TestUpdateUserSettingOnlyUpdatesSetting(t *testing.T) {
 	assert.Equal(t, "zh", got.GetSetting().Language)
 }
 
+func TestUserSettingsRecordIpLogDefaultsToEnabled(t *testing.T) {
+	assert.True(t, (&User{}).GetSetting().RecordIpLog)
+	assert.True(t, (&UserBase{}).GetSetting().RecordIpLog)
+
+	settingBytes, err := common.Marshal(dto.UserSetting{RecordIpLog: false})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"gotify_priority":0,"record_ip_log":false}`, string(settingBytes))
+}
+
+func TestMigrateUserSettingsRecordIpLogEnabledRunsOnce(t *testing.T) {
+	setupUserUpdateTestState(t)
+	require.NoError(t, DB.AutoMigrate(&Option{}))
+	require.NoError(t, DB.Where("type = ?", userSettingsRecordIpLogMigrationLockType).Delete(&SystemTaskLock{}).Error)
+	require.NoError(t, DB.Where(commonKeyCol+" = ?", userSettingsRecordIpLogMigrationKey).Delete(&Option{}).Error)
+	t.Cleanup(func() {
+		DB.Where("type = ?", userSettingsRecordIpLogMigrationLockType).Delete(&SystemTaskLock{})
+		DB.Where(commonKeyCol+" = ?", userSettingsRecordIpLogMigrationKey).Delete(&Option{})
+	})
+
+	user := User{Id: 3, Username: "legacy-setting-user", Password: "password", Status: common.UserStatusEnabled, AffCode: "legacy-aff"}
+	user.Setting = `{"future_setting":{"keep":true}}`
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, DB.Create(&User{Id: 4, Username: "invalid-setting-user", Password: "password", Status: common.UserStatusEnabled, AffCode: "invalid-aff", Setting: "not-json"}).Error)
+	require.NoError(t, DB.Create(&User{Id: 6, Username: "explicit-disabled-setting-user", Password: "password", Status: common.UserStatusEnabled, AffCode: "explicit-disabled-aff", Setting: `{"record_ip_log":false}`}).Error)
+
+	require.NoError(t, MigrateUserSettingsRecordIpLogEnabled())
+	var migrated User
+	require.NoError(t, DB.First(&migrated, user.Id).Error)
+	assert.True(t, migrated.GetSetting().RecordIpLog)
+	assert.JSONEq(t, `{"record_ip_log":true,"future_setting":{"keep":true}}`, migrated.Setting)
+	var invalidSetting User
+	require.NoError(t, DB.First(&invalidSetting, 4).Error)
+	assert.Equal(t, "not-json", invalidSetting.Setting)
+	var explicitDisabled User
+	require.NoError(t, DB.First(&explicitDisabled, 6).Error)
+	assert.False(t, explicitDisabled.GetSetting().RecordIpLog)
+	assert.JSONEq(t, `{"record_ip_log":false}`, explicitDisabled.Setting)
+
+	require.NoError(t, UpdateUserSetting(user.Id, dto.UserSetting{RecordIpLog: false}))
+	require.NoError(t, MigrateUserSettingsRecordIpLogEnabled())
+	require.NoError(t, DB.First(&migrated, user.Id).Error)
+	assert.False(t, migrated.GetSetting().RecordIpLog)
+}
+
+func TestMigrateUserSettingsRecordIpLogEnabledSkipsActiveMigration(t *testing.T) {
+	setupUserUpdateTestState(t)
+	require.NoError(t, DB.AutoMigrate(&Option{}))
+	require.NoError(t, DB.Where("type = ?", userSettingsRecordIpLogMigrationLockType).Delete(&SystemTaskLock{}).Error)
+	require.NoError(t, DB.Where(commonKeyCol+" = ?", userSettingsRecordIpLogMigrationKey).Delete(&Option{}).Error)
+	t.Cleanup(func() {
+		DB.Where("type = ?", userSettingsRecordIpLogMigrationLockType).Delete(&SystemTaskLock{})
+		DB.Where(commonKeyCol+" = ?", userSettingsRecordIpLogMigrationKey).Delete(&Option{})
+	})
+
+	user := User{Id: 5, Username: "locked-migration-user", Password: "password", Status: common.UserStatusEnabled, AffCode: "locked-aff", Setting: `{"record_ip_log":false}`}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, DB.Create(&SystemTaskLock{
+		Type:        userSettingsRecordIpLogMigrationLockType,
+		TaskID:      userSettingsRecordIpLogMigrationKey,
+		LockedBy:    "another-node",
+		LockedUntil: common.GetTimestamp() + userSettingsRecordIpLogMigrationLockLeaseSeconds,
+	}).Error)
+
+	require.NoError(t, MigrateUserSettingsRecordIpLogEnabled())
+	var unchanged User
+	require.NoError(t, DB.First(&unchanged, user.Id).Error)
+	assert.False(t, unchanged.GetSetting().RecordIpLog)
+}
+
 func TestEnsureEmailAvailableRejectsExistingEmailCaseInsensitive(t *testing.T) {
 	setupUserUpdateTestState(t)
 
@@ -151,6 +220,7 @@ func TestInsertKeepsBlankPasswordForPasswordlessUser(t *testing.T) {
 	var stored User
 	require.NoError(t, DB.Where("username = ?", user.Username).First(&stored).Error)
 	assert.Empty(t, stored.Password)
+	assert.True(t, stored.GetSetting().RecordIpLog)
 }
 
 func TestValidateAndFillRejectsPasswordlessUser(t *testing.T) {

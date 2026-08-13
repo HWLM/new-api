@@ -16,53 +16,59 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 
-import { useStatus } from '@/hooks/use-status'
+import { useStatus } from "@/hooks/use-status";
 
-import { getPricing } from '../api'
-import { OFFICIAL_USD_EXCHANGE_RATE } from '../constants'
+import { getPricing } from "../api";
+import { OFFICIAL_USD_EXCHANGE_RATE } from "../constants";
 
 export function usePricingData() {
-  const { status } = useStatus()
+  const { status } = useStatus();
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['pricing'],
+    queryKey: ["pricing"],
     queryFn: getPricing,
     staleTime: 5 * 60 * 1000,
-  })
+  });
 
   // Ensure rates never reach zero to prevent division errors
   const priceRate = useMemo(
     () => Math.max((status?.price as number) ?? 1, 0.001),
-    [status?.price]
-  )
-  const usdExchangeRate = OFFICIAL_USD_EXCHANGE_RATE
+    [status?.price],
+  );
+  const usdExchangeRate = useMemo(() => {
+    const rate = Number(data?.consume_usd_exchange_rate);
+    return Number.isFinite(rate) && rate > 0
+      ? rate
+      : OFFICIAL_USD_EXCHANGE_RATE;
+  }, [data?.consume_usd_exchange_rate]);
   const topupGroupRatio = useMemo(() => {
-    const ratio = Number(data?.topup_group_ratio)
-    return Number.isFinite(ratio) && ratio > 0 ? ratio : 1
-  }, [data?.topup_group_ratio])
+    const ratio = Number(data?.topup_group_ratio);
+    return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  }, [data?.topup_group_ratio]);
 
   const models = useMemo(() => {
-    if (!data?.data || !data?.vendors) return []
+    if (!data?.data || !data?.vendors) return [];
 
-    const vendorMap = new Map(data.vendors.map((v) => [v.id, v]))
+    const vendorMap = new Map(data.vendors.map((v) => [v.id, v]));
 
     return data.data.map((model) => {
       const vendor = model.vendor_id
         ? vendorMap.get(model.vendor_id)
-        : undefined
+        : undefined;
       return {
         ...model,
         key: model.model_name,
         vendor_name: vendor?.name,
         vendor_icon: vendor?.icon,
         vendor_description: vendor?.description,
+        vendor_official_price_basis: vendor?.official_price_basis,
         group_ratio: data.group_ratio,
-      }
-    })
-  }, [data])
+      };
+    });
+  }, [data]);
 
   return {
     models,
@@ -79,5 +85,5 @@ export function usePricingData() {
     topupGroupRatio,
     pricingDiscountColumnEnabled:
       data?.pricing_discount_column_enabled ?? false,
-  }
+  };
 }

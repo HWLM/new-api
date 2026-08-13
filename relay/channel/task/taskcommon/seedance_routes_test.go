@@ -174,3 +174,43 @@ func TestApplySeedanceV3RouteResponseMappingRejectsMissingSource(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mapping source not found: payload.id")
 }
+
+func TestApplySeedanceV3RouteResponseMappingAllowsMissingOptionalSource(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		expected string
+	}{
+		{
+			name:     "success keeps id",
+			response: `{"Result":{"Id":"asset-1"}}`,
+			expected: `{"id":"asset-1"}`,
+		},
+		{
+			name:     "failure keeps error",
+			response: `{"Result":{"Error":{"Code":"invalid_asset"}}}`,
+			expected: `{"error":{"Code":"invalid_asset"}}`,
+		},
+		{
+			name:     "missing result removes both fields",
+			response: `{"Success":false}`,
+			expected: `{"Success":false}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			responseBody, err := ApplySeedanceV3RouteResponseMapping(
+				[]byte(tt.response),
+				&dto.SeedanceV3Route{ResponseMapping: map[string]any{
+					"Result": nil,
+					"error":  "{Result?.Error}",
+					"id":     "{Result?.Id}",
+				}},
+			)
+
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.expected, string(responseBody))
+		})
+	}
+}

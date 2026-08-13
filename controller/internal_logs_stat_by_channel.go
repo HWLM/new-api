@@ -37,7 +37,7 @@ type InternalStatByChannelResponse struct {
 //
 // 服务于 sub2api ROI 上游分支:按 channel_id + type + 时间窗聚合 logs.quota。
 // 与老对外接口 /api/log/stat(controller.GetLogsStat)不同 —— 那个接口的 type 参数
-// 在 model.SumUsedQuota 里是死代码(硬编码 WHERE type = LogTypeConsume),
+// 不控制统计口径，固定返回 consume - refund 的净用量；
 // 本接口调 model.SumChannelQuota,type 参数真正生效,才能分别拉 consume / refund。
 //
 // 内部无鉴权,依赖 SetInternalRouter 的部署约束(只挂内网),与其它 /internal/logs/* 端点一致。

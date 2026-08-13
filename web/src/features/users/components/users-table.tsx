@@ -102,6 +102,7 @@ export function UsersTable() {
         searchKey: 'onlineTopup',
         type: 'array',
       },
+      { columnId: 'is_agent', searchKey: 'agent', type: 'array' },
     ],
   })
   const statusFilter =
@@ -131,6 +132,12 @@ export function UsersTable() {
     onlineTopupFilter[0] && onlineTopupFilter[0] !== 'all'
       ? onlineTopupFilter[0]
       : ''
+  const agentFilter =
+    (columnFilters.find((filter) => filter.id === 'is_agent')?.value as
+      | string[]
+      | undefined) ?? []
+  const agentFilterValue =
+    agentFilter[0] && agentFilter[0] !== 'all' ? agentFilter[0] : ''
 
   // 创建时间区间：YYYY-MM-DD 字符串放在 URL，传给后端时换算成 unix 秒
   const search = route.useSearch()
@@ -194,6 +201,7 @@ export function UsersTable() {
       groupFilter,
       vipFilterValue,
       onlineTopupFilterValue,
+      agentFilterValue,
       createdAtStartTs,
       createdAtEndTs,
       refreshTrigger,
@@ -206,6 +214,7 @@ export function UsersTable() {
         Boolean(groupFilterValue) ||
         Boolean(vipFilterValue) ||
         Boolean(onlineTopupFilterValue) ||
+        Boolean(agentFilterValue) ||
         Boolean(createdAtStartTs) ||
         Boolean(createdAtEndTs)
       const params = {
@@ -223,6 +232,7 @@ export function UsersTable() {
               group: groupFilterValue,
               is_vip: vipFilterValue,
               allow_online_topup: onlineTopupFilterValue,
+              is_agent: agentFilterValue,
               created_at_start: createdAtStartTs,
               created_at_end: createdAtEndTs,
             })
@@ -331,6 +341,16 @@ export function UsersTable() {
           {
             columnId: 'allow_online_topup',
             title: t('Allow online top-up'),
+            options: [
+              { label: t('All'), value: 'all' },
+              { label: t('Yes'), value: 'true' },
+              { label: t('No'), value: 'false' },
+            ],
+            singleSelect: true,
+          },
+          {
+            columnId: 'is_agent',
+            title: t('Agent Identity'),
             options: [
               { label: t('All'), value: 'all' },
               { label: t('Yes'), value: 'true' },

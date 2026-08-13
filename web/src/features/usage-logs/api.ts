@@ -25,8 +25,11 @@ import type {
   GetLogStatsResponse,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  UsageLogExportTask,
+  UsageLogExportTaskPayload,
   UserInfo,
 } from './types'
+import type { SystemTaskResponse } from '../system-settings/types'
 
 function buildQueryParams(params: Record<string, unknown>): URLSearchParams {
   const queryParams = new URLSearchParams()
@@ -120,3 +123,44 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
 
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('/api/task', params, false)
+
+export async function getTaskVideo(taskId: string): Promise<Blob> {
+  const response = await api.get<Blob>(
+    `/v1/videos/${encodeURIComponent(taskId)}/content`,
+    {
+      responseType: 'blob',
+      skipErrorHandler: true,
+    }
+  )
+  return response.data
+}
+
+export async function startUsageLogExportTask(
+  payload: UsageLogExportTaskPayload
+) {
+  const res = await api.post<SystemTaskResponse<UsageLogExportTask>>(
+    '/api/system-task/log-export',
+    null,
+    {
+      params: payload,
+    }
+  )
+  return res.data
+}
+
+export async function getCurrentUsageLogExportTask() {
+  const res = await api.get<SystemTaskResponse<UsageLogExportTask | null>>(
+    '/api/system-task/current',
+    {
+      params: { type: 'log_export' },
+    }
+  )
+  return res.data
+}
+
+export async function getUsageLogExportTask(taskId: string) {
+  const res = await api.get<SystemTaskResponse<UsageLogExportTask>>(
+    `/api/system-task/${taskId}`
+  )
+  return res.data
+}

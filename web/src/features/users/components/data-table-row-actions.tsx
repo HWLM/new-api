@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
-import { type Row } from '@tanstack/react-table'
+import type { Row } from '@tanstack/react-table'
 import {
   MoreHorizontal,
   Pencil,
@@ -33,9 +32,16 @@ import {
   Briefcase,
   BriefcaseBusiness,
   Repeat,
+  History,
+  UserCheck,
+  UserX,
+  Copy,
 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -45,13 +51,16 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ConfirmDialog } from '@/components/confirm-dialog'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+
 import {
   manageUser,
+  markUserAsAgent,
   resetUserPasskey,
   resetUserTwoFA,
   setUserBusinessChannel,
+  unmarkUserAsAgent,
+  getAgentApikey,
 } from '../api'
 import {
   USER_STATUS,
@@ -60,9 +69,10 @@ import {
   isUserDeleted,
 } from '../constants'
 import { getUserActionMessage } from '../lib'
-import { type User, type ManageUserAction } from '../types'
+import type { ManageUserAction, User } from '../types'
 import { BusinessChannelDialog } from './dialogs/business-channel-dialog'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { UserQuotaHistoryDialog } from './dialogs/user-quota-history-dialog'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -72,16 +82,21 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
-  const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
+  const { setOpen, setCurrentRow, triggerRefresh, openAgentApikey } =
+    useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false)
+  const [quotaHistoryOpen, setQuotaHistoryOpen] = useState(false)
   const [businessDialogMode, setBusinessDialogMode] = useState<
     'mark' | 'change'
   >('mark')
   const [unmarkBusinessOpen, setUnmarkBusinessOpen] = useState(false)
+  const [markAgentOpen, setMarkAgentOpen] = useState(false)
+  const [unmarkAgentOpen, setUnmarkAgentOpen] = useState(false)
+  const [isAgentSubmitting, setIsAgentSubmitting] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -104,7 +119,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           result.message || t('Failed to {{action}} user', { action })
         )
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     }
   }
@@ -118,7 +133,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       } else {
         toast.error(result.message || t('Failed to reset Passkey'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetPasskeyOpen(false)
@@ -134,10 +149,60 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       } else {
         toast.error(result.message || t('Operation failed'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setUnmarkBusinessOpen(false)
+    }
+  }
+
+  const handleMarkAgent = async () => {
+    setIsAgentSubmitting(true)
+    try {
+      const result = await markUserAsAgent(user.id)
+      if (result.success && result.data?.key) {
+        toast.success(t('Marked as agent'))
+        setMarkAgentOpen(false)
+        openAgentApikey(user.username, result.data.key)
+        triggerRefresh()
+      } else {
+        toast.error(result.message || t('Operation failed'))
+      }
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setIsAgentSubmitting(false)
+    }
+  }
+
+  const handleUnmarkAgent = async () => {
+    setIsAgentSubmitting(true)
+    try {
+      const result = await unmarkUserAsAgent(user.id)
+      if (result.success) {
+        toast.success(t('Agent identity removed'))
+        triggerRefresh()
+      } else {
+        toast.error(result.message || t('Operation failed'))
+      }
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setIsAgentSubmitting(false)
+      setUnmarkAgentOpen(false)
+    }
+  }
+
+  const handleCopyAgentApikey = async () => {
+    try {
+      const result = await getAgentApikey(user.id)
+      if (result.success && result.data?.key) {
+        openAgentApikey(user.username, result.data.key)
+      } else {
+        toast.error(result.message || t('Failed to fetch agent apikey'))
+      }
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     }
   }
 
@@ -150,7 +215,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       } else {
         toast.error(result.message || t('Failed to reset 2FA'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetTwoFAOpen(false)
@@ -250,6 +315,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setQuotaHistoryOpen(true)
+            }}
+          >
+            {t('Quota change history')}
+            <DropdownMenuShortcut>
+              <History size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
           <DropdownMenuSeparator />
 
           {/* 商务账号：未标记显示"标记"；已标记显示"变更"+"移除" */}
@@ -289,6 +366,48 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
                 {t('Remove Business Account')}
                 <DropdownMenuShortcut>
                   <BriefcaseBusiness size={16} />
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </>
+          )}
+
+          {/* 代理身份：未标记显示"标记为代理商"；已标记显示"复制代理 apikey"+"取消代理身份" */}
+          {!user.is_agent ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault()
+                setMarkAgentOpen(true)
+              }}
+              disabled={isRoot}
+            >
+              {t('Mark as Agent')}
+              <DropdownMenuShortcut>
+                <UserCheck size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          ) : (
+            <>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault()
+                  handleCopyAgentApikey()
+                }}
+              >
+                {t('Copy agent apikey')}
+                <DropdownMenuShortcut>
+                  <Copy size={16} />
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault()
+                  setUnmarkAgentOpen(true)
+                }}
+                className='text-destructive focus:text-destructive'
+              >
+                {t('Remove Agent Identity')}
+                <DropdownMenuShortcut>
+                  <UserX size={16} />
                 </DropdownMenuShortcut>
               </DropdownMenuItem>
             </>
@@ -369,6 +488,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onSuccess={triggerRefresh}
       />
 
+      {quotaHistoryOpen ? (
+        <UserQuotaHistoryDialog
+          open
+          onOpenChange={setQuotaHistoryOpen}
+          user={{ id: user.id, username: user.username, quota: user.quota }}
+        />
+      ) : null}
+
       <BusinessChannelDialog
         open={businessDialogOpen}
         onOpenChange={setBusinessDialogOpen}
@@ -388,6 +515,29 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         })}
         confirmText={t('Remove Business Account')}
         handleConfirm={handleUnmarkBusiness}
+      />
+
+      <ConfirmDialog
+        open={markAgentOpen}
+        onOpenChange={setMarkAgentOpen}
+        title={t('Mark as Agent')}
+        desc={t('Mark user {{username}} as an agent?', {
+          username: user.username,
+        })}
+        confirmText={t('Mark as Agent')}
+        handleConfirm={handleMarkAgent}
+        isLoading={isAgentSubmitting}
+      />
+
+      <ConfirmDialog
+        open={unmarkAgentOpen}
+        onOpenChange={setUnmarkAgentOpen}
+        title={t('Remove Agent Identity')}
+        desc={t('After removing the agent identity, users on the associated site will no longer be able to log in. Confirm removal?')}
+        confirmText={t('Remove Agent Identity')}
+        destructive
+        handleConfirm={handleUnmarkAgent}
+        isLoading={isAgentSubmitting}
       />
     </>
   )

@@ -94,7 +94,8 @@ type User struct {
 	AccessToken        *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota              int                        `json:"quota" gorm:"type:int;default:0"`
 	UsedQuota          int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount       int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
+	TotalQuota         *int64                     `json:"total_quota,omitempty" gorm:"type:bigint;column:total_quota"`
+	RequestCount       int                        `json:"request_count" gorm:"type:int;default:0;"` // request number
 	Group              string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
 	AffCode            string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	AffCount           int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
@@ -111,6 +112,8 @@ type User struct {
 	IsVipCustomer      bool                       `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
 	BusinessChannel    string                     `json:"business_channel" gorm:"type:varchar(255);default:'';column:business_channel" validate:"max=255"`
 	AllowOnlineTopup   bool                       `json:"allow_online_topup" gorm:"type:bool;default:false;column:allow_online_topup;index"`
+	IsAgent            bool                       `json:"is_agent" gorm:"type:bool;default:false;column:is_agent;index"`
+	AgentTokenId       int                        `json:"agent_token_id" gorm:"type:int;column:agent_token_id"`
 	CreatedAt          int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt        int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion        int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
@@ -145,7 +148,7 @@ func (user *User) SetAccessToken(token string) {
 }
 
 func (user *User) GetSetting() dto.UserSetting {
-	setting := dto.UserSetting{}
+	setting := dto.UserSetting{RecordIpLog: true}
 	if user.Setting != "" {
 		err := common.Unmarshal([]byte(user.Setting), &setting)
 		if err != nil {
@@ -386,7 +389,7 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, allowOnlineTopup *bool, createdAtStart, createdAtEnd *int64, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, isVip *bool, allowOnlineTopup *bool, isAgent *bool, createdAtStart, createdAtEnd *int64, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -443,6 +446,13 @@ func SearchUsers(keyword string, group string, role *int, status *int, isVip *bo
 			query = query.Where("allow_online_topup = ?", commonTrueVal)
 		} else {
 			query = query.Where("allow_online_topup = ?", commonFalseVal)
+		}
+	}
+	if isAgent != nil {
+		if *isAgent {
+			query = query.Where("is_agent = ?", commonTrueVal)
+		} else {
+			query = query.Where("is_agent = ?", commonFalseVal)
 		}
 	}
 	if createdAtStart != nil {
@@ -625,6 +635,205 @@ func SetUserBusinessChannel(id int, channel string) error {
 	return DB.Model(&User{}).Where("id = ?", id).Update("business_channel", channel).Error
 }
 
+// MarkUserAsAgent 将用户标记为代理商，同时生成一个绑定其分组的代理 Token。
+// 事务内：① 加锁读取 User 校验非已代理；② 生成 sk-key 建 Token（无限额度+永不过期+跟随用户分组，IsAgentToken=true）；
+// ③ 回写 user.is_agent 与 agent_token_id。返回明文 key 供前端一次性展示。
+func MarkUserAsAgent(userId int) (string, error) {
+	if userId == 0 {
+		return "", errors.New("id 为空")
+	}
+	key, err := common.GenerateKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate agent key: %w", err)
+	}
+
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return "", tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var user User
+	if err := lockForUpdate(tx).First(&user, userId).Error; err != nil {
+		tx.Rollback()
+		return "", err
+	}
+	if user.IsAgent {
+		tx.Rollback()
+		return "", errors.New("该用户已是代理商")
+	}
+
+	now := common.GetTimestamp()
+	token := Token{
+		UserId:         user.Id,
+		Name:           fmt.Sprintf("agent-%d", user.Id),
+		Key:            key,
+		Status:         common.TokenStatusEnabled,
+		CreatedTime:    now,
+		AccessedTime:   now,
+		ExpiredTime:    -1,
+		RemainQuota:    0,
+		UnlimitedQuota: true,
+		Group:          user.Group,
+		IsAgentToken:   true,
+	}
+	if err := tx.Create(&token).Error; err != nil {
+		tx.Rollback()
+		return "", err
+	}
+
+	if err := tx.Model(&User{}).Where("id = ?", user.Id).
+		Updates(map[string]interface{}{
+			"is_agent":       true,
+			"agent_token_id": token.Id,
+		}).Error; err != nil {
+		tx.Rollback()
+		return "", err
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// GetAgentApikey 返回用户代理 Token 的明文 key，供管理员在标记之后再次拷贝。
+// 依赖 Token.Key 以明文存储；仅当用户仍处于 IsAgent 状态且对应 Token 存在时才返回。
+func GetAgentApikey(userId int) (string, error) {
+	if userId == 0 {
+		return "", errors.New("id 为空")
+	}
+	var user User
+	if err := DB.Select("id", "is_agent", "agent_token_id").First(&user, userId).Error; err != nil {
+		return "", err
+	}
+	if !user.IsAgent || user.AgentTokenId <= 0 {
+		return "", errors.New("该用户不是代理商")
+	}
+	var token Token
+	if err := DB.Select("id", "key", "user_id").
+		Where("id = ? AND user_id = ?", user.AgentTokenId, user.Id).
+		First(&token).Error; err != nil {
+		return "", err
+	}
+	if token.Key == "" {
+		return "", errors.New("代理 apikey 不存在")
+	}
+	return token.Key, nil
+}
+
+// UnmarkUserAsAgent 取消用户代理身份：删除其代理 Token 并清除标记。
+func UnmarkUserAsAgent(userId int) error {
+	if userId == 0 {
+		return errors.New("id 为空")
+	}
+
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var user User
+	if err := lockForUpdate(tx).First(&user, userId).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if !user.IsAgent {
+		tx.Rollback()
+		return errors.New("该用户不是代理商")
+	}
+
+	var tokenKey string
+	if user.AgentTokenId > 0 {
+		var token Token
+		if err := tx.Where("id = ? AND user_id = ?", user.AgentTokenId, user.Id).First(&token).Error; err == nil {
+			tokenKey = token.Key
+			if err := tx.Delete(&token).Error; err != nil {
+				tx.Rollback()
+				return err
+			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := tx.Model(&User{}).Where("id = ?", user.Id).
+		Updates(map[string]interface{}{
+			"is_agent":       false,
+			"agent_token_id": 0,
+		}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	if tokenKey != "" && common.RedisEnabled {
+		gopool.Go(func() {
+			if err := cacheDeleteToken(tokenKey); err != nil {
+				common.SysLog("failed to delete agent token cache: " + err.Error())
+			}
+		})
+	}
+	return nil
+}
+
+// SyncAgentTokenGroupTx 在同一事务内把代理 Token 的 Group 同步到新值。
+// 使用 lockForUpdate 保证与调用方的用户 group 变更原子性，避免并发写入下的 user/token group 撕裂。
+// 返回被更新的 token key（用于事务提交后失效缓存），若无变更返回空串。
+// 缓存失效由调用方在事务 commit 后完成，避免事务回滚后写入脏缓存。
+func SyncAgentTokenGroupTx(tx *gorm.DB, userId int, newGroup string) (string, error) {
+	if tx == nil || userId == 0 {
+		return "", nil
+	}
+	var user User
+	if err := tx.Select("id", "is_agent", "agent_token_id").First(&user, userId).Error; err != nil {
+		return "", err
+	}
+	if !user.IsAgent || user.AgentTokenId <= 0 {
+		return "", nil
+	}
+	var token Token
+	if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", user.AgentTokenId, user.Id).First(&token).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	if token.Group == newGroup {
+		return "", nil
+	}
+	if err := tx.Model(&Token{}).Where("id = ?", token.Id).Update("group", newGroup).Error; err != nil {
+		return "", err
+	}
+	return token.Key, nil
+}
+
+// InvalidateTokenCacheByKey 供 controller 在事务提交后主动失效指定 token 的 Redis 缓存。
+// 采用 delete 而非 set，避免与 relay 侧的 cacheIncr/DecrTokenQuota 之间产生"覆盖计数"的竞态。
+func InvalidateTokenCacheByKey(key string) {
+	if key == "" || !common.RedisEnabled {
+		return
+	}
+	gopool.Go(func() {
+		if err := cacheDeleteToken(key); err != nil {
+			common.SysLog("failed to invalidate token cache: " + err.Error())
+		}
+	})
+}
+
 // GetUserLogScopeIDs returns the users whose logs are visible through the
 // current user's self-log endpoints. Business accounts can also see users
 // they directly invited; all other accounts remain limited to themselves.
@@ -696,6 +905,9 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	// 更新用户额度
 	user.AffQuota -= quota
 	user.Quota += quota
+	if user.TotalQuota != nil {
+		*user.TotalQuota += int64(quota)
+	}
 
 	// 保存用户状态
 	if err := tx.Save(user).Error; err != nil {
@@ -764,11 +976,13 @@ func (user *User) Insert(inviterId int) error {
 				return err
 			}
 			user.Quota = common.QuotaForNewUser
+			totalQuota := int64(user.Quota)
+			user.TotalQuota = &totalQuota
 			user.AffCode = common.GetRandomString(4)
 
 			// 初始化用户设置，包括默认的边栏配置
 			if user.Setting == "" {
-				defaultSetting := dto.UserSetting{}
+				defaultSetting := dto.UserSetting{RecordIpLog: true}
 				// 这里暂时不设置SidebarModules，因为需要在用户创建后根据角色设置
 				user.SetSetting(defaultSetting)
 			}
@@ -804,7 +1018,7 @@ func (user *User) finishInsert(inviterId int) {
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
 		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
+			_ = IncreaseUserQuotaAndTotal(user.Id, common.QuotaForInvitee)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
 		}
 		if common.QuotaForInviter > 0 {
@@ -828,11 +1042,13 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			return err
 		}
 		user.Quota = common.QuotaForNewUser
+		totalQuota := int64(user.Quota)
+		user.TotalQuota = &totalQuota
 		user.AffCode = common.GetRandomString(4)
 
 		// 初始化用户设置
 		if user.Setting == "" {
-			defaultSetting := dto.UserSetting{}
+			defaultSetting := dto.UserSetting{RecordIpLog: true}
 			user.SetSetting(defaultSetting)
 		}
 
@@ -861,7 +1077,7 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
 		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
+			_ = IncreaseUserQuotaAndTotal(user.Id, common.QuotaForInvitee)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(common.QuotaForInvitee)))
 		}
 		if common.QuotaForInviter > 0 {
@@ -917,7 +1133,7 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 			return err
 		}
 	}
-	if err = tx.Model(&current).Omit("quota", "used_quota", "request_count", "auth_version").Updates(newUser).Error; err != nil {
+	if err = tx.Model(&current).Omit("quota", "used_quota", "total_quota", "request_count", "auth_version").Updates(newUser).Error; err != nil {
 		return err
 	}
 	return tx.First(user, user.Id).Error
@@ -1422,6 +1638,24 @@ func IncreaseUserQuota(id int, quota int, db bool) (err error) {
 	return increaseUserQuota(id, quota)
 }
 
+func IncreaseUserQuotaAndTotal(id int, quota int) error {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	if err := DB.Model(&User{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"quota":       gorm.Expr("quota + ?", quota),
+		"total_quota": gorm.Expr("CASE WHEN total_quota IS NULL THEN NULL ELSE total_quota + ? END", quota),
+	}).Error; err != nil {
+		return err
+	}
+	gopool.Go(func() {
+		if err := cacheIncrUserQuota(id, int64(quota)); err != nil {
+			common.SysLog("failed to increase user quota: " + err.Error())
+		}
+	})
+	return nil
+}
+
 func increaseUserQuota(id int, quota int) (err error) {
 	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota + ?", quota)).Error
 	if err != nil {
@@ -1445,6 +1679,40 @@ func DecreaseUserQuota(id int, quota int, db bool) (err error) {
 		return nil
 	}
 	return decreaseUserQuota(id, quota)
+}
+
+func DecreaseUserQuotaAndTotal(id int, quota int) error {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	if err := DB.Model(&User{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"quota":       gorm.Expr("quota - ?", quota),
+		"total_quota": gorm.Expr("CASE WHEN total_quota IS NULL THEN NULL WHEN total_quota - ? < 0 THEN 0 ELSE total_quota - ? END", quota, quota),
+	}).Error; err != nil {
+		return err
+	}
+	gopool.Go(func() {
+		if err := cacheDecrUserQuota(id, int64(quota)); err != nil {
+			common.SysLog("failed to decrease user quota: " + err.Error())
+		}
+	})
+	return nil
+}
+
+func OverrideUserQuotaAndTotal(id int, oldQuota int, newQuota int) error {
+	delta := newQuota - oldQuota
+	if err := DB.Model(&User{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"quota":       newQuota,
+		"total_quota": gorm.Expr("CASE WHEN total_quota IS NULL THEN NULL WHEN total_quota + ? < 0 THEN 0 ELSE total_quota + ? END", delta, delta),
+	}).Error; err != nil {
+		return err
+	}
+	gopool.Go(func() {
+		if err := updateUserQuotaCache(id, newQuota); err != nil {
+			common.SysLog("failed to update user quota: " + err.Error())
+		}
+	})
+	return nil
 }
 
 func decreaseUserQuota(id int, quota int) (err error) {
@@ -1489,6 +1757,17 @@ func UpdateUserUsedQuotaAndRequestCount(id int, quota int) {
 		return
 	}
 	updateUserUsedQuotaAndRequestCount(id, quota, 1)
+}
+
+func UpdateUserUsedQuota(id int, quota int) {
+	if quota == 0 {
+		return
+	}
+	if common.BatchUpdateEnabled {
+		addNewRecord(BatchUpdateTypeUsedQuota, id, quota)
+		return
+	}
+	updateUserUsedQuota(id, quota)
 }
 
 func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {

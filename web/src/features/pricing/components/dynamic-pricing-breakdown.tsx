@@ -68,13 +68,15 @@ type DynamicPricingBreakdownProps = {
    */
   compact?: boolean
   /**
-   * Multiplier applied to displayed prices (v2 matrix cells, formula terms).
-   * Callers pass the current viewing group's ratio so the marketplace shows
-   * group-adjusted prices instead of raw base prices. Defaults to 1.
-   * Currently threaded through to V2PricingBreakdown; the v1 tier table still
-   * displays base prices — extend there when per-group v1 display is needed.
-   */
+   * Multiplier applied to displayed prices. Callers pass the current viewing
+   * group's ratio so the marketplace shows group-adjusted prices instead of raw
+   * base prices. Defaults to 1.
+  */
   groupRatioMultiplier?: number
+  currencySymbol?: string
+  currencyRate?: number
+  officialCurrencyRate?: number
+  showComparison?: boolean
 }
 
 const VAR_LABELS: Record<string, string> = {
@@ -171,12 +173,24 @@ export function DynamicPricingBreakdown({
   hideCacheColumns = false,
   compact = false,
   groupRatioMultiplier = 1,
+  currencySymbol,
+  currencyRate,
+  officialCurrencyRate,
+  showComparison = false,
 }: DynamicPricingBreakdownProps) {
   const { t } = useTranslation()
   const expr = billingExpr || ''
   const currency = useSystemConfigStore((s) => s.config.currency)
 
   const { symbol, rate } = useMemo(() => {
+    if (
+      currencySymbol &&
+      currencyRate != null &&
+      Number.isFinite(currencyRate) &&
+      currencyRate > 0
+    ) {
+      return { symbol: currencySymbol, rate: currencyRate }
+    }
     if (currency.quotaDisplayType === 'CNY') {
       return { symbol: '¥', rate: currency.usdExchangeRate || 7 }
     }
@@ -187,7 +201,30 @@ export function DynamicPricingBreakdown({
       }
     }
     return { symbol: '$', rate: 1 }
-  }, [currency])
+  }, [currency, currencyRate, currencySymbol])
+  const effectiveRate =
+    rate * (Number.isFinite(groupRatioMultiplier) ? groupRatioMultiplier : 1)
+  const comparisonRate =
+    officialCurrencyRate != null &&
+    Number.isFinite(officialCurrencyRate) &&
+    officialCurrencyRate > 0
+      ? officialCurrencyRate
+      : rate
+  const renderPriceValue = (value: number) => {
+    if (value <= 0) return '-'
+    const actual = `${symbol}${(value * effectiveRate).toFixed(4)}`
+    if (!showComparison) return actual
+    return (
+      <span className='inline-flex flex-col items-end'>
+        <span className='text-muted-foreground/50 font-mono text-[10px] line-through'>
+          {`${symbol}${(value * comparisonRate).toFixed(4)}`}
+        </span>
+        <span className='font-mono font-semibold text-amber-600 dark:text-amber-400'>
+          {actual}
+        </span>
+      </span>
+    )
+  }
 
   const { tiers, ruleGroups } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
@@ -214,6 +251,10 @@ export function DynamicPricingBreakdown({
           matchedParams={matchedParams ?? null}
           compact={compact}
           groupRatioMultiplier={groupRatioMultiplier}
+          currencySymbol={currencySymbol}
+          currencyRate={currencyRate}
+          officialCurrencyRate={officialCurrencyRate}
+          showComparison={showComparison}
         />
         {ruleGroups.length > 0 && (
           <ConditionalMultipliersBlock
@@ -351,9 +392,7 @@ export function DynamicPricingBreakdown({
                               compact ? 'text-xs' : 'text-sm font-semibold'
                             )}
                           >
-                            {value > 0
-                              ? `${symbol}${(value * rate).toFixed(4)}`
-                              : '-'}
+                            {renderPriceValue(value)}
                           </div>
                         </div>
                       )
@@ -440,8 +479,8 @@ export function DynamicPricingBreakdown({
                     tier[v.field as string as keyof ParsedTier] || 0
                   )
                   return value > 0 ? (
-                    <span className={cn(!compact && 'font-semibold')}>
-                      {`${symbol}${(value * rate).toFixed(4)}`}
+                    <span className={cn('inline-flex justify-end', !compact && 'font-semibold')}>
+                      {renderPriceValue(value)}
                     </span>
                   ) : (
                     '-'

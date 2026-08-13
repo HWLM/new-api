@@ -355,6 +355,10 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.FillUsersTotalQuota(users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	model.FillInviterUsernames(users)
 
 	pageInfo.SetTotal(int(total))
@@ -389,6 +393,11 @@ func SearchUsers(c *gin.Context) {
 		b := v == "true" || v == "1"
 		allowOnlineTopup = &b
 	}
+	var isAgent *bool
+	if v := c.Query("is_agent"); v != "" {
+		b := v == "true" || v == "1"
+		isAgent = &b
+	}
 	var createdAtStart *int64
 	if v := c.Query("created_at_start"); v != "" {
 		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -402,8 +411,12 @@ func SearchUsers(c *gin.Context) {
 		}
 	}
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.SearchUsers(keyword, group, role, status, isVip, allowOnlineTopup, createdAtStart, createdAtEnd, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	users, total, err := model.SearchUsers(keyword, group, role, status, isVip, allowOnlineTopup, isAgent, createdAtStart, createdAtEnd, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.FillUsersTotalQuota(users); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -778,17 +791,34 @@ func UpdateUser(c *gin.Context) {
 	}
 	updatePassword := updatedUser.Password != ""
 	authzTouched := false
+	var syncedAgentTokenKey string
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
 			return err
 		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
 		authzTouched = touched
-		return err
+		if err != nil {
+			return err
+		}
+		// 用户分组变更且用户为代理商时，在同一事务内同步其代理 apikey 的分组，
+		// 保证 user.group 与 agent_token.group 的写入原子性；缓存失效放在事务提交后。
+		if updatedUser.Group != "" && updatedUser.Group != originUser.Group {
+			tokenKey, err := model.SyncAgentTokenGroupTx(tx, updatedUser.Id, updatedUser.Group)
+			if err != nil {
+				return err
+			}
+			syncedAgentTokenKey = tokenKey
+		}
+		return nil
 	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	// 事务已 commit：立刻失效代理 token 的 Redis 缓存，让后续请求走 DB 拿到最新 group。
+	// 放在这里而不是靠后，避免下方 SetUserInviterId 失败短路时缓存残留旧 group。
+	model.InvalidateTokenCacheByKey(syncedAgentTokenKey)
+
 	// Edit 不保存 inviter_id，独立更新；只在调用方明确传了 inviter_username 字段时才更新
 	if inviterId != originUser.InviterId {
 		if err := model.SetUserInviterId(updatedUser.Id, inviterId); err != nil {
@@ -1304,7 +1334,7 @@ func ManageUser(c *gin.Context) {
 				return
 			}
 			oldQuota := user.Quota
-			if err := model.IncreaseUserQuota(user.Id, quotaValue, true); err != nil {
+			if err := model.IncreaseUserQuotaAndTotal(user.Id, quotaValue); err != nil {
 				common.ApiError(c, err)
 				return
 			}
@@ -1326,9 +1356,11 @@ func ManageUser(c *gin.Context) {
 					req.RechargeAmount, req.Ratio, localPrice,
 					logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue))
 			}
+			beforeQuota := int64(oldQuota)
+			afterQuota := int64(oldQuota + quotaValue)
 			model.RecordManageLog(user.Id, logMsg,
-				model.OperationTypeQuota, req.QuotaType, adminInfo,
-				&rechargeInputAmount, &rechargeAfterRatioAmount)
+				model.OperationTypeQuota, req.QuotaType, quotaValue, adminInfo,
+				&rechargeInputAmount, &rechargeAfterRatioAmount, &beforeQuota, &afterQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_add", map[string]interface{}{
 				"quota": logger.LogQuota(req.Value),
 			})
@@ -1337,23 +1369,27 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
-			if err := model.DecreaseUserQuota(user.Id, req.Value, true); err != nil {
+			if err := model.DecreaseUserQuotaAndTotal(user.Id, req.Value); err != nil {
 				common.ApiError(c, err)
 				return
 			}
+			beforeQuota := int64(user.Quota)
+			afterQuota := int64(user.Quota - req.Value)
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo, nil, nil)
+				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), model.OperationTypeQuota, "", -req.Value, adminInfo, nil, nil, &beforeQuota, &afterQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_subtract", map[string]interface{}{
 				"quota": logger.LogQuota(req.Value),
 			})
 		case "override":
 			oldQuota := user.Quota
-			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
+			if err := model.OverrideUserQuotaAndTotal(user.Id, oldQuota, req.Value); err != nil {
 				common.ApiError(c, err)
 				return
 			}
+			beforeQuota := int64(oldQuota)
+			afterQuota := int64(req.Value)
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), model.OperationTypeQuota, "", adminInfo, nil, nil)
+				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), model.OperationTypeQuota, "", req.Value-oldQuota, adminInfo, nil, nil, &beforeQuota, &afterQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_override", map[string]interface{}{
 				"from": logger.LogQuota(oldQuota),
 				"to":   logger.LogQuota(req.Value),
@@ -1559,7 +1595,7 @@ type UpdateUserSettingRequest struct {
 	GotifyPriority                   int     `json:"gotify_priority,omitempty"`
 	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
 	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
-	RecordIpLog                      bool    `json:"record_ip_log"`
+	RecordIpLog                      *bool   `json:"record_ip_log,omitempty"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1654,6 +1690,10 @@ func UpdateUserSetting(c *gin.Context) {
 	if user.Role >= common.RoleAdminUser && req.UpstreamModelUpdateNotifyEnabled != nil {
 		upstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
 	}
+	recordIpLog := existingSettings.RecordIpLog
+	if req.RecordIpLog != nil {
+		recordIpLog = *req.RecordIpLog
+	}
 
 	// 构建设置
 	settings := dto.UserSetting{
@@ -1661,7 +1701,7 @@ func UpdateUserSetting(c *gin.Context) {
 		QuotaWarningThreshold:            req.QuotaWarningThreshold,
 		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
 		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
-		RecordIpLog:                      req.RecordIpLog,
+		RecordIpLog:                      recordIpLog,
 	}
 
 	// 如果是webhook类型,添加webhook相关设置
@@ -1777,4 +1817,92 @@ func BatchSetAllowOnlineTopup(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"affected": affected})
+}
+
+// MarkUserAsAgent 将某个用户标记为代理商，并生成一个绑定其分组、无限额度、永不过期的代理 apikey。
+// 返回一次性明文 key 供前端展示复制。
+func MarkUserAsAgent(c *gin.Context) {
+	var req struct {
+		Id int `json:"id"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if req.Id <= 0 {
+		common.ApiErrorMsg(c, "user id 不合法")
+		return
+	}
+	// 越权拦截：不允许对同级/更高级别的用户创建代理 apikey，
+	// 否则可绕过角色边界拿到目标账户的无限额度调用权。
+	target, err := model.GetUserById(req.Id, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !canManageTargetRole(c.GetInt("role"), target.Role) {
+		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
+		return
+	}
+	key, err := model.MarkUserAsAgent(req.Id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"key": "sk-" + key})
+}
+
+// GetAgentApikey 返回指定用户的代理 apikey 明文，用于管理员在初始弹窗关闭后再次拷贝。
+// 权限校验与 MarkUserAsAgent 一致：不允许对同级/更高级别用户查看。
+func GetAgentApikey(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "user id 不合法")
+		return
+	}
+	target, err := model.GetUserById(id, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !canManageTargetRole(c.GetInt("role"), target.Role) {
+		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
+		return
+	}
+	key, err := model.GetAgentApikey(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"key": "sk-" + key})
+}
+
+// UnmarkUserAsAgent 取消某个用户的代理身份，同时删除对应的代理 apikey。
+func UnmarkUserAsAgent(c *gin.Context) {
+	var req struct {
+		Id int `json:"id"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if req.Id <= 0 {
+		common.ApiErrorMsg(c, "user id 不合法")
+		return
+	}
+	target, err := model.GetUserById(req.Id, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !canManageTargetRole(c.GetInt("role"), target.Role) {
+		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
+		return
+	}
+	if err := model.UnmarkUserAsAgent(req.Id); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
 }

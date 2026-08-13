@@ -44,6 +44,7 @@ export const userSchema = z.object({
   email: z.string().optional(),
   quota: z.number(),
   used_quota: z.number(),
+  total_quota: z.number().optional(),
   request_count: z.number(),
   group: z.string(),
   aff_code: z.string().optional(),
@@ -64,6 +65,8 @@ export const userSchema = z.object({
   is_vip_customer: z.boolean().optional(),
   business_channel: z.string().optional(),
   allow_online_topup: z.boolean().optional(),
+  is_agent: z.boolean().optional(),
+  agent_token_id: z.number().optional(),
   /** 仅 GET /api/user/:id 返回：用户所在分组对应的充值比例，调整额度弹窗回显使用 */
   topup_group_ratio: z.number().optional(),
   admin_permissions: z
@@ -113,6 +116,35 @@ export interface GetUsersResponse {
   }
 }
 
+export interface UserQuotaHistoryItem {
+  id: number
+  created_at: number
+  type: number
+  delta_quota: number | null
+  before_quota: number | null
+  after_quota: number | null
+  content: string
+  model_name: string
+  token_name: string
+  request_id: string
+  operation_type?: string
+  quota_type?: string
+  recharge_input_amount?: number
+  recharge_after_ratio_amount?: number
+}
+
+export interface UserQuotaHistoryResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: UserQuotaHistoryItem[]
+    total: number
+    page: number
+    page_size: number
+    current_quota: number
+  }
+}
+
 export interface SearchUsersParams {
   keyword?: string
   group?: string
@@ -121,6 +153,8 @@ export interface SearchUsersParams {
   /** '' = 不筛选，'true' = 仅重点客户，'false' = 仅非重点客户 */
   is_vip?: string
   allow_online_topup?: string
+  /** '' = 不筛选，'true' = 仅代理商，'false' = 仅非代理商 */
+  is_agent?: string
   /** unix 秒，0/undefined = 不筛选 */
   created_at_start?: number
   /** unix 秒，0/undefined = 不筛选 */
@@ -275,4 +309,9 @@ export interface VipStatsTrendParams {
 // Dialog Types
 // ============================================================================
 
-export type UsersDialogType = 'create' | 'update' | 'delete' | 'tg-settings'
+export type UsersDialogType =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'tg-settings'
+  | 'quota-history'

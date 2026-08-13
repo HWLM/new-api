@@ -28,7 +28,6 @@ import { LongText } from "@/components/long-text";
 import { StatusBadge } from "@/components/status-badge";
 import { TableId } from "@/components/table-id";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
@@ -36,7 +35,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatQuota, formatTimestamp } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 import {
   USER_STATUS,
@@ -47,17 +45,8 @@ import {
 import { updateUser } from "../api";
 import type { User } from "../types";
 import { DataTableRowActions } from "./data-table-row-actions";
+import { UserQuotaHistoryCell } from "./user-quota-history-cell";
 import { useUsers } from "./users-provider";
-
-function getQuotaProgressColor(percentage: number): string {
-  if (percentage <= 10) {
-    return "[&_[data-slot=progress-indicator]]:bg-rose-500";
-  }
-  if (percentage <= 30) {
-    return "[&_[data-slot=progress-indicator]]:bg-amber-500";
-  }
-  return "[&_[data-slot=progress-indicator]]:bg-emerald-500";
-}
 
 export function useUsersColumns(): ColumnDef<User>[] {
   const { t } = useTranslation();
@@ -201,6 +190,30 @@ export function useUsersColumns(): ColumnDef<User>[] {
       meta: { label: t("Business Channel") },
     },
     {
+      accessorKey: "is_agent",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t("Agent Identity")} />
+      ),
+      cell: ({ row }) => {
+        const isAgent = row.original.is_agent === true;
+        return (
+          <StatusBadge
+            label={isAgent ? t("Yes") : t("No")}
+            variant={isAgent ? "success" : "neutral"}
+            copyable={false}
+          />
+        );
+      },
+      filterFn: (row, id, value: string[]) => {
+        if (!value?.length || value.includes("all")) return true;
+        const v = String(row.getValue(id) === true);
+        return value.includes(v);
+      },
+      enableSorting: false,
+      size: 110,
+      meta: { label: t("Agent Identity"), mobileHidden: true },
+    },
+    {
       accessorKey: "allow_online_topup",
       header: t("Allow online top-up"),
       cell: ({ row }) => {
@@ -268,61 +281,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
       id: "quota",
       accessorKey: "quota",
       header: t("Quota"),
-      cell: ({ row }) => {
-        const user = row.original;
-        const used = user.used_quota;
-        const remaining = user.quota;
-        const total = used + remaining;
-        const percentage = total > 0 ? (remaining / total) * 100 : 0;
-
-        if (total === 0) {
-          return (
-            <StatusBadge
-              label={t("No Quota")}
-              variant="neutral"
-              copyable={false}
-              className="-ml-1.5"
-            />
-          );
-        }
-
-        return (
-          <Tooltip>
-            <TooltipTrigger
-              render={<div className="w-[150px] cursor-help space-y-1" />}
-            >
-              <div className="flex justify-between text-xs">
-                <span className="font-medium tabular-nums">
-                  {formatQuota(remaining)}
-                </span>
-                <span className="text-muted-foreground tabular-nums">
-                  {formatQuota(total)}
-                </span>
-              </div>
-              <Progress
-                value={percentage}
-                className={cn("h-1.5", getQuotaProgressColor(percentage))}
-              />
-            </TooltipTrigger>
-            <TooltipContent>
-              <div className="space-y-1 text-xs">
-                <div>
-                  {t("Used:")} {formatQuota(used)}
-                </div>
-                <div>
-                  {t("Remaining:")} {formatQuota(remaining)}
-                </div>
-                <div>
-                  {t("Total:")} {formatQuota(total)}
-                </div>
-                <div>
-                  {t("Percentage:")} {percentage.toFixed(1)}%
-                </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        );
-      },
+      cell: ({ row }) => <UserQuotaHistoryCell user={row.original} />,
       size: 170,
       meta: { mobileOrder: 40 },
     },

@@ -175,13 +175,16 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if result.RowsAffected == 0 {
 			return errors.New("该兑换码已被使用")
 		}
-		return tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error
+		return tx.Model(&User{}).Where("id = ?", userId).Updates(map[string]interface{}{
+			"quota":       gorm.Expr("quota + ?", redemption.Quota),
+			"total_quota": gorm.Expr("CASE WHEN total_quota IS NULL THEN NULL ELSE total_quota + ? END", redemption.Quota),
+		}).Error
 	})
 	if err != nil {
 		common.SysError("redemption failed: " + err.Error())
 		return 0, ErrRedeemFailed
 	}
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
+	RecordTopupLog(userId, redemption.Quota, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id), "", "redemption", "redemption")
 	return redemption.Quota, nil
 }
 

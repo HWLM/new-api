@@ -82,7 +82,11 @@ import type { ModelSettings } from '@/features/system-settings/types'
 import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
 
 import { createModel, updateModel, getModel, getVendors } from '../../api'
-import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
+import {
+  ENDPOINT_TEMPLATES,
+  getNameRuleOptions,
+  getOfficialPriceBasisOptions,
+} from '../../constants'
 import { modelsQueryKeys, vendorsQueryKeys, parseModelTags } from '../../lib'
 import type { Model } from '../../types'
 
@@ -98,6 +102,11 @@ const extendedModelFormSchema = z.object({
   name_rule: z.number(),
   status: z.boolean(),
   sync_official: z.boolean(),
+  official_price_basis: z.enum([
+    'auto',
+    'one_to_one',
+    'consume_usd_exchange_rate',
+  ]),
   price: z.string().optional(),
   ratio: z.string().optional(),
   cacheRatio: z.string().optional(),
@@ -241,6 +250,10 @@ export function ModelMutateDrawer({
   const queryClient = useQueryClient()
   const currentModelId = currentRow?.id
   const isEditing = Boolean(currentModelId)
+  const officialPriceBasisOptions = useMemo(
+    () => getOfficialPriceBasisOptions(t),
+    [t]
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pricingMode, setPricingMode] = useState<PricingMode>('per-token')
   const [pricingSubMode, setPricingSubMode] = useState<PricingSubMode>('ratio')
@@ -372,6 +385,7 @@ export function ModelMutateDrawer({
       name_rule: 0,
       status: true,
       sync_official: true,
+      official_price_basis: 'consume_usd_exchange_rate',
       price: '',
       ratio: '',
       cacheRatio: '',
@@ -440,6 +454,8 @@ export function ModelMutateDrawer({
         name_rule: model.name_rule || 0,
         status: model.status === 1,
         sync_official: model.sync_official === 1,
+        official_price_basis:
+          model.official_price_basis || 'consume_usd_exchange_rate',
         ...pricing.fields,
       })
     } else if (open && !isEditing) {
@@ -465,6 +481,8 @@ export function ModelMutateDrawer({
         name_rule: 0,
         status: true,
         sync_official: true,
+        official_price_basis:
+          currentRow?.official_price_basis || 'consume_usd_exchange_rate',
         ...pricing.fields,
       })
     }
@@ -1373,6 +1391,60 @@ export function ModelMutateDrawer({
                     </FormControl>
                   </FormItem>
                 )}
+              />
+
+              <FormField
+                control={form.control}
+                name='official_price_basis'
+                render={({ field }) => {
+                  const selectedOption =
+                    officialPriceBasisOptions.find(
+                      (option) => option.value === field.value
+                    ) || officialPriceBasisOptions[0]
+
+                  return (
+                    <FormItem>
+                      <FormLabel>{t('Source type')}</FormLabel>
+                      <Select
+                        items={officialPriceBasisOptions.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        }))}
+                        value={field.value || 'consume_usd_exchange_rate'}
+                        onValueChange={field.onChange}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={t('Select source type')}
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            {officialPriceBasisOptions.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                <div className='flex flex-col gap-0.5'>
+                                  <span>{option.label}</span>
+                                  <span className='text-muted-foreground text-xs'>
+                                    {option.description}
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {selectedOption.description}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )
+                }}
               />
             </SideDrawerSection>
           </form>

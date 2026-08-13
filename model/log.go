@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 
 	"gorm.io/gorm"
 )
@@ -29,6 +30,10 @@ func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm
 		return tx.Where(condition, pattern), nil
 	}
 	return tx.Where(column+" = ?", value), nil
+}
+
+func ApplyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {
+	return applyExplicitLogTextFilter(tx, column, value)
 }
 
 // applyLogUsernameFilter 与 applyExplicitLogTextFilter 语义一致，只是在精确匹配路径上
@@ -51,6 +56,10 @@ func applyLogUsernameFilter(tx *gorm.DB, column string, value string) (*gorm.DB,
 		return tx.Where(column+" = ?", value), nil
 	}
 	return tx.Where(column+" IN ?", usernames), nil
+}
+
+func ApplyLogUsernameFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {
+	return applyLogUsernameFilter(tx, column, value)
 }
 
 // resolveLogUsernameCandidates 返回一个 username 集合：至少包含入参本身，
@@ -120,6 +129,8 @@ type Log struct {
 	TokenName         string  `json:"token_name" gorm:"index;default:''"`
 	ModelName         string  `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota             int     `json:"quota" gorm:"default:0"`
+	BeforeQuota       *int64  `json:"before_quota,omitempty"`
+	AfterQuota        *int64  `json:"after_quota,omitempty"`
 	OperationType     *string `json:"operation_type,omitempty" gorm:"type:varchar(32);index"`
 	QuotaType         *string `json:"quota_type,omitempty" gorm:"type:varchar(16);index"`
 	PromptTokens      int     `json:"prompt_tokens" gorm:"default:0"`
@@ -188,6 +199,142 @@ func NetQuotaSumExpr() string {
 		"COALESCE(SUM(CASE WHEN type = %d THEN quota WHEN type = %d THEN -quota ELSE 0 END), 0)",
 		LogTypeConsume, LogTypeRefund,
 	)
+}
+
+// ClaudeCacheTokensFromOther 解析 logs.other 中 Claude 语义请求需要补加的缓存 token 总量（读 + 写）。
+//
+// 上游语义差异：OpenAI 系 API 的 input_tokens（→logs.prompt_tokens）已包含缓存读取；
+// Anthropic 系 API 的 input_tokens 是净输入，缓存读取（cache_tokens）与缓存写入
+// （cache_write_tokens，即 cache_creation 归一化总量）单独记账。因此只有 Claude 语义
+// 的请求需要把缓存 token 补进"总 token 数"口径，OpenAI 语义请求直接返回 0，否则会重复计数。
+func ClaudeCacheTokensFromOther(other string) int64 {
+	if !strings.Contains(other, `"claude":true`) &&
+		!strings.Contains(other, `"usage_semantic":"anthropic"`) {
+		return 0
+	}
+	read := gjson.Get(other, "cache_tokens").Int()
+	if read < 0 {
+		read = 0
+	}
+	write := gjson.Get(other, "cache_write_tokens").Int()
+	if write <= 0 {
+		// 老数据没有 cache_write_tokens：按 cacheWriteTokensTotal 的口径回退，
+		// 即存在 5m/1h 拆分时取二者之和与 cache_creation_tokens 的较大者，否则取 cache_creation_tokens。
+		creation := gjson.Get(other, "cache_creation_tokens").Int()
+		c5 := gjson.Get(other, "cache_creation_tokens_5m").Int()
+		c1 := gjson.Get(other, "cache_creation_tokens_1h").Int()
+		if split := c5 + c1; split > creation {
+			write = split
+		} else {
+			write = creation
+		}
+	}
+	if write < 0 {
+		write = 0
+	}
+	return read + write
+}
+
+// SumClaudeCacheTokensByUsers 计算给定时间窗口内（startTs/endTs 传 0 表示不限）
+// 指定用户集合（userIDs 为空表示全部 user_id>0）的 Claude 语义请求
+// 需要补加的缓存 token 总量，按 user_id 分组返回。
+// 只做 text LIKE 粗筛（跨 SQLite/MySQL/PostgreSQL 通用），JSON 解析在 Go 侧完成。
+func SumClaudeCacheTokensByUsers(startTs, endTs int64, userIDs []int) (map[int]int64, error) {
+	result := make(map[int]int64)
+	tx := LOG_DB.Model(&Log{}).
+		Where("type = ?", LogTypeConsume).
+		Where("user_id > 0")
+	if startTs > 0 {
+		tx = tx.Where("created_at >= ?", startTs)
+	}
+	if endTs > 0 {
+		tx = tx.Where("created_at <= ?", endTs)
+	}
+	if len(userIDs) > 0 {
+		tx = tx.Where("user_id IN ?", userIDs)
+	}
+	type claudeRow struct {
+		UserId int
+		Other  string
+	}
+	var rows []claudeRow
+	if err := tx.
+		Where("other LIKE ? OR other LIKE ?", `%"usage_semantic":"anthropic"%`, `%"claude":true%`).
+		Select("user_id, other").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		result[r.UserId] += ClaudeCacheTokensFromOther(r.Other)
+	}
+	return result, nil
+}
+
+// FillUsersTotalQuota initializes legacy users once from remaining quota plus
+// consume-minus-refund history. Subsequent list requests use the persisted value.
+func FillUsersTotalQuota(users []*User) error {
+	if len(users) == 0 {
+		return nil
+	}
+
+	userIDs := make([]int, 0, len(users))
+	for _, user := range users {
+		if user != nil && user.TotalQuota == nil {
+			userIDs = append(userIDs, user.Id)
+		}
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	netQuotaDeltaByUser := make(map[int]int64, len(userIDs))
+	if common.LogConsumeEnabled && LOG_DB != nil {
+		type netUsedQuotaRow struct {
+			UserId        int
+			NetQuotaDelta int64
+		}
+		var rows []netUsedQuotaRow
+		if err := LOG_DB.Model(&Log{}).
+			Where("user_id IN ?", userIDs).
+			Where("type IN ?", NetQuotaSumTypes()).
+			Select("user_id, " + NetQuotaSumExpr() + " AS net_quota_delta").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			netQuotaDeltaByUser[row.UserId] = max(row.NetQuotaDelta, 0)
+		}
+	} else {
+		for _, user := range users {
+			if user != nil && user.TotalQuota == nil {
+				netQuotaDeltaByUser[user.Id] = int64(max(user.UsedQuota, 0))
+			}
+		}
+	}
+	for _, user := range users {
+		if user == nil || user.TotalQuota != nil {
+			continue
+		}
+		netQuotaDelta := netQuotaDeltaByUser[user.Id]
+		totalQuota := int64(user.Quota) + netQuotaDelta
+		if totalQuota < 0 {
+			totalQuota = 0
+		}
+		result := DB.Model(&User{}).
+			Where("id = ? AND total_quota IS NULL", user.Id).
+			Update("total_quota", totalQuota)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			if err := DB.Model(&User{}).Where("id = ?", user.Id).Select("total_quota").Scan(&totalQuota).Error; err != nil {
+				return err
+			}
+		}
+		user.TotalQuota = &totalQuota
+	}
+	return nil
 }
 
 func ensureLogRequestId(log *Log) {
@@ -443,7 +590,7 @@ func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo m
 // quotaType 进一步区分 add 模式下的来源（充值/赠送），仅在 add 模式传入，否则传空。
 // rechargeInputAmount / rechargeAfterRatioAmount 仅在「调整额度 add 模式」下传入有效值，
 // 分别对应前端页面填写的原始金额与按充值比例换算之后的金额；其他场景传 nil 留空。
-func RecordManageLog(userId int, content string, opType string, quotaType string, adminInfo map[string]interface{}, rechargeInputAmount *float64, rechargeAfterRatioAmount *float64) {
+func RecordManageLog(userId int, content string, opType string, quotaType string, quota int, adminInfo map[string]interface{}, rechargeInputAmount *float64, rechargeAfterRatioAmount *float64, beforeQuota *int64, afterQuota *int64) {
 	username, _ := GetUsernameById(userId, false)
 	log := &Log{
 		UserId:                   userId,
@@ -451,6 +598,9 @@ func RecordManageLog(userId int, content string, opType string, quotaType string
 		CreatedAt:                common.GetTimestamp(),
 		Type:                     LogTypeManage,
 		Content:                  content,
+		Quota:                    quota,
+		BeforeQuota:              beforeQuota,
+		AfterQuota:               afterQuota,
 		RechargeInputAmount:      rechargeInputAmount,
 		RechargeAfterRatioAmount: rechargeAfterRatioAmount,
 	}
@@ -468,7 +618,7 @@ func RecordManageLog(userId int, content string, opType string, quotaType string
 		}
 		log.Other = common.MapToJsonStr(other)
 	}
-	if err := LOG_DB.Create(log).Error; err != nil {
+	if err := createLog(log); err != nil {
 		common.SysLog("failed to record log: " + err.Error())
 	}
 }
@@ -541,8 +691,17 @@ func RecordOperationAuditLog(logUserId int, content string, ip string, action st
 	}
 }
 
-func RecordTopupLog(userId int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {
+func RecordTopupLog(userId int, quota int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {
 	username, _ := GetUsernameById(userId, false)
+	var beforeQuota *int64
+	var afterQuota *int64
+	var currentQuota int
+	if err := DB.Model(&User{}).Where("id = ?", userId).Select("quota").Scan(&currentQuota).Error; err == nil {
+		after := int64(currentQuota)
+		before := after - int64(quota)
+		beforeQuota = &before
+		afterQuota = &after
+	}
 	adminInfo := map[string]interface{}{
 		"server_ip":               common.GetIp(),
 		"node_name":               common.NodeName,
@@ -555,13 +714,16 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 		"admin_info": adminInfo,
 	}
 	log := &Log{
-		UserId:    userId,
-		Username:  username,
-		CreatedAt: common.GetTimestamp(),
-		Type:      LogTypeTopup,
-		Content:   content,
-		Ip:        callerIp,
-		Other:     common.MapToJsonStr(other),
+		UserId:      userId,
+		Username:    username,
+		CreatedAt:   common.GetTimestamp(),
+		Type:        LogTypeTopup,
+		Content:     content,
+		Quota:       quota,
+		BeforeQuota: beforeQuota,
+		AfterQuota:  afterQuota,
+		Ip:          callerIp,
+		Other:       common.MapToJsonStr(other),
 	}
 	err := createLog(log)
 	if err != nil {
@@ -622,6 +784,8 @@ type RecordConsumeLogParams struct {
 	ModelName        string                 `json:"model_name"`
 	TokenName        string                 `json:"token_name"`
 	Quota            int                    `json:"quota"`
+	BeforeQuota      *int64                 `json:"before_quota,omitempty"`
+	AfterQuota       *int64                 `json:"after_quota,omitempty"`
 	Content          string                 `json:"content"`
 	TokenId          int                    `json:"token_id"`
 	UseTimeSeconds   int                    `json:"use_time_seconds"`
@@ -696,6 +860,8 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		TokenName:        params.TokenName,
 		ModelName:        params.ModelName,
 		Quota:            params.Quota,
+		BeforeQuota:      params.BeforeQuota,
+		AfterQuota:       params.AfterQuota,
 		ChannelId:        params.ChannelId,
 		TokenId:          params.TokenId,
 		UseTime:          params.UseTimeSeconds,
@@ -717,6 +883,11 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	if common.DataExportEnabled {
 		tokenUsed := params.PromptTokens + params.CompletionTokens
+		// Anthropic 语义下 prompt_tokens 是净输入，cache_tokens 和 cache_creation_tokens
+		// 是额外单独记账的，需要补进总 token 统计；OpenAI 语义此函数返回 0，无副作用。
+		if otherStr != "" {
+			tokenUsed += int(ClaudeCacheTokensFromOther(otherStr))
+		}
 		LogQuotaData(QuotaDataLogParams{
 			UserID:    userId,
 			Username:  username,
@@ -729,21 +900,24 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			ChannelID: params.ChannelId,
 			NodeName:  common.NodeName,
 		})
-		LogTokenQuotaData(userId, params.TokenId, params.TokenName, params.Group, params.Quota, createdAt, tokenUsed)
 	}
+	// Key statistics are independent from the dashboard's quota_data export.
+	LogTokenQuotaData(userId, params.TokenId, params.TokenName, params.Group, params.Quota, createdAt, params.PromptTokens+params.CompletionTokens)
 }
 
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   string
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     map[string]interface{}
-	NodeName  string // 任务发起节点；为空时回退当前节点
+	UserId      int
+	LogType     int
+	Content     string
+	ChannelId   int
+	ModelName   string
+	Quota       int
+	BeforeQuota *int64
+	AfterQuota  *int64
+	TokenId     int
+	Group       string
+	Other       map[string]interface{}
+	NodeName    string // 任务发起节点；为空时回退当前节点
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -759,18 +933,20 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 	createdAt := common.GetTimestamp()
 	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: createdAt,
-		Type:      params.LogType,
-		Content:   params.Content,
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     common.MapToJsonStr(params.Other),
+		UserId:      params.UserId,
+		Username:    username,
+		CreatedAt:   createdAt,
+		Type:        params.LogType,
+		Content:     params.Content,
+		TokenName:   tokenName,
+		ModelName:   params.ModelName,
+		Quota:       params.Quota,
+		BeforeQuota: params.BeforeQuota,
+		AfterQuota:  params.AfterQuota,
+		ChannelId:   params.ChannelId,
+		TokenId:     params.TokenId,
+		Group:       params.Group,
+		Other:       common.MapToJsonStr(params.Other),
 	}
 	err := createLog(log)
 	if err != nil {
@@ -792,6 +968,9 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 			ChannelID: params.ChannelId,
 			NodeName:  nodeName,
 		})
+	}
+	if params.LogType == LogTypeConsume {
+		// Key statistics are independent from the dashboard's quota_data export.
 		LogTokenQuotaData(params.UserId, params.TokenId, tokenName, params.Group, params.Quota, createdAt, 0)
 	}
 }
@@ -888,6 +1067,67 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 
 	return logs, total, err
+}
+
+func userQuotaHistoryQuery(userId int) *gorm.DB {
+	return LOG_DB.Model(&Log{}).
+		Where("user_id = ?", userId).
+		Where(
+			"(type IN ? OR (type = ? AND operation_type = ?))",
+			[]int{LogTypeTopup, LogTypeConsume, LogTypeRefund},
+			LogTypeManage,
+			OperationTypeQuota,
+		)
+}
+
+func GetUserQuotaHistory(userId int, startIdx int, num int) (logs []*Log, total int64, err error) {
+	if LOG_DB == nil {
+		return nil, 0, errors.New("log database is not initialized")
+	}
+
+	query := userQuotaHistoryQuery(userId)
+	if err = query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err = query.
+		Select("id, user_id, created_at, type, content, model_name, token_name, quota, before_quota, after_quota, operation_type, quota_type, request_id, recharge_input_amount, recharge_after_ratio_amount").
+		Order("id DESC").
+		Limit(num).
+		Offset(startIdx).
+		Find(&logs).Error
+	return logs, total, err
+}
+
+func GetUserQuotaHistoryNewerDelta(userId int, beforeId int) (delta int64, hasUnknown bool, err error) {
+	if LOG_DB == nil {
+		return 0, false, errors.New("log database is not initialized")
+	}
+
+	type quotaHistoryDeltaRow struct {
+		Delta        int64
+		UnknownCount int64
+	}
+	var row quotaHistoryDeltaRow
+	signedDeltaExpr := fmt.Sprintf(
+		"CASE WHEN type = %d THEN -quota WHEN type = %d THEN quota WHEN type IN (%d, %d) AND quota <> 0 THEN quota ELSE 0 END",
+		LogTypeConsume,
+		LogTypeRefund,
+		LogTypeTopup,
+		LogTypeManage,
+	)
+	unknownExpr := fmt.Sprintf(
+		"CASE WHEN type IN (%d, %d) AND quota = 0 THEN 1 ELSE 0 END",
+		LogTypeTopup,
+		LogTypeManage,
+	)
+	err = userQuotaHistoryQuery(userId).
+		Where("id > ?", beforeId).
+		Select(
+			"COALESCE(SUM(" + signedDeltaExpr + "), 0) AS delta, COALESCE(SUM(" + unknownExpr + "), 0) AS unknown_count",
+		).
+		Scan(&row).Error
+	return row.Delta, row.UnknownCount > 0, err
 }
 
 const logSearchCountLimit = 10000
@@ -991,16 +1231,21 @@ func cacheTokensInnerExpr() string {
 // 仅在 sub 渠道过滤后的子集上调用。channel_id 是 int，直接拼接安全。
 func subTokensExpr(openaiIds, otherIds []int) string {
 	cacheExpr := cacheTokensInnerExpr()
+	consumeType := fmt.Sprintf("%d", LogTypeConsume)
 	if len(openaiIds) == 0 {
-		return `COALESCE(SUM(prompt_tokens + completion_tokens + ` + cacheExpr + `), 0) AS sub_tokens`
+		return `COALESCE(SUM(CASE WHEN type = ` + consumeType +
+			` THEN prompt_tokens + completion_tokens + ` + cacheExpr +
+			` ELSE 0 END), 0) AS sub_tokens`
 	}
 	if len(otherIds) == 0 {
-		return `COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS sub_tokens`
+		return `COALESCE(SUM(CASE WHEN type = ` + consumeType +
+			` THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS sub_tokens`
 	}
-	return `COALESCE(SUM(CASE WHEN channel_id IN (` + intsToCSV(openaiIds) +
+	return `COALESCE(SUM(CASE WHEN type = ` + consumeType +
+		` THEN CASE WHEN channel_id IN (` + intsToCSV(openaiIds) +
 		`) THEN prompt_tokens + completion_tokens` +
 		` ELSE prompt_tokens + completion_tokens + ` + cacheExpr +
-		` END), 0) AS sub_tokens`
+		` END ELSE 0 END), 0) AS sub_tokens`
 }
 
 // intsToCSV 把 int 切片拼成逗号分隔字符串，用于直接嵌入 SQL 的 IN 列表。
@@ -1063,7 +1308,7 @@ func ResolveSubChannelIdsByType() (openaiIds []int, otherIds []int, err error) {
 
 func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
 	tx := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
-		Select("COALESCE(sum(quota), 0) quota")
+		Select(NetQuotaSumExpr() + " AS quota")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
@@ -1100,7 +1345,7 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
 	}
 
-	tx = tx.Where("type = ?", LogTypeConsume)
+	tx = tx.Where("type IN ?", NetQuotaSumTypes())
 	rpmTpmQuery = rpmTpmQuery.Where("type = ?", LogTypeConsume)
 
 	// 只统计最近60秒的rpm和tpm
@@ -1127,7 +1372,7 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 		subIds = append(subIds, openaiSubIds...)
 		subIds = append(subIds, otherSubIds...)
 		subQuery := applyLogUserScope(LOG_DB.Table("logs"), "user_id", userIds).
-			Select("COALESCE(SUM(quota), 0) AS sub_quota, " + subTokensExpr(openaiSubIds, otherSubIds))
+			Select(NetQuotaSumExpr() + " AS sub_quota, " + subTokensExpr(openaiSubIds, otherSubIds))
 		if subQuery, err = applyLogUsernameFilter(subQuery, "username", username); err != nil {
 			return stat, err
 		}
@@ -1149,7 +1394,7 @@ func SumUsedQuota(userIds []int, logType int, startTimestamp int64, endTimestamp
 		if group != "" {
 			subQuery = subQuery.Where(logGroupCol+" = ?", group)
 		}
-		subQuery = subQuery.Where("type = ?", LogTypeConsume).
+		subQuery = subQuery.Where("type IN ?", NetQuotaSumTypes()).
 			Where("channel_id IN ?", subIds)
 
 		var subStat struct {
@@ -1182,7 +1427,7 @@ const statByAccountsChunkSize = 1000
 // SumUsedQuotaByAccountIDs 按 account_id 集合聚合 [start, end] 时间窗内的消耗 quota。
 // 返回 (总 quota, 每个账号的 quota) — 后者只包含 quota > 0 的账号(对齐 sub2api HAVING SUM > 0 语义)。
 //
-// 只统计 type = LogTypeConsume 的日志,与 SumUsedQuota 保持一致。
+// 该内部 ROI 统计只统计 type = LogTypeConsume；公开的 SumUsedQuota 则返回消耗减退款的净用量。
 // startTimestamp / endTimestamp 传 0 表示不加下/上界。
 //
 // 内部按 statByAccountsChunkSize 分批查库;不同 chunk 的 account_id 天然互不相交(sub2api 传的是
@@ -1229,8 +1474,8 @@ func SumUsedQuotaByAccountIDs(ctx context.Context, accountIDs []int64, startTime
 // SumChannelQuota 按 channel_id + type + 时间窗聚合 logs.quota。
 //
 // **type 参数在这里真正生效**,与老对外接口 SumUsedQuota 的行为不同 —— 那个函数
-// 声明了 logType 参数但函数体里被 [line 989] 硬编码 `WHERE type = LogTypeConsume` 覆盖,
-// 参数是死代码;本函数按传入的 logType 精确过滤,供 sub2api ROI 上游分支分别拉:
+// 声明了 logType 参数但固定统计 consume - refund 的净用量，参数不控制统计口径；
+// 本函数按传入的 logType 精确过滤,供 sub2api ROI 上游分支分别拉:
 //
 //	consume = SumChannelQuota(ctx, channelID, LogTypeConsume, ...)
 //	refund  = SumChannelQuota(ctx, channelID, LogTypeRefund,  ...)

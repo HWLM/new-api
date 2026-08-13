@@ -39,6 +39,9 @@ export const modelFormSchema = z.object({
   name_rule: z.number().min(0).max(3).default(0),
   status: z.boolean().default(true),
   sync_official: z.boolean().default(true),
+  official_price_basis: z
+    .enum(['auto', 'one_to_one', 'consume_usd_exchange_rate'])
+    .default('consume_usd_exchange_rate'),
   enable_groups: z.array(z.string()).default([]),
   quota_types: z.array(z.number()).default([]),
 })
@@ -57,6 +60,9 @@ export const vendorFormSchema = z.object({
   name: z.string().min(1, 'Vendor name is required'),
   description: z.string().default(''),
   icon: z.string().default(''),
+  official_price_basis: z
+    .enum(['auto', 'one_to_one', 'consume_usd_exchange_rate'])
+    .default('consume_usd_exchange_rate'),
   status: z.number().default(1),
 })
 
@@ -81,6 +87,8 @@ export function transformModelToFormDefaults(model: Model): ModelFormValues {
     name_rule: model.name_rule || 0,
     status: model.status === 1,
     sync_official: model.sync_official === 1,
+    official_price_basis:
+      model.official_price_basis || 'consume_usd_exchange_rate',
     enable_groups: model.enable_groups || [],
     quota_types: model.quota_types || [],
   }
@@ -103,6 +111,7 @@ export function transformFormDataToModelPayload(
     name_rule: formData.name_rule,
     status: formData.status ? 1 : 0,
     sync_official: formData.sync_official ? 1 : 0,
+    official_price_basis: formData.official_price_basis,
     enable_groups: formData.enable_groups,
     quota_types: formData.quota_types,
   }
