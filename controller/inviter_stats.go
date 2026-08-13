@@ -21,12 +21,31 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
 )
+
+// defaultInviterTimeWindowDays 是 charts / daily 接口在前端未传时间窗时的默认回溯天数。
+// 防止商务账号一次全时段扫 logs 表；实际范围仍可由前端传入覆盖。
+const defaultInviterTimeWindowDays = 30
+
+// applyDefaultInviterTimeWindow 前端未同时传有效 start_timestamp / end_timestamp 时，
+// 后端默认改为"最近 N 天"，避免 GetInviterCharts / GetInviterDaily 全时段扫 logs 表。
+func applyDefaultInviterTimeWindow(startTs, endTs int64) (int64, int64) {
+	if startTs > 0 && endTs > 0 && endTs >= startTs {
+		return startTs, endTs
+	}
+	now := time.Now()
+	loc := now.Location()
+	end := now.Unix()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).
+		AddDate(0, 0, -(defaultInviterTimeWindowDays - 1)).Unix()
+	return start, end
+}
 
 // requireBusinessAccount 校验调用者是商务账号（business_channel 非空）。
 // 用于"邀请用户统计"中图表 + 表格接口的权限闸门。
@@ -82,6 +101,7 @@ func GetInviterCharts(c *gin.Context) {
 	myId := c.GetInt("id")
 	startTs, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTs, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	startTs, endTs = applyDefaultInviterTimeWindow(startTs, endTs)
 	resp, err := model.GetInviterCharts(myId, startTs, endTs)
 	if err != nil {
 		common.ApiError(c, err)
@@ -129,6 +149,7 @@ func GetInviterDaily(c *gin.Context) {
 	myId := c.GetInt("id")
 	startTs, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTs, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	startTs, endTs = applyDefaultInviterTimeWindow(startTs, endTs)
 	filter := model.InviterDailyFilter{
 		StartTs:         startTs,
 		EndTs:           endTs,

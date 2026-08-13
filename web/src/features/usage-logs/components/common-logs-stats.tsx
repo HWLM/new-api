@@ -18,8 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
+import { RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCompactNumber, formatLogQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -52,10 +54,23 @@ export function CommonLogsStats() {
   const { t } = useTranslation()
   const { scope: accessScope, userId, isAdmin } = useUsageLogAccess()
   const searchParams = route.useSearch()
-  const { sensitiveVisible } = useUsageLogsContext()
+  const {
+    sensitiveVisible,
+    statsRevealed,
+    refreshStats,
+    statsRefreshTick,
+  } = useUsageLogsContext()
 
-  const { data: stats, isLoading } = useQuery({
-    queryKey: ['usage-logs-stats', accessScope, userId, searchParams],
+  // 只有用户点击「用量」按钮后才发接口；tick 变化触发刷新。
+  // 该接口对 logs 表做 SUM/COUNT 聚合，日志表大时代价高，因此默认不主动调用。
+  const { data: stats, isLoading, isFetching } = useQuery({
+    queryKey: [
+      'usage-logs-stats',
+      accessScope,
+      userId,
+      searchParams,
+      statsRefreshTick,
+    ],
     queryFn: async () => {
       const params = buildApiParams({
         page: 1,
@@ -73,12 +88,42 @@ export function CommonLogsStats() {
         ? result.data || DEFAULT_LOG_STATS
         : DEFAULT_LOG_STATS
     },
+    enabled: statsRevealed,
     placeholderData: (previousData) => previousData,
+    // 缓存不再无声地重刷；每次刷新都是用户点击触发的
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   })
 
-  if (isLoading) {
+  const showLoading = statsRevealed && (isLoading || isFetching) && !stats
+  const showValue = statsRevealed && !!stats
+  const displayValue = (v: string) => (showValue && sensitiveVisible ? v : '••••')
+
+  const totalQuota = stats?.quota || 0
+  const subQuota = stats?.sub_quota || 0
+  const otherQuota = Math.max(totalQuota - subQuota, 0)
+  const subTokens = stats?.sub_tokens || 0
+
+  const refreshButton = (
+    <Button
+      variant='outline'
+      size='sm'
+      className='h-7 gap-1 text-xs'
+      onClick={() => refreshStats()}
+      disabled={statsRevealed && isFetching}
+    >
+      <RefreshCw
+        className={cn('size-3.5', statsRevealed && isFetching && 'animate-spin')}
+      />
+      {t('Usage')}
+    </Button>
+  )
+
+  if (showLoading) {
     return (
-      <div className='flex items-center gap-2'>
+      <div className='flex flex-wrap items-center gap-2'>
+        {refreshButton}
         <Skeleton className='h-7 w-[150px] rounded-md' />
         <Skeleton className='h-7 w-[120px] rounded-md' />
         <Skeleton className='h-7 w-[120px] rounded-md' />
@@ -89,41 +134,37 @@ export function CommonLogsStats() {
     )
   }
 
-  const totalQuota = stats?.quota || 0
-  const subQuota = stats?.sub_quota || 0
-  const otherQuota = Math.max(totalQuota - subQuota, 0)
-  const subTokens = stats?.sub_tokens || 0
-
   return (
     <div className='flex flex-wrap items-center gap-2'>
+      {refreshButton}
       <StatBadge
         label={t('Total Usage')}
-        value={sensitiveVisible ? formatLogQuota(totalQuota) : '••••'}
+        value={displayValue(formatLogQuota(totalQuota))}
         accent='bg-sky-500/70'
       />
       <StatBadge
         label={t('Sub Usage')}
-        value={sensitiveVisible ? formatLogQuota(subQuota) : '••••'}
+        value={displayValue(formatLogQuota(subQuota))}
         accent='bg-emerald-500/70'
       />
       <StatBadge
         label={t('Other Usage')}
-        value={sensitiveVisible ? formatLogQuota(otherQuota) : '••••'}
+        value={displayValue(formatLogQuota(otherQuota))}
         accent='bg-amber-500/70'
       />
       <StatBadge
         label={t('Sub Total Tokens')}
-        value={sensitiveVisible ? formatCompactNumber(subTokens) : '••••'}
+        value={displayValue(formatCompactNumber(subTokens))}
         accent='bg-violet-500/70'
       />
       <StatBadge
         label={t('RPM')}
-        value={stats?.rpm || 0}
+        value={showValue ? stats?.rpm || 0 : '••••'}
         accent='bg-rose-500/65'
       />
       <StatBadge
         label={t('TPM')}
-        value={stats?.tpm || 0}
+        value={showValue ? stats?.tpm || 0 : '••••'}
         accent='bg-slate-400/70'
       />
     </div>

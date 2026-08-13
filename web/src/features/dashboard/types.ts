@@ -223,6 +223,7 @@ export interface ChannelPromotionRow {
   channel: string
   invited_count: number
   total_consumed: number // quota 内部单位，前端转 USD
+  total_recharge: number // 人民币 ¥
 }
 
 export interface SalesPromotionRow {
@@ -230,6 +231,7 @@ export interface SalesPromotionRow {
   channel: string
   invited_count: number
   total_consumed: number
+  total_recharge: number // 人民币 ¥
 }
 
 export interface PromotionStats {

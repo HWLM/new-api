@@ -36,6 +36,8 @@ type VipDailyConsumption struct {
 	RequestCount   int64   `json:"request_count" gorm:"default:0;column:request_count"`                                   // 当天请求次数
 	Tokens         int64   `json:"tokens" gorm:"default:0;column:tokens"`                                                 // 当天 prompt_tokens + completion_tokens 总和
 	RechargeAmount float64 `json:"recharge_amount" gorm:"default:0;column:recharge_amount"`                               // 当天管理员「调整额度-充值」录入的总金额（人民币 ¥），仅统计 operation_type=额度 + quota_type=充值
+	LastRechargeAt int64   `json:"last_recharge_at" gorm:"default:0;column:last_recharge_at"`                             // 当天最后一次充值日志的 created_at (unix 秒)；0 表示当天无充值
+	LastConsumedAt int64   `json:"last_consumed_at" gorm:"default:0;column:last_consumed_at"`                             // 当天最后一次 consume log 的 created_at (unix 秒)；0 表示当天无消费日志
 	CreatedAt      int64   `json:"created_at" gorm:"autoCreateTime"`
 }
 
@@ -53,7 +55,7 @@ func UpsertVipDailyConsumption(records []VipDailyConsumption) error {
 	}
 	return DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "stat_date"}},
-		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username", "recharge_amount"}),
+		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username", "recharge_amount", "last_recharge_at", "last_consumed_at"}),
 	}).Create(&records).Error
 }
 

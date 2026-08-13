@@ -181,31 +181,63 @@ func GetUserStatsDetails(c *gin.Context) {
 		userTx = userTx.Where("is_vip_customer = ?", *f.isVip)
 	}
 
-	// 3. last_consume_date_from：先查 logs 拿到 last_consume >= X 的 user_ids
+	// 3. last_consume_date_from：拿到最后消费日期 >= X 的 user_ids
+	//   为避免全表扫 logs，优先用 vip_daily_consumptions.stat_date（写入即"当天有消费"），
+	//   阈值 <= 昨天时结果全部来自汇总表；阈值涉及今天时再补一次今天的 logs（时间窗内走 created_at 索引）。
 	if f.lastConsumeDateFrom != "" {
 		loc := time.Now().Location()
-		t, err := time.ParseInLocation("2006-01-02", f.lastConsumeDateFrom, loc)
-		if err != nil {
+		if _, err := time.ParseInLocation("2006-01-02", f.lastConsumeDateFrom, loc); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid last_consume_date_from"})
 			return
 		}
-		startTs := t.Unix()
-		var matchingIds []int
-		if err := model.LOG_DB.Model(&model.Log{}).
-			Where("type = ?", model.LogTypeConsume).
-			Where("user_id > 0").
-			Group("user_id").
-			Having("MAX(created_at) >= ?", startTs).
-			Pluck("user_id", &matchingIds).Error; err != nil {
-			common.ApiError(c, err)
-			return
+		now := time.Now()
+		todayStr := now.Format("2006-01-02")
+		idSet := map[int]struct{}{}
+
+		// 汇总表：stat_date >= 阈值 且 <= 昨天
+		if f.lastConsumeDateFrom < todayStr {
+			var histIds []int
+			if err := model.DB.Model(&model.VipDailyConsumption{}).
+				Where("stat_date >= ? AND stat_date < ?", f.lastConsumeDateFrom, todayStr).
+				Distinct("user_id").
+				Pluck("user_id", &histIds).Error; err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			for _, id := range histIds {
+				idSet[id] = struct{}{}
+			}
 		}
-		if len(matchingIds) == 0 {
+
+		// 今天段：阈值 <= 今天 时都需要补今天 logs
+		if f.lastConsumeDateFrom <= todayStr {
+			todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
+			todayEnd := now.Unix()
+			var todayIds []int
+			if err := model.LOG_DB.Model(&model.Log{}).
+				Where("type = ?", model.LogTypeConsume).
+				Where("user_id > 0").
+				Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+				Distinct("user_id").
+				Pluck("user_id", &todayIds).Error; err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			for _, id := range todayIds {
+				idSet[id] = struct{}{}
+			}
+		}
+
+		if len(idSet) == 0 {
 			c.JSON(http.StatusOK, gin.H{
 				"success": true,
 				"data":    detailsResp{Rows: []detailsRow{}, Total: 0, Page: f.page, PageSize: f.pageSize},
 			})
 			return
+		}
+		matchingIds := make([]int, 0, len(idSet))
+		for id := range idSet {
+			matchingIds = append(matchingIds, id)
 		}
 		userTx = userTx.Where("id IN ?", matchingIds)
 	}
@@ -261,7 +293,11 @@ func GetUserStatsDetails(c *gin.Context) {
 		return
 	}
 
-	// 6. logs 聚合：consume 部分（COUNT/SUM quota/SUM tokens/MAX created_at）
+	// 6. consume 聚合（quota/请求数/tokens/最后消费时间）
+	//   历史段（<= 昨天）读 vip_daily_consumptions —— tokens 已含 Claude 缓存补偿，
+	//   quota 走净口径（写入时已扣除退款），一次 GROUP BY user_id 完成，避免全量扫 logs；
+	//   今天段实时聚合 logs（时间窗小，命中 created_at 索引），并单独补加当天 Claude 缓存 token。
+	//   last_consume_at 用今天 logs 的 MAX(created_at)，若没有则回退取历史段的 MAX(stat_date)。
 	userIds := make([]int, 0, len(users))
 	for _, u := range users {
 		userIds = append(userIds, u.Id)
@@ -273,14 +309,62 @@ func GetUserStatsDetails(c *gin.Context) {
 		TotalTokens    int64
 		LastConsumedAt int64
 	}
-	// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负）；
-	// request_count / tokens / last_consumed_at 仅算 type=LogTypeConsume
 	consumeMap := map[int]consumeAgg{}
+
+	now := time.Now()
+	loc := now.Location()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
+	todayEnd := now.Unix()
+
+	// 6a. 历史段（<= 昨天）：从 vip_daily_consumptions 一次 GROUP BY 拿到 quota/requests/tokens + MAX(last_consumed_at)
 	{
-		var rows []consumeAgg
+		type histRow struct {
+			UserId         int
+			TotalQuota     int64
+			RequestCount   int64
+			TotalTokens    int64
+			LastConsumedAt int64
+		}
+		var rows []histRow
+		yesterdayStr := now.AddDate(0, 0, -1).Format("2006-01-02")
+		if err := model.DB.Model(&model.VipDailyConsumption{}).
+			Where("user_id IN ?", userIds).
+			Where("stat_date <= ?", yesterdayStr).
+			Select("user_id, " +
+				"COALESCE(SUM(quota), 0) AS total_quota, " +
+				"COALESCE(SUM(request_count), 0) AS request_count, " +
+				"COALESCE(SUM(tokens), 0) AS total_tokens, " +
+				"COALESCE(MAX(last_consumed_at), 0) AS last_consumed_at").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, r := range rows {
+			consumeMap[r.UserId] = consumeAgg{
+				UserId:         r.UserId,
+				TotalQuota:     r.TotalQuota,
+				RequestCount:   r.RequestCount,
+				TotalTokens:    r.TotalTokens,
+				LastConsumedAt: r.LastConsumedAt,
+			}
+		}
+	}
+
+	// 6b. 今天段：实时聚合 logs（净口径，与 vip_daily_consumption.quota 一致）
+	{
+		type todayRow struct {
+			UserId         int
+			TotalQuota     int64
+			RequestCount   int64
+			TotalTokens    int64
+			LastConsumedAt int64
+		}
+		var rows []todayRow
 		if err := model.LOG_DB.Model(&model.Log{}).
 			Where("type IN ?", model.NetQuotaSumTypes()).
 			Where("user_id IN ?", userIds).
+			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
 			Select(fmt.Sprintf(
 				"user_id, %s AS total_quota, "+
 					"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
@@ -293,38 +377,86 @@ func GetUserStatsDetails(c *gin.Context) {
 			return
 		}
 		for _, r := range rows {
-			consumeMap[r.UserId] = r
+			agg := consumeMap[r.UserId]
+			agg.UserId = r.UserId
+			agg.TotalQuota += r.TotalQuota
+			agg.RequestCount += r.RequestCount
+			agg.TotalTokens += r.TotalTokens
+			if r.LastConsumedAt > agg.LastConsumedAt {
+				agg.LastConsumedAt = r.LastConsumedAt
+			}
+			consumeMap[r.UserId] = agg
 		}
 	}
 
-	// Claude 语义请求的 prompt_tokens 是净输入（不含缓存），补加缓存读取/写入 token，
-	// 与 OpenAI 语义（prompt_tokens 已含缓存）对齐到"总 token 数"口径。
-	claudeExtra, err := model.SumClaudeCacheTokensByUsers(0, 0, userIds)
+	// 6c. 今天段：Claude 语义 prompt_tokens 是净输入，需要补加当天的 cache_tokens + cache_creation_tokens。
+	// 时间窗只有当天，捞回的 other 行数远小于历史全量扫描。
+	claudeExtra, err := model.SumClaudeCacheTokensByUsers(todayStart, todayEnd, userIds)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	for uid, extra := range claudeExtra {
 		agg := consumeMap[uid]
+		agg.UserId = uid
 		agg.TotalTokens += extra
 		consumeMap[uid] = agg
 	}
 
-	// 7. logs 聚合：recharge 部分（SUM recharge_input_amount / MAX created_at）
+	// 7. recharge 聚合：历史段读 vip_daily_consumptions.recharge_amount + last_recharge_at，
+	//    今天段读 logs。避免对 logs 无时间窗全表 GROUP BY。
 	type rechargeAgg struct {
 		UserId         int
 		TotalRecharge  float64
 		LastRechargeAt int64
 	}
 	rechargeMap := map[int]rechargeAgg{}
+	yesterdayStr := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+	// 7a. 历史段：vip_daily_consumptions（一次 GROUP BY user_id）
 	{
-		var rows []rechargeAgg
+		type histRow struct {
+			UserId         int
+			TotalRecharge  float64
+			LastRechargeAt int64
+		}
+		var rows []histRow
+		if err := model.DB.Model(&model.VipDailyConsumption{}).
+			Where("user_id IN ?", userIds).
+			Where("stat_date <= ?", yesterdayStr).
+			Select("user_id, " +
+				"COALESCE(SUM(recharge_amount), 0) AS total_recharge, " +
+				"COALESCE(MAX(last_recharge_at), 0) AS last_recharge_at").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, r := range rows {
+			rechargeMap[r.UserId] = rechargeAgg{
+				UserId:         r.UserId,
+				TotalRecharge:  r.TotalRecharge,
+				LastRechargeAt: r.LastRechargeAt,
+			}
+		}
+	}
+
+	// 7b. 今天段：logs today window
+	{
+		type todayRow struct {
+			UserId         int
+			TotalRecharge  float64
+			LastRechargeAt int64
+		}
+		var rows []todayRow
 		if err := model.LOG_DB.Model(&model.Log{}).
 			Where("type = ?", model.LogTypeManage).
 			Where("operation_type = ?", model.OperationTypeQuota).
 			Where("quota_type = ?", model.QuotaTypeRecharge).
 			Where("user_id IN ?", userIds).
-			Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge, " +
+			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+			Select("user_id, " +
+				"COALESCE(SUM(recharge_input_amount), 0) AS total_recharge, " +
 				"COALESCE(MAX(created_at), 0) AS last_recharge_at").
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
@@ -332,7 +464,13 @@ func GetUserStatsDetails(c *gin.Context) {
 			return
 		}
 		for _, r := range rows {
-			rechargeMap[r.UserId] = r
+			agg := rechargeMap[r.UserId]
+			agg.UserId = r.UserId
+			agg.TotalRecharge += r.TotalRecharge
+			if r.LastRechargeAt > agg.LastRechargeAt {
+				agg.LastRechargeAt = r.LastRechargeAt
+			}
+			rechargeMap[r.UserId] = agg
 		}
 	}
 
@@ -560,6 +698,9 @@ type detailsDailyResp struct {
 	Total    int64             `json:"total"`
 	Page     int               `json:"page"`
 	PageSize int               `json:"page_size"`
+	// 整个查询范围（未分页）内的汇总；用于表格顶部展示"充值总计 / 消耗总计"。
+	TotalConsumedUsd float64 `json:"total_consumed_usd"`
+	TotalRechargeCny float64 `json:"total_recharge_cny"`
 }
 
 // parseDetailsDailyFilter 与 parseDetailsFilter 共享了大部分字段，但 date 维度强制传入。
@@ -649,6 +790,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 		Quota        int64
 		RequestCount int64
 		Tokens       int64
+		Recharge     float64
 	}
 	aggMap := make(map[string]aggRow) // key = userId#date
 
@@ -659,15 +801,16 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			tx = tx.Where("user_id IN ?", candidateIds)
 		}
 		type row struct {
-			UserId       int
-			StatDate     string
-			Quota        int64
-			RequestCount int64
-			Tokens       int64
+			UserId         int
+			StatDate       string
+			Quota          int64
+			RequestCount   int64
+			Tokens         int64
+			RechargeAmount float64
 		}
 		var rows []row
 		if err := tx.
-			Select("user_id, stat_date, quota, request_count, tokens").
+			Select("user_id, stat_date, quota, request_count, tokens, recharge_amount").
 			Scan(&rows).Error; err != nil {
 			common.ApiError(c, err)
 			return
@@ -680,6 +823,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 				Quota:        r.Quota,
 				RequestCount: r.RequestCount,
 				Tokens:       r.Tokens,
+				Recharge:     r.RechargeAmount,
 			}
 		}
 	}
@@ -719,12 +863,15 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 				continue
 			}
 			k := fmt.Sprintf("%d#%s", r.UserId, todayStr)
+			// 保留可能已经写入的 Recharge（下一步单独聚合）
+			existing := aggMap[k]
 			aggMap[k] = aggRow{
 				UserId:       r.UserId,
 				Date:         todayStr,
 				Quota:        r.TotalQuota,
 				RequestCount: r.RequestCount,
 				Tokens:       r.TotalTokens,
+				Recharge:     existing.Recharge,
 			}
 		}
 		// Claude 语义请求补加缓存 token，口径与 vip_daily_consumption 落盘一致。
@@ -737,6 +884,41 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			k := fmt.Sprintf("%d#%s", uid, todayStr)
 			a := aggMap[k]
 			a.Tokens += extra
+			aggMap[k] = a
+		}
+
+		// 今天的充值：logs 表实时聚合，口径与 vip_daily_consumption.recharge_amount 一致（¥）
+		rechargeTx := model.LOG_DB.Model(&model.Log{}).
+			Where("type = ?", model.LogTypeManage).
+			Where("operation_type = ?", model.OperationTypeQuota).
+			Where("quota_type = ?", model.QuotaTypeRecharge).
+			Where("user_id > 0").
+			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd)
+		if candidateIds != nil {
+			rechargeTx = rechargeTx.Where("user_id IN ?", candidateIds)
+		}
+		type rechargeRow struct {
+			UserId        int
+			TotalRecharge float64
+		}
+		var rechargeRows []rechargeRow
+		if err := rechargeTx.
+			Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+			Group("user_id").
+			Scan(&rechargeRows).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, r := range rechargeRows {
+			if r.TotalRecharge == 0 {
+				continue
+			}
+			k := fmt.Sprintf("%d#%s", r.UserId, todayStr)
+			a := aggMap[k]
+			// 补齐 UserId/Date（此前若无消费日志，a 是零值）
+			a.UserId = r.UserId
+			a.Date = todayStr
+			a.Recharge += r.TotalRecharge
 			aggMap[k] = a
 		}
 	}
@@ -827,13 +1009,16 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 
 	// 7. 拼装所有 detailsDailyRow（一行 = 一用户一天）
 	all := make([]detailsDailyRow, 0, len(aggMap))
+	var totalConsumedUsd float64
+	var totalRechargeCny float64
 	for _, a := range aggMap {
 		u, ok := userMap[a.UserId]
 		if !ok {
 			continue // 用户已删除等异常
 		}
 		_, isOfficial := officialSet[a.UserId]
-		all = append(all, detailsDailyRow{
+		dailyConsumedUsd := quotaToUSD(a.Quota)
+		row := detailsDailyRow{
 			Date:               a.Date,
 			UserId:             a.UserId,
 			Username:           u.Username,
@@ -844,9 +1029,17 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			InviterDisplayName: inviterDisplayMap[u.InviterId],
 			UserGroup:          u.UserGroup,
 			DailyRequests:      a.RequestCount,
-			DailyConsumedUsd:   quotaToUSD(a.Quota),
+			DailyConsumedUsd:   dailyConsumedUsd,
 			DailyTokens:        a.Tokens,
-		})
+		}
+		// 只有充值 > 0 时才落 DailyRechargeCny，避免所有行都强行输出 ¥0.00
+		if a.Recharge != 0 {
+			rc := a.Recharge
+			row.DailyRechargeCny = &rc
+		}
+		all = append(all, row)
+		totalConsumedUsd += dailyConsumedUsd
+		totalRechargeCny += a.Recharge
 	}
 
 	// 8. 排序
@@ -868,7 +1061,14 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    detailsDailyResp{Rows: pageRows, Total: total, Page: f.page, PageSize: f.pageSize},
+		"data": detailsDailyResp{
+			Rows:             pageRows,
+			Total:            total,
+			Page:             f.page,
+			PageSize:         f.pageSize,
+			TotalConsumedUsd: totalConsumedUsd,
+			TotalRechargeCny: totalRechargeCny,
+		},
 	})
 }
 
@@ -948,6 +1148,17 @@ func sortDailyRows(rows []detailsDailyRow, sortBy, sortDir string) {
 		less = func(i, j int) bool { return rows[i].DailyRequests < rows[j].DailyRequests }
 	case "consumed":
 		less = func(i, j int) bool { return rows[i].DailyConsumedUsd < rows[j].DailyConsumedUsd }
+	case "recharge":
+		less = func(i, j int) bool {
+			a, b := 0.0, 0.0
+			if rows[i].DailyRechargeCny != nil {
+				a = *rows[i].DailyRechargeCny
+			}
+			if rows[j].DailyRechargeCny != nil {
+				b = *rows[j].DailyRechargeCny
+			}
+			return a < b
+		}
 	case "tokens":
 		less = func(i, j int) bool { return rows[i].DailyTokens < rows[j].DailyTokens }
 	default:

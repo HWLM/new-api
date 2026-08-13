@@ -291,6 +291,30 @@ export function DetailsTable({
           }}
         />
 
+        {mode === 'daily' && (
+          <div className='flex items-center gap-4 rounded-md border bg-muted/30 px-3 py-2 text-xs sm:text-sm'>
+            <span className='text-muted-foreground'>
+              {t('Range Totals')}:
+            </span>
+            <span className='flex items-baseline gap-1'>
+              <span className='text-muted-foreground'>
+                {t('Recharge Total')}
+              </span>
+              <span className='font-medium tabular-nums'>
+                ¥{(dailyQuery.data?.total_recharge_cny ?? 0).toFixed(2)}
+              </span>
+            </span>
+            <span className='flex items-baseline gap-1'>
+              <span className='text-muted-foreground'>
+                {t('Consumption Total')}
+              </span>
+              <span className='font-medium tabular-nums'>
+                ${(dailyQuery.data?.total_consumed_usd ?? 0).toFixed(2)}
+              </span>
+            </span>
+          </div>
+        )}
+
         {mode === 'singleday' && (
           <div className='flex justify-end'>
             <Button
@@ -491,6 +515,13 @@ export function DetailsTable({
                   </TableHead>
                   <TableHead
                     className='cursor-pointer select-none text-right'
+                    onClick={() => handleSort('recharge')}
+                  >
+                    {t('Daily Recharge (¥)')}
+                    {sortIndicator('recharge')}
+                  </TableHead>
+                  <TableHead
+                    className='cursor-pointer select-none text-right'
                     onClick={() => handleSort('tokens')}
                   >
                     {t('Daily Tokens')}
@@ -502,7 +533,7 @@ export function DetailsTable({
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      <TableCell colSpan={10}>
+                      <TableCell colSpan={11}>
                         <Skeleton className='h-5 w-full' />
                       </TableCell>
                     </TableRow>
@@ -510,7 +541,7 @@ export function DetailsTable({
                 ) : dailyRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={10}
+                      colSpan={11}
                       className='text-muted-foreground text-center'
                     >
                       {t('No data')}
@@ -533,6 +564,9 @@ export function DetailsTable({
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.daily_consumed_usd.toFixed(2)}
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        ¥{(row.daily_recharge_cny ?? 0).toFixed(2)}
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.daily_tokens.toLocaleString()}

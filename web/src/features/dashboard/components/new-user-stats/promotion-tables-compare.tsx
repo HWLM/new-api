@@ -156,6 +156,9 @@ export function PromotionTablesCompare(props: PromotionTablesCompareProps) {
                 <TableHead className='text-center'>
                   {t('Total Consumed ($)')}
                 </TableHead>
+                <TableHead className='text-center'>
+                  {t('Total Recharge (¥)')}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -166,6 +169,9 @@ export function PromotionTablesCompare(props: PromotionTablesCompareProps) {
                   : null
                 const consumedDelta = prev
                   ? deltaPct(row.total_consumed, prev.total_consumed)
+                  : null
+                const rechargeDelta = prev
+                  ? deltaPct(row.total_recharge, prev.total_recharge)
                   : null
                 return (
                   <TableRow key={row.channel}>
@@ -182,13 +188,19 @@ export function PromotionTablesCompare(props: PromotionTablesCompareProps) {
                       </span>
                       {compareEnabled && <DeltaPctText value={consumedDelta} />}
                     </TableCell>
+                    <TableCell className='text-center'>
+                      <span className='tabular-nums'>
+                        ¥{row.total_recharge.toFixed(2)}
+                      </span>
+                      {compareEnabled && <DeltaPctText value={rechargeDelta} />}
+                    </TableCell>
                   </TableRow>
                 )
               })}
               {!isLoading && channels.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={3}
+                    colSpan={4}
                     className='text-muted-foreground text-center'
                   >
                     {t('No data')}
@@ -198,7 +210,7 @@ export function PromotionTablesCompare(props: PromotionTablesCompareProps) {
               {isLoading && (
                 <TableRow>
                   <TableCell
-                    colSpan={3}
+                    colSpan={4}
                     className='text-muted-foreground text-center'
                   >
                     {t('Loading...')}
@@ -229,6 +241,9 @@ export function PromotionTablesCompare(props: PromotionTablesCompareProps) {
                 <TableHead className='text-center'>
                   {t('Total Consumed ($)')}
                 </TableHead>
+                <TableHead className='text-center'>
+                  {t('Total Recharge (¥)')}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -239,6 +254,9 @@ export function PromotionTablesCompare(props: PromotionTablesCompareProps) {
                   : null
                 const consumedDelta = prev
                   ? deltaPct(row.total_consumed, prev.total_consumed)
+                  : null
+                const rechargeDelta = prev
+                  ? deltaPct(row.total_recharge, prev.total_recharge)
                   : null
                 return (
                   <TableRow key={row.username}>
@@ -256,13 +274,19 @@ export function PromotionTablesCompare(props: PromotionTablesCompareProps) {
                       </span>
                       {compareEnabled && <DeltaPctText value={consumedDelta} />}
                     </TableCell>
+                    <TableCell className='text-center'>
+                      <span className='tabular-nums'>
+                        ¥{row.total_recharge.toFixed(2)}
+                      </span>
+                      {compareEnabled && <DeltaPctText value={rechargeDelta} />}
+                    </TableCell>
                   </TableRow>
                 )
               })}
               {!isLoading && sales.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={4}
+                    colSpan={5}
                     className='text-muted-foreground text-center'
                   >
                     {t('No data')}
@@ -272,7 +296,7 @@ export function PromotionTablesCompare(props: PromotionTablesCompareProps) {
               {isLoading && (
                 <TableRow>
                   <TableCell
-                    colSpan={4}
+                    colSpan={5}
                     className='text-muted-foreground text-center'
                   >
                     {t('Loading...')}

@@ -154,7 +154,7 @@ export type DetailsDailyRow = {
   daily_tokens: number
   // 仅 singleday 接口返回：用户实时余额（与查询日期无关）
   remaining_usd?: number
-  // 仅 singleday 接口返回：当天管理员"调整额度-充值"录入金额（¥ 人民币）
+  // 当天管理员"调整额度-充值"录入金额（¥ 人民币）；无充值时可能缺省
   daily_recharge_cny?: number
 }
 
@@ -163,6 +163,9 @@ export type DetailsDailyResp = {
   total: number
   page: number
   page_size: number
+  // 整个查询范围（未分页）内的汇总；用于表格顶部展示"充值总计 / 消耗总计"
+  total_consumed_usd: number
+  total_recharge_cny: number
 }
 
 // 「当日统计」filter / resp —— 行结构复用 DetailsDailyRow

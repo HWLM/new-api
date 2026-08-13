@@ -38,6 +38,13 @@ interface UsageLogsContextValue {
   setSensitiveVisible: (visible: boolean) => void
   viewScope: LogsViewScope
   setViewScope: (scope: LogsViewScope) => void
+  // 使用量卡片是否已被用户显式触发过。默认 false，避免进入页面自动调用 /log/stat
+  // 全表聚合接口；点击"用量"按钮后置 true。
+  statsRevealed: boolean
+  // 触发一次用量刷新（首次点击也走这个）。每次自增，`useQuery` 用它做 queryKey。
+  refreshStats: () => void
+  // 内部 tick，仅供 stats 组件 useQuery 依赖使用。
+  statsRefreshTick: number
 }
 
 const UsageLogsContext = createContext<UsageLogsContextValue | undefined>(
@@ -52,6 +59,12 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
   const [affinityDialogOpen, setAffinityDialogOpen] = useState(false)
   const [sensitiveVisible, setSensitiveVisible] = useState(true)
   const [viewScope, setViewScope] = useState<LogsViewScope>('all')
+  const [statsRevealed, setStatsRevealed] = useState(false)
+  const [statsRefreshTick, setStatsRefreshTick] = useState(0)
+  const refreshStats = () => {
+    setStatsRevealed(true)
+    setStatsRefreshTick((n) => n + 1)
+  }
 
   return (
     <UsageLogsContext.Provider
@@ -68,6 +81,9 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
         setSensitiveVisible,
         viewScope,
         setViewScope,
+        statsRevealed,
+        refreshStats,
+        statsRefreshTick,
       }}
     >
       {children}

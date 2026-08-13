@@ -25,8 +25,65 @@ import (
 )
 
 // ----------------------------------------------------------------------------
-// 顶部 4 张卡片
+// 内部工具
 // ----------------------------------------------------------------------------
+
+// inviterUserIdBatchSize 大商务客户数很多时对 user_id IN 做分批，避免 IN 列表过长。
+const inviterUserIdBatchSize = 500
+
+// chunkUserIds 把 user id 列表切成不超过 inviterUserIdBatchSize 的分片。
+func chunkUserIds(ids []int) [][]int {
+	if len(ids) <= inviterUserIdBatchSize {
+		return [][]int{ids}
+	}
+	out := make([][]int, 0, (len(ids)+inviterUserIdBatchSize-1)/inviterUserIdBatchSize)
+	for i := 0; i < len(ids); i += inviterUserIdBatchSize {
+		end := i + inviterUserIdBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		out = append(out, ids[i:end])
+	}
+	return out
+}
+
+// splitInviterTimeWindow 把 [startTs, endTs] 切成"历史段（<= 昨天）+ 今天段"两部分。
+// 历史段返回 stat_date 字符串上下界（YYYY-MM-DD），今天段返回 unix 秒上下界。
+// 任一段为空时其 hasXxx=false。
+func splitInviterTimeWindow(startTs, endTs int64, loc *time.Location) (
+	histStart, histEnd string, hasHist bool,
+	todayStart, todayEnd int64, hasToday bool,
+) {
+	now := time.Now().In(loc)
+	todayZero := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
+	todayStr := now.Format("2006-01-02")
+
+	if startTs > 0 {
+		histStart = time.Unix(startTs, 0).In(loc).Format("2006-01-02")
+	}
+	if endTs > 0 {
+		endDateStr := time.Unix(endTs, 0).In(loc).Format("2006-01-02")
+		if endDateStr < todayStr {
+			histEnd = endDateStr
+		} else {
+			histEnd = now.AddDate(0, 0, -1).Format("2006-01-02")
+		}
+	} else {
+		histEnd = now.AddDate(0, 0, -1).Format("2006-01-02")
+	}
+	hasHist = histEnd != "" && (histStart == "" || histStart <= histEnd)
+
+	todayStart = todayZero
+	if startTs > todayStart {
+		todayStart = startTs
+	}
+	todayEnd = now.Unix()
+	if endTs > 0 && endTs < todayEnd {
+		todayEnd = endTs
+	}
+	hasToday = todayEnd >= todayZero && todayStart <= todayEnd
+	return
+}
 
 type InviterStatCards struct {
 	InvitedCount     int   `json:"invited_count"`      // 已邀请人数（不受时间影响）
@@ -113,6 +170,7 @@ type InviterCharts struct {
 }
 
 // GetInviterCharts 时间窗口内的图表数据
+// startTs / endTs 必须为正（controller 层保证：调用方未传时注入默认最近 30 天）。
 func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error) {
 	resp := &InviterCharts{
 		TopUsers: []InviterChartUserSpend{},
@@ -145,87 +203,157 @@ func GetInviterCharts(myUserId int, startTs, endTs int64) (*InviterCharts, error
 		ids = append(ids, u.Id)
 	}
 
-	// TopUsers：单查 logs 按 user_id 聚合，倒序取前 10（净口径，扣掉退款）
-	type userAgg struct {
+	loc := time.Now().Location()
+	histStart, histEnd, hasHist, todayStart, todayEnd, hasToday := splitInviterTimeWindow(startTs, endTs, loc)
+
+	// TopUsers：历史段读 vip_daily_consumptions SUM(quota) GROUP BY user_id + 今天段读 logs，
+	// 内存合并后 ORDER BY total DESC LIMIT 10。
+	totalByUser := map[int]int64{}
+	if hasHist {
+		for _, chunk := range chunkUserIds(ids) {
+			type histRow struct {
+				UserId int
+				Total  int64
+			}
+			var rows []histRow
+			histTx := DB.Model(&VipDailyConsumption{}).
+				Where("user_id IN ?", chunk).
+				Where("stat_date <= ?", histEnd)
+			if histStart != "" {
+				histTx = histTx.Where("stat_date >= ?", histStart)
+			}
+			if err := histTx.
+				Select("user_id, COALESCE(SUM(quota), 0) AS total").
+				Group("user_id").
+				Scan(&rows).Error; err != nil {
+				return nil, err
+			}
+			for _, r := range rows {
+				totalByUser[r.UserId] += r.Total
+			}
+		}
+	}
+	if hasToday {
+		for _, chunk := range chunkUserIds(ids) {
+			type todayRow struct {
+				UserId int
+				Total  int64
+			}
+			var rows []todayRow
+			if err := LOG_DB.Model(&Log{}).
+				Where("type IN ?", NetQuotaSumTypes()).
+				Where("user_id IN ?", chunk).
+				Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+				Select("user_id, " + NetQuotaSumExpr() + " AS total").
+				Group("user_id").
+				Scan(&rows).Error; err != nil {
+				return nil, err
+			}
+			for _, r := range rows {
+				totalByUser[r.UserId] += r.Total
+			}
+		}
+	}
+	type userTotal struct {
 		UserId int
 		Total  int64
 	}
-	var perUser []userAgg
-	tx := LOG_DB.Model(&Log{}).
-		Where("type IN ?", NetQuotaSumTypes()).
-		Where("user_id IN ?", ids)
-	if startTs > 0 {
-		tx = tx.Where("created_at >= ?", startTs)
+	sorted := make([]userTotal, 0, len(totalByUser))
+	for uid, t := range totalByUser {
+		sorted = append(sorted, userTotal{UserId: uid, Total: t})
 	}
-	if endTs > 0 {
-		tx = tx.Where("created_at <= ?", endTs)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Total > sorted[j].Total })
+	if len(sorted) > 10 {
+		sorted = sorted[:10]
 	}
-	if err := tx.
-		Select("user_id, " + NetQuotaSumExpr() + " AS total").
-		Group("user_id").
-		Order("total DESC").
-		Limit(10).
-		Scan(&perUser).Error; err != nil {
-		return nil, err
-	}
-	for _, p := range perUser {
-		b := briefById[p.UserId]
+	for _, s := range sorted {
+		b := briefById[s.UserId]
 		resp.TopUsers = append(resp.TopUsers, InviterChartUserSpend{
 			Username:    b.Username,
 			DisplayName: b.DisplayName,
-			Quota:       p.Total,
+			Quota:       s.Total,
 		})
 	}
 
 	// Daily：按天聚合 quota + requests
-	// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负）；
-	// requests 只算 type=LogTypeConsume。跨库 date format 不一致，采用前置按 created_at 拉所有 row 再内存聚合
+	// 历史段直接从 vip_daily_consumptions 按 stat_date 分组，避免拉 raw log；
+	// 今天段读 logs today window（数据量小），按用户 GROUP BY 后归到当天。
+	type dayAgg struct {
+		Quota    int64
+		Requests int64
+	}
+	daily := map[string]*dayAgg{}
+	if hasHist {
+		for _, chunk := range chunkUserIds(ids) {
+			type histRow struct {
+				StatDate     string
+				Quota        int64
+				RequestCount int64
+			}
+			var rows []histRow
+			histTx := DB.Model(&VipDailyConsumption{}).
+				Where("user_id IN ?", chunk).
+				Where("stat_date <= ?", histEnd)
+			if histStart != "" {
+				histTx = histTx.Where("stat_date >= ?", histStart)
+			}
+			if err := histTx.
+				Select("stat_date, " +
+					"COALESCE(SUM(quota), 0) AS quota, " +
+					"COALESCE(SUM(request_count), 0) AS request_count").
+				Group("stat_date").
+				Scan(&rows).Error; err != nil {
+				return nil, err
+			}
+			for _, r := range rows {
+				d, ok := daily[r.StatDate]
+				if !ok {
+					d = &dayAgg{}
+					daily[r.StatDate] = d
+				}
+				d.Quota += r.Quota
+				d.Requests += r.RequestCount
+			}
+		}
+	}
+	if hasToday {
+		todayStr := time.Now().In(loc).Format("2006-01-02")
+		for _, chunk := range chunkUserIds(ids) {
+			type todayRow struct {
+				Quota    int64
+				Requests int64
+			}
+			var row todayRow
+			if err := LOG_DB.Model(&Log{}).
+				Where("type IN ?", NetQuotaSumTypes()).
+				Where("user_id IN ?", chunk).
+				Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+				Select(fmt.Sprintf(
+					"%s AS quota, "+
+						"COUNT(CASE WHEN type = %d THEN 1 END) AS requests",
+					NetQuotaSumExpr(), LogTypeConsume)).
+				Scan(&row).Error; err != nil {
+				return nil, err
+			}
+			d, ok := daily[todayStr]
+			if !ok {
+				d = &dayAgg{}
+				daily[todayStr] = d
+			}
+			d.Quota += row.Quota
+			d.Requests += row.Requests
+		}
+	}
 	type dayRow struct {
 		Day      string
 		Quota    int64
 		Requests int64
 	}
-	var dayRows []dayRow
-	type rawRow struct {
-		CreatedAt int64
-		Quota     int64
-		Type      int
+	dayRows := make([]dayRow, 0, len(daily))
+	for date, d := range daily {
+		dayRows = append(dayRows, dayRow{Day: date, Quota: d.Quota, Requests: d.Requests})
 	}
-	var raw []rawRow
-	tx2 := LOG_DB.Model(&Log{}).
-		Where("type IN ?", NetQuotaSumTypes()).
-		Where("user_id IN ?", ids)
-	if startTs > 0 {
-		tx2 = tx2.Where("created_at >= ?", startTs)
-	}
-	if endTs > 0 {
-		tx2 = tx2.Where("created_at <= ?", endTs)
-	}
-	if err := tx2.Select("created_at, quota, type").Scan(&raw).Error; err != nil {
-		return nil, err
-	}
-	loc := time.Now().Location()
-	daily := map[string]*dayRow{}
-	for _, r := range raw {
-		date := time.Unix(r.CreatedAt, 0).In(loc).Format("2006-01-02")
-		row, ok := daily[date]
-		if !ok {
-			row = &dayRow{Day: date}
-			daily[date] = row
-		}
-		if r.Type == LogTypeRefund {
-			row.Quota -= r.Quota
-		} else {
-			row.Quota += r.Quota
-			row.Requests++
-		}
-	}
-	for _, r := range daily {
-		dayRows = append(dayRows, *r)
-	}
-	sort.SliceStable(dayRows, func(i, j int) bool {
-		return dayRows[i].Day < dayRows[j].Day
-	})
+	sort.SliceStable(dayRows, func(i, j int) bool { return dayRows[i].Day < dayRows[j].Day })
 	for _, r := range dayRows {
 		resp.Daily = append(resp.Daily, InviterChartDayPoint{
 			Date:     r.Day,
@@ -306,9 +434,8 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 		ids = append(ids, u.Id)
 	}
 
-	// 一次 logs 聚合：每个用户的 SUM(quota)、SUM(tokens)、COUNT(*)、MAX(created_at)
-	// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负）；
-	// tokens / request_count / last_consumed_at 仅算 type=LogTypeConsume（退款不是新请求，也不代表"最后消费日期"）
+	// 消耗聚合：历史段读 vip_daily_consumptions（一次 GROUP BY user_id 拿到 quota/tokens/requests/last_consumed_at），
+	// 今天段读 logs（today window + user_id IN）。避免对 logs 做全时段 GROUP BY。
 	type logAgg struct {
 		UserId         int
 		TotalQuota     int64
@@ -316,44 +443,135 @@ func GetInviterSummary(myUserId int, f InviterSummaryFilter) ([]InviterSummaryRo
 		RequestCount   int64
 		LastConsumedAt int64
 	}
-	var aggs []logAgg
-	if err := LOG_DB.Model(&Log{}).
-		Where("type IN ?", NetQuotaSumTypes()).
-		Where("user_id IN ?", ids).
-		Select(fmt.Sprintf(
-			"user_id, %s AS total_quota, "+
-				"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens, "+
-				"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
-				"COALESCE(MAX(CASE WHEN type = %d THEN created_at END), 0) AS last_consumed_at",
-			NetQuotaSumExpr(), LogTypeConsume, LogTypeConsume, LogTypeConsume)).
-		Group("user_id").
-		Scan(&aggs).Error; err != nil {
-		return nil, err
-	}
-	aggBy := make(map[int]logAgg, len(aggs))
-	for _, a := range aggs {
-		aggBy[a.UserId] = a
+	aggBy := make(map[int]logAgg, len(users))
+
+	now := time.Now()
+	loc := now.Location()
+	yesterdayStr := now.AddDate(0, 0, -1).Format("2006-01-02")
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
+	todayEnd := now.Unix()
+
+	// 历史段：vip_daily_consumptions（含 Claude 缓存补齐后的 tokens）
+	for _, chunk := range chunkUserIds(ids) {
+		type histRow struct {
+			UserId         int
+			TotalQuota     int64
+			TotalTokens    int64
+			RequestCount   int64
+			LastConsumedAt int64
+		}
+		var rows []histRow
+		if err := DB.Model(&VipDailyConsumption{}).
+			Where("user_id IN ?", chunk).
+			Where("stat_date <= ?", yesterdayStr).
+			Select("user_id, " +
+				"COALESCE(SUM(quota), 0) AS total_quota, " +
+				"COALESCE(SUM(tokens), 0) AS total_tokens, " +
+				"COALESCE(SUM(request_count), 0) AS request_count, " +
+				"COALESCE(MAX(last_consumed_at), 0) AS last_consumed_at").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			aggBy[r.UserId] = logAgg{
+				UserId:         r.UserId,
+				TotalQuota:     r.TotalQuota,
+				TotalTokens:    r.TotalTokens,
+				RequestCount:   r.RequestCount,
+				LastConsumedAt: r.LastConsumedAt,
+			}
+		}
 	}
 
-	// 充值聚合：与消耗对称的一次查询；口径 = 管理员"调整额度-充值"录入金额。
-	type rechargeAgg struct {
-		UserId        int
-		TotalRecharge float64
+	// 今天段：logs today window（净口径），并补加 Claude 缓存 token
+	for _, chunk := range chunkUserIds(ids) {
+		type todayRow struct {
+			UserId         int
+			TotalQuota     int64
+			TotalTokens    int64
+			RequestCount   int64
+			LastConsumedAt int64
+		}
+		var rows []todayRow
+		if err := LOG_DB.Model(&Log{}).
+			Where("type IN ?", NetQuotaSumTypes()).
+			Where("user_id IN ?", chunk).
+			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+			Select(fmt.Sprintf(
+				"user_id, %s AS total_quota, "+
+					"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens, "+
+					"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
+					"COALESCE(MAX(CASE WHEN type = %d THEN created_at END), 0) AS last_consumed_at",
+				NetQuotaSumExpr(), LogTypeConsume, LogTypeConsume, LogTypeConsume)).
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			agg := aggBy[r.UserId]
+			agg.UserId = r.UserId
+			agg.TotalQuota += r.TotalQuota
+			agg.TotalTokens += r.TotalTokens
+			agg.RequestCount += r.RequestCount
+			if r.LastConsumedAt > agg.LastConsumedAt {
+				agg.LastConsumedAt = r.LastConsumedAt
+			}
+			aggBy[r.UserId] = agg
+		}
+		claudeExtra, err := SumClaudeCacheTokensByUsers(todayStart, todayEnd, chunk)
+		if err != nil {
+			return nil, err
+		}
+		for uid, extra := range claudeExtra {
+			agg := aggBy[uid]
+			agg.UserId = uid
+			agg.TotalTokens += extra
+			aggBy[uid] = agg
+		}
 	}
-	var rechargeAggs []rechargeAgg
-	if err := LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeManage).
-		Where("operation_type = ?", OperationTypeQuota).
-		Where("quota_type = ?", QuotaTypeRecharge).
-		Where("user_id IN ?", ids).
-		Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
-		Group("user_id").
-		Scan(&rechargeAggs).Error; err != nil {
-		return nil, err
+
+	// 充值聚合：历史段读 vip_daily_consumptions.recharge_amount + last_recharge_at，
+	// 今天段读 logs today window。同样按 500 分批。
+	rechargeBy := make(map[int]float64, len(users))
+	for _, chunk := range chunkUserIds(ids) {
+		type histRow struct {
+			UserId        int
+			TotalRecharge float64
+		}
+		var rows []histRow
+		if err := DB.Model(&VipDailyConsumption{}).
+			Where("user_id IN ?", chunk).
+			Where("stat_date <= ?", yesterdayStr).
+			Select("user_id, COALESCE(SUM(recharge_amount), 0) AS total_recharge").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			rechargeBy[r.UserId] += r.TotalRecharge
+		}
 	}
-	rechargeBy := make(map[int]float64, len(rechargeAggs))
-	for _, r := range rechargeAggs {
-		rechargeBy[r.UserId] = r.TotalRecharge
+	for _, chunk := range chunkUserIds(ids) {
+		type todayRow struct {
+			UserId        int
+			TotalRecharge float64
+		}
+		var rows []todayRow
+		if err := LOG_DB.Model(&Log{}).
+			Where("type = ?", LogTypeManage).
+			Where("operation_type = ?", OperationTypeQuota).
+			Where("quota_type = ?", QuotaTypeRecharge).
+			Where("user_id IN ?", chunk).
+			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+			Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			rechargeBy[r.UserId] += r.TotalRecharge
+		}
 	}
 
 	rows := make([]InviterSummaryRow, 0, len(users))
@@ -481,9 +699,11 @@ type InviterDailyFilter struct {
 }
 
 // GetInviterDaily 按天展开：每个 (天, 用户) 一行。
-//   - 只显示有消费记录的 (天, 用户) 组合（Q4=A）
+//   - 只显示有消费记录或有充值记录的 (天, 用户) 组合
 //   - 排序：日期倒序，同日 total_consumed 倒序
 //   - 返回所有行，前端分页
+//
+// StartTs / EndTs 必须为正（controller 层保证：调用方未传时注入默认最近 30 天）。
 func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, error) {
 	type idName struct {
 		Id          int
@@ -515,96 +735,134 @@ func GetInviterDaily(myUserId int, f InviterDailyFilter) ([]InviterDailyRow, err
 		ids = append(ids, u.Id)
 	}
 
-	// quota 走净口径（type=LogTypeConsume 计正、type=LogTypeRefund 计负）；
-	// TotalRequests / TotalTokens 仅算 type=LogTypeConsume
-	type rawRow struct {
-		UserId    int
-		CreatedAt int64
-		Quota     int64
-		Tokens    int64
-		Type      int
-	}
-	var raw []rawRow
-	tx2 := LOG_DB.Model(&Log{}).
-		Where("type IN ?", NetQuotaSumTypes()).
-		Where("user_id IN ?", ids)
-	if f.StartTs > 0 {
-		tx2 = tx2.Where("created_at >= ?", f.StartTs)
-	}
-	if f.EndTs > 0 {
-		tx2 = tx2.Where("created_at <= ?", f.EndTs)
-	}
-	if err := tx2.
-		Select("user_id, created_at, quota, (prompt_tokens + completion_tokens) AS tokens, type").
-		Scan(&raw).Error; err != nil {
-		return nil, err
-	}
 	loc := time.Now().Location()
+	histStart, histEnd, hasHist, todayStart, todayEnd, hasToday := splitInviterTimeWindow(f.StartTs, f.EndTs, loc)
+
 	type bucketKey struct {
 		Date   string
 		UserId int
 	}
 	bucket := map[bucketKey]*InviterDailyRow{}
-	for _, r := range raw {
-		date := time.Unix(r.CreatedAt, 0).In(loc).Format("2006-01-02")
-		key := bucketKey{Date: date, UserId: r.UserId}
-		row, ok := bucket[key]
-		if !ok {
-			b := briefById[r.UserId]
-			row = &InviterDailyRow{
-				Date:        date,
-				Username:    b.Username,
-				DisplayName: b.DisplayName,
-			}
-			bucket[key] = row
+	ensureRow := func(k bucketKey) *InviterDailyRow {
+		if row, ok := bucket[k]; ok {
+			return row
 		}
-		if r.Type == LogTypeRefund {
-			row.TotalConsumed -= r.Quota
-		} else {
-			row.TotalRequests++
-			row.TotalConsumed += r.Quota
-			row.TotalTokens += r.Tokens
+		b := briefById[k.UserId]
+		row := &InviterDailyRow{
+			Date:        k.Date,
+			Username:    b.Username,
+			DisplayName: b.DisplayName,
+		}
+		bucket[k] = row
+		return row
+	}
+
+	// 历史段：vip_daily_consumptions 天然按 (user_id, stat_date) 分组
+	if hasHist {
+		for _, chunk := range chunkUserIds(ids) {
+			type histRow struct {
+				UserId         int
+				StatDate       string
+				Quota          int64
+				RequestCount   int64
+				Tokens         int64
+				RechargeAmount float64
+			}
+			var rows []histRow
+			histTx := DB.Model(&VipDailyConsumption{}).
+				Where("user_id IN ?", chunk).
+				Where("stat_date <= ?", histEnd)
+			if histStart != "" {
+				histTx = histTx.Where("stat_date >= ?", histStart)
+			}
+			if err := histTx.
+				Select("user_id, stat_date, quota, request_count, tokens, recharge_amount").
+				Scan(&rows).Error; err != nil {
+				return nil, err
+			}
+			for _, r := range rows {
+				k := bucketKey{Date: r.StatDate, UserId: r.UserId}
+				row := ensureRow(k)
+				row.TotalConsumed += r.Quota
+				row.TotalRequests += r.RequestCount
+				row.TotalTokens += r.Tokens
+				row.TotalRechargeCny += r.RechargeAmount
+			}
 		}
 	}
 
-	// 充值原始行：与消耗对称的一次查询，按 (day, user) 合到同一桶。
-	// 仅有充值无消耗的 (day, user) 也会出现一行（消耗列为 0）。
-	type rawRecharge struct {
-		UserId    int
-		CreatedAt int64
-		Amount    float64
-	}
-	var rawRech []rawRecharge
-	tx3 := LOG_DB.Model(&Log{}).
-		Where("type = ?", LogTypeManage).
-		Where("operation_type = ?", OperationTypeQuota).
-		Where("quota_type = ?", QuotaTypeRecharge).
-		Where("user_id IN ?", ids)
-	if f.StartTs > 0 {
-		tx3 = tx3.Where("created_at >= ?", f.StartTs)
-	}
-	if f.EndTs > 0 {
-		tx3 = tx3.Where("created_at <= ?", f.EndTs)
-	}
-	if err := tx3.
-		Select("user_id, created_at, COALESCE(recharge_input_amount, 0) AS amount").
-		Scan(&rawRech).Error; err != nil {
-		return nil, err
-	}
-	for _, r := range rawRech {
-		date := time.Unix(r.CreatedAt, 0).In(loc).Format("2006-01-02")
-		key := bucketKey{Date: date, UserId: r.UserId}
-		row, ok := bucket[key]
-		if !ok {
-			b := briefById[r.UserId]
-			row = &InviterDailyRow{
-				Date:        date,
-				Username:    b.Username,
-				DisplayName: b.DisplayName,
+	// 今天段：消耗聚合（今天窗内 logs，按 user_id GROUP BY 后归到今天）
+	if hasToday {
+		todayStr := time.Now().In(loc).Format("2006-01-02")
+		for _, chunk := range chunkUserIds(ids) {
+			type todayRow struct {
+				UserId       int
+				TotalQuota   int64
+				RequestCount int64
+				TotalTokens  int64
 			}
-			bucket[key] = row
+			var rows []todayRow
+			if err := LOG_DB.Model(&Log{}).
+				Where("type IN ?", NetQuotaSumTypes()).
+				Where("user_id IN ?", chunk).
+				Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+				Select(fmt.Sprintf(
+					"user_id, %s AS total_quota, "+
+						"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
+						"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens",
+					NetQuotaSumExpr(), LogTypeConsume, LogTypeConsume)).
+				Group("user_id").
+				Scan(&rows).Error; err != nil {
+				return nil, err
+			}
+			for _, r := range rows {
+				if r.TotalQuota == 0 && r.RequestCount == 0 && r.TotalTokens == 0 {
+					continue
+				}
+				k := bucketKey{Date: todayStr, UserId: r.UserId}
+				row := ensureRow(k)
+				row.TotalConsumed += r.TotalQuota
+				row.TotalRequests += r.RequestCount
+				row.TotalTokens += r.TotalTokens
+			}
+			claudeExtra, err := SumClaudeCacheTokensByUsers(todayStart, todayEnd, chunk)
+			if err != nil {
+				return nil, err
+			}
+			for uid, extra := range claudeExtra {
+				k := bucketKey{Date: todayStr, UserId: uid}
+				row := ensureRow(k)
+				row.TotalTokens += extra
+			}
 		}
-		row.TotalRechargeCny += r.Amount
+
+		// 今天段：充值聚合
+		for _, chunk := range chunkUserIds(ids) {
+			type todayRech struct {
+				UserId        int
+				TotalRecharge float64
+			}
+			var rows []todayRech
+			if err := LOG_DB.Model(&Log{}).
+				Where("type = ?", LogTypeManage).
+				Where("operation_type = ?", OperationTypeQuota).
+				Where("quota_type = ?", QuotaTypeRecharge).
+				Where("user_id IN ?", chunk).
+				Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
+				Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+				Group("user_id").
+				Scan(&rows).Error; err != nil {
+				return nil, err
+			}
+			for _, r := range rows {
+				if r.TotalRecharge == 0 {
+					continue
+				}
+				k := bucketKey{Date: todayStr, UserId: r.UserId}
+				row := ensureRow(k)
+				row.TotalRechargeCny += r.TotalRecharge
+			}
+		}
 	}
 
 	rows := make([]InviterDailyRow, 0, len(bucket))

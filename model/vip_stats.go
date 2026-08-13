@@ -129,10 +129,12 @@ type todayLogAggregate struct {
 
 // cronLogAggregate cron 任务用：包含消费聚合 + 管理员充值金额的 per-user 数据。
 type cronLogAggregate struct {
-	Quota    int64
-	Requests int64
-	Tokens   int64
-	Recharge float64
+	Quota          int64
+	Requests       int64
+	Tokens         int64
+	Recharge       float64
+	LastConsumedAt int64 // 当天最后一次 consume log 的 created_at (unix 秒)
+	LastRechargeAt int64 // 当天最后一次充值日志的 created_at (unix 秒)
 }
 
 // sumLogsByTimeRange 聚合给定时间窗口 [startTs, endTs] 内 logs 表的所有用户数据。
@@ -148,10 +150,11 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 	result := make(map[int]cronLogAggregate)
 
 	type consumeRow struct {
-		UserId       int
-		TotalQuota   int64
-		RequestCount int64
-		TotalTokens  int64
+		UserId         int
+		TotalQuota     int64
+		RequestCount   int64
+		TotalTokens    int64
+		LastConsumedAt int64
 	}
 	var consumeRows []consumeRow
 	if err := LOG_DB.Model(&Log{}).
@@ -161,8 +164,9 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 		Select(fmt.Sprintf(
 			"user_id, %s AS total_quota, "+
 				"COUNT(CASE WHEN type = %d THEN 1 END) AS request_count, "+
-				"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens",
-			NetQuotaSumExpr(), LogTypeConsume, LogTypeConsume)).
+				"COALESCE(SUM(CASE WHEN type = %d THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS total_tokens, "+
+				"COALESCE(MAX(CASE WHEN type = %d THEN created_at END), 0) AS last_consumed_at",
+			NetQuotaSumExpr(), LogTypeConsume, LogTypeConsume, LogTypeConsume)).
 		Group("user_id").
 		Scan(&consumeRows).Error; err != nil {
 		return nil, err
@@ -172,6 +176,7 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 		agg.Quota = r.TotalQuota
 		agg.Requests = r.RequestCount
 		agg.Tokens = r.TotalTokens
+		agg.LastConsumedAt = r.LastConsumedAt
 		result[r.UserId] = agg
 	}
 
@@ -188,8 +193,9 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 	}
 
 	type rechargeRow struct {
-		UserId        int
-		TotalRecharge float64
+		UserId          int
+		TotalRecharge   float64
+		LastRechargeAt  int64
 	}
 	var rechargeRows []rechargeRow
 	if err := LOG_DB.Model(&Log{}).
@@ -198,7 +204,7 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 		Where("quota_type = ?", QuotaTypeRecharge).
 		Where("user_id > 0").
 		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
-		Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+		Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge, COALESCE(MAX(created_at), 0) AS last_recharge_at").
 		Group("user_id").
 		Scan(&rechargeRows).Error; err != nil {
 		return nil, err
@@ -206,6 +212,7 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 	for _, r := range rechargeRows {
 		agg := result[r.UserId]
 		agg.Recharge = r.TotalRecharge
+		agg.LastRechargeAt = r.LastRechargeAt
 		result[r.UserId] = agg
 	}
 
@@ -532,6 +539,8 @@ func RunVipDailyStat(statDate string) (int, error) {
 				RequestCount:   agg.Requests,
 				Tokens:         agg.Tokens,
 				RechargeAmount: agg.Recharge,
+				LastConsumedAt: agg.LastConsumedAt,
+				LastRechargeAt: agg.LastRechargeAt,
 			})
 		}
 		if err := UpsertVipDailyConsumption(records); err != nil {
