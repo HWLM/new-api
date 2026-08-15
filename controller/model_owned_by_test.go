@@ -83,3 +83,18 @@ func TestGetModelListGroupsUsesExplicitTokenGroup(t *testing.T) {
 	require.Equal(t, "vip", groups.tokenGroup)
 	require.Equal(t, []string{"vip"}, groups.ownerGroups)
 }
+
+func TestGetModelListGroupsUsesResolvedTokenGroupList(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "default,vip")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroupList, []string{"default", "vip"})
+
+	groups, err := getModelListGroups(ctx)
+	require.NoError(t, err)
+
+	require.Equal(t, "default", groups.userGroup)
+	require.Equal(t, "default,vip", groups.tokenGroup)
+	require.Equal(t, []string{"default", "vip"}, groups.ownerGroups)
+}

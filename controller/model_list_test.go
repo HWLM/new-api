@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -266,6 +267,85 @@ func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 	require.Len(t, models, 3)
 	assert.ElementsMatch(t, []string{"zz-vip-model", "zz-shared-model"}, models[:2])
 	assert.Equal(t, "zz-default-model", models[2])
+}
+
+func TestListModelsIncludesModelsFromAllTokenGroups(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-default-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "zz-shared-model", ChannelId: 1, Enabled: true},
+		{Group: "vip", Model: "zz-vip-model", ChannelId: 2, Enabled: true},
+		{Group: "vip", Model: "zz-shared-model", ChannelId: 2, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(context, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(context, constant.ContextKeyTokenGroup, "default,vip")
+	common.SetContextKey(context, constant.ContextKeyTokenGroupList, []string{"default", "vip"})
+
+	ListModels(context, constant.ChannelTypeOpenAI)
+
+	payload := decodeListModelsPayload(t, recorder)
+	modelIDs := make([]string, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		modelIDs = append(modelIDs, item.Id)
+	}
+	assert.ElementsMatch(t, []string{"zz-default-model", "zz-shared-model", "zz-vip-model"}, modelIDs)
+}
+
+func TestMultiGroupPreselectionDoesNotSkipFirstGroupOnInitialRelay(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:     1,
+		Name:   "primary-group-channel",
+		Type:   constant.ChannelTypeOpenAI,
+		Status: common.ChannelStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "primary",
+		Model:     "zz-primary-model",
+		ChannelId: 1,
+		Enabled:   true,
+	}).Error)
+
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalRetryTimes := common.RetryTimes
+	common.MemoryCacheEnabled = false
+	common.RetryTimes = 0
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.RetryTimes = originalRetryTimes
+	})
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(context, constant.ContextKeyUserGroup, "primary")
+	common.SetContextKey(context, constant.ContextKeyTokenGroupList, []string{"primary", "secondary"})
+	common.SetContextKey(context, constant.ContextKeyTokenCrossGroupRetry, true)
+
+	preselected, preselectedGroup, err := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+		Ctx:        context,
+		TokenGroup: "primary",
+		ModelName:  "zz-primary-model",
+		Retry:      common.GetPointer(0),
+		Preselect:  true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, preselected)
+	assert.Equal(t, "primary", preselectedGroup)
+
+	selected, selectedGroup, err := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+		Ctx:        context,
+		TokenGroup: "primary,secondary",
+		ModelName:  "zz-primary-model",
+		Retry:      common.GetPointer(0),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, 1, selected.Id)
+	assert.Equal(t, "primary", selectedGroup)
 }
 
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
