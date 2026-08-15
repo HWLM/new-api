@@ -73,6 +73,51 @@ func TestRedisIPRateLimiterThresholdTTLAndNamespace(t *testing.T) {
 	assert.True(t, redisServer.Exists(legacyKey), "the v2 counter must not touch an old list key")
 }
 
+func TestGlobalAPIRateLimitExemptsAgentSyncEndpoints(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	redisServer, _ := useRateLimitMiniRedis(t)
+
+	previousEnabled := common.GlobalApiRateLimitEnable
+	previousLimit := common.GlobalApiRateLimitNum
+	previousDuration := common.GlobalApiRateLimitDuration
+	common.GlobalApiRateLimitEnable = true
+	common.GlobalApiRateLimitNum = 1
+	common.GlobalApiRateLimitDuration = 60
+	t.Cleanup(func() {
+		common.GlobalApiRateLimitEnable = previousEnabled
+		common.GlobalApiRateLimitNum = previousLimit
+		common.GlobalApiRateLimitDuration = previousDuration
+	})
+
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.Use(GlobalAPIRateLimit())
+	paths := []string{
+		"/api/agent/info",
+		"/api/agent/model_pricing",
+		"/api/agent/model_tables",
+		"/api/agent/group_ratio",
+	}
+	for _, path := range paths {
+		router.GET(path, func(c *gin.Context) {
+			c.Status(http.StatusNoContent)
+		})
+	}
+	router.GET("/api/status", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	remoteAddr := "192.0.2.11:12345"
+	for _, path := range paths {
+		assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, path, remoteAddr).Code)
+		assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, path+"?refresh=1", remoteAddr).Code)
+	}
+	assert.False(t, redisServer.Exists(redisIPRateLimitKey("GA", "192.0.2.11")))
+
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/api/status", remoteAddr).Code)
+	assert.Equal(t, http.StatusTooManyRequests, performRateLimitRequest(router, "/api/status", remoteAddr).Code)
+}
+
 func TestRedisUserRateLimiterUsesSharedFixedWindow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	redisServer, _ := useRateLimitMiniRedis(t)

@@ -342,7 +342,7 @@ func SetApiRouter(router *gin.Engine) {
 		//   /model_pricing        — 管理员 apikey 拉全量模型定价（handler 内校验 role>=admin 且非 agent token）
 		//   /group_ratio          — 管理员 apikey 拉全量分组定价（同上）
 		agentRoute := apiRouter.Group("/agent")
-		agentRoute.Use(middleware.CORS(), middleware.CriticalRateLimit(), middleware.TokenAuthReadOnly())
+		agentRoute.Use(middleware.CORS(), middleware.TokenAuthReadOnly())
 		{
 			agentRoute.GET("/info", controller.GetAgentInfo)
 			agentRoute.GET("/model_pricing", controller.GetModelPricingForSync)

@@ -165,10 +165,23 @@ func GlobalWebRateLimit() func(c *gin.Context) {
 }
 
 func GlobalAPIRateLimit() func(c *gin.Context) {
-	if common.GlobalApiRateLimitEnable {
-		return rateLimitFactory(common.GlobalApiRateLimitNum, common.GlobalApiRateLimitDuration, "GA")
+	if !common.GlobalApiRateLimitEnable {
+		return defNext
 	}
-	return defNext
+
+	rateLimiter := rateLimitFactory(common.GlobalApiRateLimitNum, common.GlobalApiRateLimitDuration, "GA")
+	return func(c *gin.Context) {
+		switch c.Request.URL.Path {
+		case "/api/agent/info",
+			"/api/agent/model_pricing",
+			"/api/agent/model_tables",
+			"/api/agent/group_ratio":
+			c.Next()
+			return
+		default:
+			rateLimiter(c)
+		}
+	}
 }
 
 func CriticalRateLimit() func(c *gin.Context) {
