@@ -12,11 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// resolveTokenGroupList 解析当前请求 token 的分组优先级列表。
+// ResolveTokenGroupList 解析当前请求 token 的分组优先级列表。
 // 优先从 ContextKeyTokenGroupList 读取(由 auth 中间件写入),其次回退到字符串解析。
 // 列表中的 "auto" 会就地展开为 GetUserAutoGroup(userGroup) 返回的具体分组,
 // 最终结果去重并保留顺序。
-func resolveTokenGroupList(ctx *gin.Context, tokenGroup string, userGroup string) []string {
+func ResolveTokenGroupList(ctx *gin.Context, tokenGroup string, userGroup string) []string {
 	var raw []string
 	if v, ok := common.GetContextKey(ctx, constant.ContextKeyTokenGroupList); ok {
 		if list, ok := v.([]string); ok {
@@ -63,6 +63,7 @@ type RetryParam struct {
 	ModelName    string
 	RequestPath  string
 	Retry        *int
+	Preselect    bool
 	resetNextTry bool
 }
 
@@ -133,7 +134,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	selectGroup := param.TokenGroup
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
 
-	groupList := resolveTokenGroupList(param.Ctx, param.TokenGroup, userGroup)
+	groupList := ResolveTokenGroupList(param.Ctx, param.TokenGroup, userGroup)
 	// 当 token 原始配置为 "auto" 但系统未启用 auto 分组时,展开后 groupList 为空,直接报错。
 	if param.TokenGroup == "auto" && len(setting.GetAutoGroups()) == 0 {
 		return nil, selectGroup, errors.New("auto groups is not enabled")
@@ -174,7 +175,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			logger.LogDebug(param.Ctx, "Multi-group selected: %s", currentGroup)
 
 			// Prepare state for next retry
-			if crossGroupRetry && priorityRetry >= common.RetryTimes {
+			if crossGroupRetry && !param.Preselect && priorityRetry >= common.RetryTimes {
 				logger.LogDebug(param.Ctx, "Current group %s retries exhausted (priorityRetry=%d >= RetryTimes=%d), preparing switch to next group for next retry", currentGroup, priorityRetry, common.RetryTimes)
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
 				param.SetRetry(0)
