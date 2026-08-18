@@ -51,6 +51,7 @@ import {
 const headerNavSchema = z.object({
   home: z.boolean(),
   console: z.boolean(),
+  canvas: z.boolean(),
   pricingEnabled: z.boolean(),
   pricingRequireAuth: z.boolean(),
   rankingsEnabled: z.boolean(),
@@ -84,6 +85,10 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.console === undefined
       ? HEADER_NAV_DEFAULT.console
       : Boolean(config.console),
+  canvas:
+    config.canvas === undefined
+      ? HEADER_NAV_DEFAULT.canvas
+      : Boolean(config.canvas),
   pricingEnabled:
     config.pricing?.enabled === undefined
       ? HEADER_NAV_DEFAULT.pricing.enabled
@@ -133,6 +138,7 @@ export function HeaderNavigationSection({
       ...config,
       home: values.home,
       console: values.console,
+      canvas: values.canvas,
       docs: values.docs,
       about: values.about,
       pricing: {
@@ -191,6 +197,11 @@ export function HeaderNavigationSection({
       key: "console",
       title: t("Console"),
       description: t("User dashboard and quota controls."),
+    },
+    {
+      key: "canvas",
+      title: t("Canvas"),
+      description: t("Open the Canvas application."),
     },
     {
       key: "docs",

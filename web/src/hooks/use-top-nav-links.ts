@@ -18,11 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useAuthStore } from '@/stores/auth-store'
-import { ROLE } from '@/lib/roles'
-import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+
 import { parseCustomMenuPages } from '@/features/system-settings/maintenance/config'
 import { useStatus } from '@/hooks/use-status'
+import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 export type TopNavLink = {
   title: string
@@ -30,6 +31,7 @@ export type TopNavLink = {
   disabled?: boolean
   requiresAuth?: boolean
   external?: boolean
+  reloadDocument?: boolean
 }
 
 /**
@@ -71,6 +73,15 @@ export function useTopNavLinks(): TopNavLink[] {
   // Console -> /dashboard (new console path)
   if (modules?.console !== false) {
     links.push({ title: t('Console'), href: '/dashboard' })
+  }
+
+  // Canvas is a separate application mounted by the reverse proxy.
+  if (modules?.canvas !== false) {
+    links.push({
+      title: t('Canvas'),
+      href: '/studio',
+      reloadDocument: true,
+    })
   }
 
   // Pricing

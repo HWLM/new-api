@@ -14,14 +14,26 @@ export default defineConfig(({ envMode }) => {
     process.env.VITE_REACT_APP_SERVER_URL ||
     env.rawPublicVars.VITE_REACT_APP_SERVER_URL ||
     "http://localhost:3010";
+  const canvasUrl =
+    process.env.VITE_CANVAS_SERVER_URL ||
+    env.rawPublicVars.VITE_CANVAS_SERVER_URL ||
+    "http://localhost:3002";
 
   const isProd = envMode === "production";
-  const devProxy = Object.fromEntries(
-    (["/api", "/mj", "/pg", "/v1"] as const).map((key) => [
-      key,
-      { target: serverUrl, changeOrigin: true },
-    ]),
-  ) as Record<string, { target: string; changeOrigin: boolean }>;
+  const devProxy = {
+    ...Object.fromEntries(
+      (["/api", "/mj", "/pg", "/v1"] as const).map((key) => [
+        key,
+        { target: serverUrl, changeOrigin: true },
+      ]),
+    ),
+    "/studio": {
+      target: canvasUrl,
+      changeOrigin: true,
+      ws: true,
+      pathRewrite: { "^/studio$": "/studio/" },
+    },
+  };
 
   return {
     plugins: [pluginReact(), pluginTailwindcss({ optimize: false })],

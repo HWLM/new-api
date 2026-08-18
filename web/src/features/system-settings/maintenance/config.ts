@@ -24,6 +24,7 @@ export type HeaderNavAccessConfig = {
 export type HeaderNavModulesConfig = {
   home: boolean
   console: boolean
+  canvas: boolean
   pricing: HeaderNavAccessConfig
   rankings: HeaderNavAccessConfig
   docs: boolean
@@ -41,6 +42,7 @@ export type SidebarModulesAdminConfig = Record<string, SidebarSectionConfig>
 export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
   home: true,
   console: true,
+  canvas: true,
   pricing: {
     enabled: true,
     requireAuth: false,
@@ -321,7 +323,7 @@ function sanitizeCustomMenuItem(raw: unknown): CustomMenuItem | null {
   if (!id || !name) return null
   if (!isValidCustomMenuUrl(url)) return null
   const truncatedName =
-    Array.from(name).slice(0, CUSTOM_MENU_NAME_MAX_LEN).join('') || name
+    [...name].slice(0, CUSTOM_MENU_NAME_MAX_LEN).join('') || name
   return {
     id,
     name: truncatedName,
