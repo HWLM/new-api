@@ -283,6 +283,33 @@ func TestCalculateTextQuotaSummaryUsesOpenAIBillingUsageBeforeTopLevelUsage(t *t
 	require.Equal(t, 98, summary.Quota)
 }
 
+func TestCalculateTextQuotaSummaryFallsBackFromEmptyNestedUsage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	outerUsage := &dto.Usage{
+		PromptTokens: 1,
+		TotalTokens:  1,
+		BillingUsage: &dto.BillingUsage{
+			Source:      dto.BillingUsageSourceOAIResponses,
+			Semantic:    dto.BillingUsageSemanticOpenAI,
+			OpenAIUsage: &dto.Usage{InputTokensDetails: &dto.InputTokenDetails{}},
+		},
+	}
+
+	relayInfo := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-image-1",
+		PriceData: hosttypes.PriceData{
+			ModelRatio:      1,
+			CompletionRatio: 1,
+			GroupRatioInfo:  hosttypes.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	summary := calculateTextQuotaSummary(ctx, relayInfo, effectiveBillingUsage(outerUsage))
+	assert.Greater(t, summary.Quota, 0)
+}
+
 func TestUsageBillingPathForLog(t *testing.T) {
 	require.Equal(t, usageBillingPathLocal, usageBillingPathForLog(true, &dto.Usage{
 		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 1}),
