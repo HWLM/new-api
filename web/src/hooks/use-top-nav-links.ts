@@ -78,7 +78,7 @@ export function useTopNavLinks(): TopNavLink[] {
   // Canvas is a separate application mounted by the reverse proxy.
   if (modules?.canvas !== false) {
     links.push({
-      title: t('Canvas'),
+      title: t('Canvas tools'),
       href: '/studio',
       reloadDocument: true,
     })

@@ -200,7 +200,7 @@ export function HeaderNavigationSection({
     },
     {
       key: "canvas",
-      title: t("Canvas"),
+      title: t("Canvas tools"),
       description: t("Open the Canvas application."),
     },
     {

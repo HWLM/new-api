@@ -23,6 +23,7 @@ export const STATIC_I18N_KEYS = [
   'Home',
   'Console',
   'Canvas',
+  'Canvas tools',
   'Model Square',
   'Rankings',
   'Docs',
