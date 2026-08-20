@@ -17,7 +17,7 @@ export default defineConfig(({ envMode }) => {
   const canvasUrl =
     process.env.VITE_CANVAS_SERVER_URL ||
     env.rawPublicVars.VITE_CANVAS_SERVER_URL ||
-    "http://localhost:3002";
+    "http://localhost:3001";
 
   const isProd = envMode === "production";
   const devProxy = {
