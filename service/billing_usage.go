@@ -18,10 +18,37 @@ const (
 )
 
 func effectiveBillingUsage(usage *dto.Usage) *dto.Usage {
-	if billingUsage, ok := usageFromBillingUsage(usage); ok {
+	if billingUsage, ok := usageFromBillingUsage(usage); ok && hasUsageTokenContent(billingUsage) {
 		return billingUsage
 	}
 	return usage
+}
+
+// hasUsageTokenContent distinguishes a real billing payload from an empty
+// protocol wrapper. Some upstream gateways include billing_usage even when
+// they have no token accounting for image generation; that wrapper must not
+// override the top-level usage placeholder added by the image relay.
+func hasUsageTokenContent(usage *dto.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	if usage.PromptTokens != 0 || usage.CompletionTokens != 0 || usage.TotalTokens != 0 ||
+		usage.InputTokens != 0 || usage.OutputTokens != 0 || usage.PromptCacheHitTokens != 0 ||
+		usage.ClaudeCacheCreation5mTokens != 0 || usage.ClaudeCacheCreation1hTokens != 0 {
+		return true
+	}
+	if usage.PromptTokensDetails.CachedTokens != 0 ||
+		usage.PromptTokensDetails.CachedCreationTokens != 0 ||
+		usage.PromptTokensDetails.CacheWriteTokens != 0 ||
+		usage.PromptTokensDetails.TextTokens != 0 ||
+		usage.PromptTokensDetails.AudioTokens != 0 ||
+		usage.PromptTokensDetails.ImageTokens != 0 {
+		return true
+	}
+	return usage.CompletionTokenDetails.TextTokens != 0 ||
+		usage.CompletionTokenDetails.AudioTokens != 0 ||
+		usage.CompletionTokenDetails.ImageTokens != 0 ||
+		usage.CompletionTokenDetails.ReasoningTokens != 0
 }
 
 func usageBillingPathForLog(isLocalCountTokens bool, usage *dto.Usage) string {
