@@ -26,6 +26,14 @@ import { SectionPageLayout } from '@/components/layout'
 import { MultiSelect } from '@/components/multi-select'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 import { Combobox } from '@/components/ui/combobox'
 import {
   Dialog,
@@ -37,6 +45,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
 import {
   Table,
@@ -86,6 +95,111 @@ const emptyInput: UpstreamInput = {
 }
 
 const emptyBusinessCooperations: BusinessCooperation[] = []
+
+type CooperationFilterOption = {
+  value: string
+  label: string
+}
+
+function CooperationSearchFilter({
+  title,
+  value,
+  options,
+  searchPlaceholder,
+  emptyText,
+  clearText,
+  onValueChange,
+}: {
+  title: string
+  value: string
+  options: CooperationFilterOption[]
+  searchPlaceholder: string
+  emptyText: string
+  clearText: string
+  onValueChange: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selectedOption = options.find((option) => option.value === value)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-8 border-dashed'
+          />
+        }
+      >
+        <Plus className='size-4' />
+        {title}
+        {selectedOption && (
+          <>
+            <Separator orientation='vertical' className='mx-1 h-4' />
+            <Badge
+              variant='secondary'
+              className='max-w-44 truncate rounded-sm px-1 font-normal'
+            >
+              {selectedOption.label}
+            </Badge>
+          </>
+        )}
+      </PopoverTrigger>
+      <PopoverContent className='max-w-[360px] min-w-[200px] p-0' align='start'>
+        <Command>
+          <CommandInput placeholder={searchPlaceholder} />
+          <CommandList className='max-h-72'>
+            <CommandEmpty>{emptyText}</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => {
+                const isSelected = option.value === value
+                return (
+                  <CommandItem
+                    key={option.value}
+                    value={`${option.label} ${option.value}`}
+                    onSelect={() => {
+                      onValueChange(option.value)
+                      setOpen(false)
+                    }}
+                  >
+                    <span
+                      className={`flex size-4 items-center justify-center rounded-sm border ${
+                        isSelected
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-input opacity-60 [&_svg]:invisible'
+                      }`}
+                    >
+                      <Check className='size-3' />
+                    </span>
+                    <span className='min-w-0 flex-1 truncate'>
+                      {option.label}
+                    </span>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </CommandList>
+          {selectedOption && (
+            <div className='border-border border-t p-1'>
+              <button
+                type='button'
+                className='text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-full items-center justify-center rounded-sm px-2 text-sm transition-colors'
+                onClick={() => {
+                  onValueChange('all')
+                  setOpen(false)
+                }}
+              >
+                {clearText}
+              </button>
+            </div>
+          )}
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
 
 function applicationStatusKey(status: string) {
   switch (status) {
@@ -274,26 +388,21 @@ export function BusinessCooperations() {
     [t]
   )
   const cooperationTypeFilterOptions = useMemo(
-    () => [
-      { value: 'all', label: t('All Types') },
-      ...CHANNEL_TYPE_OPTIONS.map((option) => ({
+    () =>
+      CHANNEL_TYPE_OPTIONS.map((option) => ({
         value: String(option.value),
         label: t(option.label),
-        icon: <ChannelTypeLogo type={option.value} size={16} />,
       })),
-    ],
     [t]
   )
   const cooperationStatusOptions = useMemo(
-    () => [
-      { value: 'all', label: t('All statuses') },
-      ...['pending_review', 'benchmark_running', 'approved', 'rejected'].map(
+    () =>
+      ['pending_review', 'benchmark_running', 'approved', 'rejected'].map(
         (status) => ({
           value: status,
           label: t(applicationStatusKey(status)),
         })
       ),
-    ],
     [t]
   )
   const openCreateDialog = () => {
@@ -362,7 +471,11 @@ export function BusinessCooperations() {
                 'Submit your channel type, API endpoint, credentials, contact details, and supported models for review.'
               )}
             </p>
-            <Button className='mt-6 self-start' onClick={openCreateDialog}>
+            <Button
+              className='mt-6 self-start'
+              disabled={mutation.isPending}
+              onClick={openCreateDialog}
+            >
               <Plus data-icon='inline-start' />
               {t('New application')}
             </Button>
@@ -491,27 +604,40 @@ export function BusinessCooperations() {
                 aria-label={t('Search by name or URL...')}
               />
             </div>
-            <Combobox
+            <CooperationSearchFilter
+              title={t('Type')}
               options={cooperationTypeFilterOptions}
               value={typeFilter}
               onValueChange={(value) => setTypeFilter(value ?? 'all')}
-              placeholder={t('All Types')}
               searchPlaceholder={t('Search channel type...')}
               emptyText={t('No channel type found.')}
-              className='w-48'
-              openOnFocus={false}
+              clearText={t('Clear filters')}
             />
-            <Combobox
+            <CooperationSearchFilter
+              title={t('Status')}
               options={cooperationStatusOptions}
               value={statusFilter}
               onValueChange={(value) => setStatusFilter(value ?? 'all')}
-              placeholder={t('All statuses')}
               searchPlaceholder={t('Search status...')}
               emptyText={t('No status found.')}
-              className='w-32'
-              openOnFocus={false}
+              clearText={t('Clear filters')}
             />
-            <Button className='ml-auto' onClick={openCreateDialog}>
+            <Button
+              type='button'
+              variant='outline'
+              size='icon'
+              title={t('Refresh')}
+              aria-label={t('Refresh')}
+              disabled={query.isFetching}
+              onClick={() => query.refetch()}
+            >
+              <RefreshCw className={query.isFetching ? 'animate-spin' : ''} />
+            </Button>
+            <Button
+              className='ml-auto'
+              disabled={mutation.isPending}
+              onClick={openCreateDialog}
+            >
               <Plus data-icon='inline-start' />
               {t('New application')}
             </Button>
@@ -644,8 +770,8 @@ export function BusinessCooperations() {
                               <Button
                                 variant='ghost'
                                 size='sm'
-                                title={t('Resubmit')}
-                                aria-label={t('Resubmit')}
+                                title={t('Resubmit application')}
+                                aria-label={t('Resubmit application')}
                                 disabled={mutation.isPending}
                                 onClick={() => openEditDialog(item)}
                               >
@@ -658,7 +784,7 @@ export function BusinessCooperations() {
                                 ) : (
                                   <RotateCcw data-icon='inline-start' />
                                 )}
-                                {t('Resubmit')}
+                                {t('Resubmit application')}
                               </Button>
                             )}
                             {item.status === 'benchmark_running' && (

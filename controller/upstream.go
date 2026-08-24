@@ -126,6 +126,7 @@ func UpdateUpstreamAutoSync(c *gin.Context) {
 		return
 	}
 	recordManageAudit(c, "upstream.auto_sync_update", map[string]interface{}{"enabled": config.Enabled, "min_score": config.MinScore})
+	service.SyncEligibleUpstreams(config)
 	common.ApiSuccess(c, config)
 }
 

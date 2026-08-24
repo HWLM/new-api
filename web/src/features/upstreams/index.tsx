@@ -42,7 +42,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from '@/components/ui/command'
 import { Combobox } from '@/components/ui/combobox'
 import {
@@ -196,7 +195,7 @@ function SearchFilter({
       <PopoverContent align='start' className='max-w-[360px] min-w-[200px] p-0'>
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          <CommandList className='max-h-72'>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
@@ -226,23 +225,21 @@ function SearchFilter({
                 )
               })}
             </CommandGroup>
-            {value !== 'all' && (
-              <>
-                <CommandSeparator />
-                <CommandGroup>
-                  <CommandItem
-                    onSelect={() => {
-                      onValueChange('all')
-                      setOpen(false)
-                    }}
-                    className='justify-center text-center'
-                  >
-                    {clearText}
-                  </CommandItem>
-                </CommandGroup>
-              </>
-            )}
           </CommandList>
+          {value !== 'all' && (
+            <div className='border-border border-t p-1'>
+              <button
+                type='button'
+                className='text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-full items-center justify-center rounded-sm px-2 text-sm transition-colors'
+                onClick={() => {
+                  onValueChange('all')
+                  setOpen(false)
+                }}
+              >
+                {clearText}
+              </button>
+            </div>
+          )}
         </Command>
       </PopoverContent>
     </Popover>
@@ -510,8 +507,12 @@ export function Upstreams() {
     mutationFn: updateAutoSyncConfig,
     onSuccess: (result) => {
       if (!result.success) return
+      if (result.data) {
+        queryClient.setQueryData(['upstream-auto-sync'], result)
+      }
       setAutoSyncOpen(false)
       toast.success(t('Automatic sync settings saved'))
+      refresh()
     },
   })
   useEffect(() => {

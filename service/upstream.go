@@ -174,12 +174,6 @@ func CreateBusinessCooperation(userID int, input dto.BusinessCooperationRequest)
 	}
 	var item *model.BusinessCooperation
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
-		var existing model.BusinessCooperation
-		if err := tx.Where("user_id = ? AND status IN ?", userID, []string{constant.BusinessCooperationPendingReview, constant.BusinessCooperationBenchmarkRunning, constant.BusinessCooperationPendingDecision}).First(&existing).Error; err == nil {
-			return errors.New("an active cooperation application already exists")
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
 		item = &model.BusinessCooperation{UserID: userID}
 		if err := tx.Create(item).Error; err != nil {
 			return err
@@ -245,6 +239,7 @@ func UpdateBusinessCooperation(userID int, id int64, input dto.BusinessCooperati
 		}
 		if resubmit {
 			candidate.BenchmarkStatus = constant.UpstreamBenchmarkPending
+			candidate.LatestRunID = nil
 		}
 		if err := tx.Save(candidate).Error; err != nil {
 			return err

@@ -99,6 +99,24 @@ func TestCreateBusinessCooperationIsAtomic(t *testing.T) {
 	assert.EqualValues(t, 1, applicationCount)
 }
 
+func TestCreateBusinessCooperationAllowsMultipleActiveApplications(t *testing.T) {
+	db := setupUpstreamTestDB(t, &model.BusinessCooperation{}, &model.UpstreamCandidate{})
+
+	first, err := CreateBusinessCooperation(7, dto.BusinessCooperationRequest{Upstream: dto.UpstreamCandidateRequest{
+		Type: constant.ChannelTypeOpenAI, Name: "first", BaseURL: "https://first.example.com", APIKey: "secret",
+	}})
+	require.NoError(t, err)
+	second, err := CreateBusinessCooperation(7, dto.BusinessCooperationRequest{Upstream: dto.UpstreamCandidateRequest{
+		Type: constant.ChannelTypeOpenAI, Name: "second", BaseURL: "https://second.example.com", APIKey: "secret",
+	}})
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, second.ID)
+
+	var count int64
+	require.NoError(t, db.Model(&model.BusinessCooperation{}).Where("user_id = ?", 7).Count(&count).Error)
+	assert.EqualValues(t, 2, count)
+}
+
 func TestBusinessCooperationPersistsNormalizedModels(t *testing.T) {
 	db := setupUpstreamTestDB(t, &model.BusinessCooperation{}, &model.UpstreamCandidate{})
 	application, err := CreateBusinessCooperation(7, dto.BusinessCooperationRequest{Upstream: dto.UpstreamCandidateRequest{
@@ -121,6 +139,12 @@ func TestBusinessCooperationEditResubmitAndDeleteStates(t *testing.T) {
 	}}, false)
 	require.NoError(t, err)
 	assert.Equal(t, constant.BusinessCooperationPendingReview, updated.Status)
+	run := &model.UpstreamBenchmarkRun{UpstreamID: application.UpstreamID, Status: constant.UpstreamBenchmarkRunSucceeded}
+	require.NoError(t, db.Create(run).Error)
+	require.NoError(t, db.Model(&model.UpstreamCandidate{}).Where("id = ?", application.UpstreamID).Updates(map[string]any{
+		"benchmark_status": constant.UpstreamBenchmarkCompleted,
+		"latest_run_id":    run.ID,
+	}).Error)
 
 	require.NoError(t, db.Model(&model.BusinessCooperation{}).Where("id = ?", application.ID).Updates(map[string]any{
 		"status":        constant.BusinessCooperationRejected,
@@ -133,6 +157,13 @@ func TestBusinessCooperationEditResubmitAndDeleteStates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, constant.BusinessCooperationPendingReview, resubmitted.Status)
 	assert.Equal(t, 2, resubmitted.Revision)
+	var resubmittedCandidate model.UpstreamCandidate
+	require.NoError(t, db.First(&resubmittedCandidate, application.UpstreamID).Error)
+	assert.Equal(t, constant.UpstreamBenchmarkPending, resubmittedCandidate.BenchmarkStatus)
+	assert.Nil(t, resubmittedCandidate.LatestRunID)
+	response := CandidateResponse(&resubmittedCandidate)
+	assert.Equal(t, constant.UpstreamBenchmarkPending, response.BenchmarkStatus)
+	assert.Nil(t, response.LatestBenchmark)
 
 	require.NoError(t, DeleteBusinessCooperation(7, application.ID))
 	var count int64
@@ -589,6 +620,49 @@ func TestSyncUpstreamCandidateUsesLatestBenchmarkModel(t *testing.T) {
 	assert.Equal(t, "custom-model", channel.Models)
 	assert.Equal(t, "custom-model", *channel.TestModel)
 	assert.Equal(t, "partner", *channel.Tag)
+}
+
+func TestSyncEligibleUpstreamsProcessesCompletedRuns(t *testing.T) {
+	db := setupUpstreamTestDB(t, &model.UpstreamCandidate{}, &model.UpstreamBenchmarkRun{}, &model.Channel{}, &model.Ability{})
+	eligible := &model.UpstreamCandidate{
+		Source:            constant.UpstreamSourceAdmin,
+		Type:              constant.ChannelTypeOpenAI,
+		Name:              "eligible",
+		BaseURL:           "https://eligible.example.com",
+		NormalizedBaseURL: "https://eligible.example.com",
+		APIKey:            "secret",
+		BenchmarkStatus:   constant.UpstreamBenchmarkCompleted,
+	}
+	ineligible := &model.UpstreamCandidate{
+		Source:            constant.UpstreamSourceAdmin,
+		Type:              constant.ChannelTypeOpenAI,
+		Name:              "ineligible",
+		BaseURL:           "https://ineligible.example.com",
+		NormalizedBaseURL: "https://ineligible.example.com",
+		APIKey:            "secret",
+		BenchmarkStatus:   constant.UpstreamBenchmarkCompleted,
+	}
+	require.NoError(t, db.Create(eligible).Error)
+	require.NoError(t, db.Create(ineligible).Error)
+	eligibleRun := &model.UpstreamBenchmarkRun{UpstreamID: eligible.ID, Status: constant.UpstreamBenchmarkRunSucceeded, OverallScore: 85, Model: "gpt-4o-mini"}
+	ineligibleRun := &model.UpstreamBenchmarkRun{UpstreamID: ineligible.ID, Status: constant.UpstreamBenchmarkRunSucceeded, OverallScore: 75, Model: "gpt-4o-mini"}
+	require.NoError(t, db.Create(eligibleRun).Error)
+	require.NoError(t, db.Create(ineligibleRun).Error)
+	require.NoError(t, db.Model(eligible).Update("latest_run_id", eligibleRun.ID).Error)
+	require.NoError(t, db.Model(ineligible).Update("latest_run_id", ineligibleRun.ID).Error)
+
+	SyncEligibleUpstreams(dto.UpstreamAutoSyncConfig{Enabled: true, ChannelTag: "partner", MinScore: 80})
+
+	var channels []model.Channel
+	require.NoError(t, db.Order("id asc").Find(&channels).Error)
+	require.Len(t, channels, 1)
+	assert.Equal(t, "eligible", channels[0].Name)
+	var syncedRun model.UpstreamBenchmarkRun
+	require.NoError(t, db.First(&syncedRun, eligibleRun.ID).Error)
+	assert.Equal(t, "succeeded", syncedRun.AutoSyncStatus)
+	var skippedRun model.UpstreamBenchmarkRun
+	require.NoError(t, db.First(&skippedRun, ineligibleRun.ID).Error)
+	assert.Empty(t, skippedRun.AutoSyncStatus)
 }
 
 func TestUpstreamBenchmarkProfileValidationAndVersionSnapshot(t *testing.T) {
