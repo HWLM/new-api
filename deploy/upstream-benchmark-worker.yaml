@@ -25,6 +25,10 @@ spec:
           env:
             - name: NODE_TYPE
               value: slave
+            - name: NODE_NAME
+              value: upstream-benchmark-worker-1
+            - name: UPSTREAM_BENCHMARK_WORKER_IN_PROCESS
+              value: "false"
             - name: SQL_DSN
               valueFrom:
                 secretKeyRef:
@@ -55,3 +59,9 @@ spec:
             limits:
               cpu: "2"
               memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
