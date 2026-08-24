@@ -217,6 +217,24 @@ func main() {
 	service.StartSystemTaskRunner()
 
 	workerOnly := common.GetEnvOrDefaultBool("WORKER_ONLY", false)
+	var inProcessBenchmarkWorkerCancel context.CancelFunc
+	if !workerOnly && common.GetEnvOrDefaultBool("UPSTREAM_BENCHMARK_WORKER_IN_PROCESS", false) {
+		workerCtx, cancel := context.WithCancel(context.Background())
+		inProcessBenchmarkWorkerCancel = cancel
+		runnerID := fmt.Sprintf("upstream-benchmark-worker-in-process-%s", common.NodeName)
+		go func() {
+			if err := service.RunUpstreamBenchmarkWorker(
+				workerCtx,
+				runnerID,
+				common.GetEnvOrDefault("UPSTREAM_BENCHMARK_WORKER_POLL_SECONDS", 2),
+				common.GetEnvOrDefault("UPSTREAM_BENCHMARK_WORKER_LOCK_SECONDS", 300),
+			); err != nil {
+				common.SysError("in-process upstream benchmark worker stopped: " + err.Error())
+			}
+		}()
+		common.SysLog("in-process upstream benchmark worker enabled")
+	}
+
 	if workerOnly {
 		common.SysLog(fmt.Sprintf("%s %s worker-only mode ready in %d ms", common.SystemName, common.Version, time.Since(startTime).Milliseconds()))
 		waitForShutdownSignal(func() {
@@ -296,6 +314,9 @@ func main() {
 
 	common.LogStartupSuccess(startTime, port)
 	waitForShutdownSignal(func() {
+		if inProcessBenchmarkWorkerCancel != nil {
+			inProcessBenchmarkWorkerCancel()
+		}
 		// SSE streams may run for minutes; give them time to finish before forced exit
 		shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)

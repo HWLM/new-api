@@ -15,6 +15,7 @@ const (
 	SystemTaskStatusRunning   SystemTaskStatus = "running"
 	SystemTaskStatusSucceeded SystemTaskStatus = "succeeded"
 	SystemTaskStatusFailed    SystemTaskStatus = "failed"
+	SystemTaskStatusCancelled SystemTaskStatus = "cancelled"
 
 	SystemTaskTypeLogCleanup     = "log_cleanup"
 	SystemTaskTypeLogExport      = "log_export"

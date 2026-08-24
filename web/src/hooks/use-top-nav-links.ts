@@ -165,5 +165,12 @@ export function useTopNavLinks(): TopNavLink[] {
     }
   }
 
+  if (!isAdmin) {
+    links.push({
+      title: t('Business Cooperation'),
+      href: '/business-cooperation',
+    })
+  }
+
   return links
 }

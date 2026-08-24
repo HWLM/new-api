@@ -28,6 +28,7 @@ import {
   ListTodo,
   MessageSquare,
   Radio,
+  Network,
   ServerCog,
   Settings,
   Ticket,
@@ -131,6 +132,11 @@ export function useSidebarData(): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+          },
+          {
+            title: t('Upstream Management'),
+            url: '/upstreams',
+            icon: Network,
           },
           {
             title: t('Models'),

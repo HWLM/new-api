@@ -45,6 +45,16 @@ var auditContentTemplates = map[string]string{
 	"channel.upstream_apply":     "Applied upstream model changes to channel (ID: ${id})",
 	"channel.upstream_apply_all": "Applied upstream model changes to ${count} channels",
 
+	"upstream.create":           "Created upstream candidate (ID: ${upstream_id}, type ${type})",
+	"upstream.update":           "Updated upstream candidate (ID: ${upstream_id}, type ${type})",
+	"upstream.benchmark":        "Queued upstream benchmark (ID: ${upstream_id}, model ${model})",
+	"upstream.benchmark_cancel": "Cancelled upstream benchmark (ID: ${upstream_id})",
+	"upstream.sync":             "Synchronized upstream candidate ${upstream_id} to channel ${channel_id}",
+	"upstream.sync_batch":       "Batch synchronized ${count} upstream candidates",
+	"upstream.reject":           "Rejected upstream candidate ${upstream_id}",
+	"upstream.profile_update":   "Updated upstream benchmark profile ${profile} (version ${version})",
+	"upstream.auto_sync_update": "Updated upstream automatic synchronization (enabled ${enabled}, minimum score ${min_score})",
+
 	"redemption.create": "Created ${count} redemption codes named ${name} (${quota} each)",
 
 	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",

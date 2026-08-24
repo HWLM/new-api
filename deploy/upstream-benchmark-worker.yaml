@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: new-api-upstream-benchmark-worker
+  labels:
+    app: new-api-upstream-benchmark-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: new-api-upstream-benchmark-worker
+  template:
+    metadata:
+      labels:
+        app: new-api-upstream-benchmark-worker
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: upstream-benchmark-worker
+          image: new-api-upstream-benchmark-worker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: health
+              containerPort: 8081
+          env:
+            - name: NODE_TYPE
+              value: slave
+            - name: SQL_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: new-api-secrets
+                  key: sql_dsn
+            - name: UPSTREAM_BENCHMARK_WORKER_POLL_SECONDS
+              value: "2"
+            - name: UPSTREAM_BENCHMARK_WORKER_LOCK_SECONDS
+              value: "300"
+            - name: UPSTREAM_BENCHMARK_WORKER_HEALTH_PORT
+              value: "8081"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
