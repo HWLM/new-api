@@ -63,6 +63,7 @@
     "{{count}} weeks ago": "{{count}} 週間前",
     "{{field}} updated to {{value}}": "{{field}} を {{value}} に更新しました",
     "{{field}} updated to {{value}} for tag: {{tag}}": "タグ「{{tag}}」の {{field}} を {{value}} に更新しました",
+    "{{hours}}h {{minutes}}m {{seconds}}s": "{{hours}}時間{{minutes}}分{{seconds}}秒",
     "{{method}} {{route}}": "{{method}} {{route}}",
     "{{minutes}}m {{seconds}}s": "{{minutes}}分{{seconds}}秒",
     "{{modality}} not supported": "{{modality}} はサポートされていません",

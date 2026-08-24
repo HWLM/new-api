@@ -63,6 +63,7 @@
     "{{count}} weeks ago": "{{count}} tuần trước",
     "{{field}} updated to {{value}}": "{{field}} đã cập nhật thành {{value}}",
     "{{field}} updated to {{value}} for tag: {{tag}}": "{{field}} đã cập nhật thành {{value}} cho nhãn: {{tag}}",
+    "{{hours}}h {{minutes}}m {{seconds}}s": "{{hours}} giờ {{minutes}} phút {{seconds}} giây",
     "{{method}} {{route}}": "{{method}} {{route}}",
     "{{minutes}}m {{seconds}}s": "{{minutes}} phút {{seconds}} giây",
     "{{modality}} not supported": "Không hỗ trợ {{modality}}",

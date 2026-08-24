@@ -71,8 +71,16 @@ function formatDuration(
 ) {
   if (!durationMS || durationMS < 0) return '-'
   const totalSeconds = Math.max(0, Math.round(durationMS / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
+  if (hours > 0) {
+    return t('{{hours}}h {{minutes}}m {{seconds}}s', {
+      hours,
+      minutes: minutes % 60,
+      seconds,
+    })
+  }
   return minutes === 0
     ? t('{{seconds}}s', { seconds })
     : t('{{minutes}}m {{seconds}}s', { minutes, seconds })

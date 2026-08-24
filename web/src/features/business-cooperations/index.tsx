@@ -236,8 +236,16 @@ const applicationStatusClasses: Record<string, string> = {
 function formatBenchmarkDuration(durationMS: number | undefined, t: TFunction) {
   if (!durationMS || durationMS < 0) return '-'
   const totalSeconds = Math.max(0, Math.round(durationMS / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
+  if (hours > 0) {
+    return t('{{hours}}h {{minutes}}m {{seconds}}s', {
+      hours,
+      minutes: minutes % 60,
+      seconds,
+    })
+  }
   if (minutes === 0) return t('{{seconds}}s', { seconds })
   return t('{{minutes}}m {{seconds}}s', { minutes, seconds })
 }

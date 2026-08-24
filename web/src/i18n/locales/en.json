@@ -63,6 +63,7 @@
     "{{count}} weeks ago": "{{count}} weeks ago",
     "{{field}} updated to {{value}}": "{{field}} updated to {{value}}",
     "{{field}} updated to {{value}} for tag: {{tag}}": "{{field}} updated to {{value}} for tag: {{tag}}",
+    "{{hours}}h {{minutes}}m {{seconds}}s": "{{hours}}h {{minutes}}m {{seconds}}s",
     "{{method}} {{route}}": "{{method}} {{route}}",
     "{{minutes}}m {{seconds}}s": "{{minutes}}m {{seconds}}s",
     "{{modality}} not supported": "{{modality}} not supported",

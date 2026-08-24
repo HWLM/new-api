@@ -63,6 +63,7 @@
     "{{count}} weeks ago": "{{count}} недель назад",
     "{{field}} updated to {{value}}": "{{field}} обновлено на {{value}}",
     "{{field}} updated to {{value}} for tag: {{tag}}": "{{field}} обновлено на {{value}} для тега: {{tag}}",
+    "{{hours}}h {{minutes}}m {{seconds}}s": "{{hours}} ч {{minutes}} мин {{seconds}} сек",
     "{{method}} {{route}}": "{{method}} {{route}}",
     "{{minutes}}m {{seconds}}s": "{{minutes}} мин {{seconds}} сек",
     "{{modality}} not supported": "{{modality}} не поддерживается",

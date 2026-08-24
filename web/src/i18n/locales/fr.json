@@ -63,6 +63,7 @@
     "{{count}} weeks ago": "il y a {{count}} semaines",
     "{{field}} updated to {{value}}": "{{field}} mis à jour en {{value}}",
     "{{field}} updated to {{value}} for tag: {{tag}}": "{{field}} mis à jour en {{value}} pour le tag : {{tag}}",
+    "{{hours}}h {{minutes}}m {{seconds}}s": "{{hours}} h {{minutes}} min {{seconds}} s",
     "{{method}} {{route}}": "{{method}} {{route}}",
     "{{minutes}}m {{seconds}}s": "{{minutes}} min {{seconds}} s",
     "{{modality}} not supported": "{{modality}} non pris en charge",

@@ -63,6 +63,7 @@
     "{{count}} weeks ago": "{{count}} 週前",
     "{{field}} updated to {{value}}": "{{field}} 已更新為 {{value}}",
     "{{field}} updated to {{value}} for tag: {{tag}}": "標籤「{{tag}}」的 {{field}} 已更新為 {{value}}",
+    "{{hours}}h {{minutes}}m {{seconds}}s": "{{hours}}小時{{minutes}}分{{seconds}}秒",
     "{{method}} {{route}}": "{{method}} {{route}}",
     "{{minutes}}m {{seconds}}s": "{{minutes}} 分 {{seconds}} 秒",
     "{{modality}} not supported": "不支援 {{modality}}",
