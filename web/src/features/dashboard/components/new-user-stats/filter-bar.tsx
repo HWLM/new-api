@@ -19,7 +19,15 @@ import { MultiSelect } from '@/components/multi-select'
 import type { FilterOptions, StatsFilter } from './types'
 
 // 时间快捷选项
-type QuickRange = 'today' | 'yesterday' | '3d' | '7d' | '1m' | 'custom'
+type QuickRange =
+  | 'today'
+  | 'yesterday'
+  | '3d'
+  | '7d'
+  | 'this_month'
+  | 'last_month'
+  | 'last_3_months'
+  | 'custom'
 
 function rangeToDates(range: QuickRange): {
   start_date?: string
@@ -47,9 +55,21 @@ function rangeToDates(range: QuickRange): {
     case '7d':
       start.setDate(end.getDate() - 6)
       break
-    case '1m':
-      start.setMonth(end.getMonth() - 1)
-      start.setDate(start.getDate() + 1)
+    case 'this_month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1)
+      break
+    case 'last_month': {
+      const firstOfLast = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      // 传入 day=0 会自动回退到上一月最后一天
+      const lastOfLast = new Date(now.getFullYear(), now.getMonth(), 0)
+      return {
+        start_date: formatDateLocal(firstOfLast),
+        end_date: formatDateLocal(lastOfLast),
+      }
+    }
+    case 'last_3_months':
+      // 包含本月：起点=当前月往前 2 个月的 1 号，终点=今天
+      start = new Date(now.getFullYear(), now.getMonth() - 2, 1)
       break
   }
   return {
@@ -130,7 +150,9 @@ export function FilterBar({
     { key: 'yesterday', label: t('Yesterday') },
     { key: '3d', label: t('Last 3 Days') },
     { key: '7d', label: t('Last 7 Days') },
-    { key: '1m', label: t('Last Month') },
+    { key: 'this_month', label: t('This Month') },
+    { key: 'last_month', label: t('Last Month') },
+    { key: 'last_3_months', label: t('Last 3 Months') },
   ]
 
   // MultiSelect options 由后端返回的字符串列表映射成 {label, value}

@@ -99,6 +99,13 @@ export function ChartConsumptionTrend({
     }))
   }, [data, compareEnabled])
 
+  // 标题总计：优先取后端 current_total（omitempty 时用本地累加兜底）
+  const headerTotal = useMemo(() => {
+    if (!data) return 0
+    if (typeof data.current_total === 'number') return data.current_total
+    return data.values.reduce((sum, v) => sum + (v ?? 0), 0)
+  }, [data])
+
   const isEmpty =
     series.length === 0 ||
     (series.every((p) => p.current === 0) &&
@@ -125,6 +132,9 @@ export function ChartConsumptionTrend({
         <div>
           <CardTitle className='text-base'>
             {t('User Consumption Trend')}
+            <span className='text-muted-foreground ml-1 text-xs font-normal tabular-nums'>
+              ({t('Total')}: ${headerTotal.toFixed(2)})
+            </span>
           </CardTitle>
           <div className='text-muted-foreground text-xs'>{t('(Amount $)')}</div>
         </div>

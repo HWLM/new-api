@@ -3,6 +3,7 @@ Copyright (C) 2023-2026 QuantumNous
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   CartesianGrid,
@@ -32,10 +33,19 @@ export function ChartRechargeLine({
   isLoading: boolean
 }) {
   const { t } = useTranslation()
+  const total = useMemo(
+    () => (data ?? []).reduce((sum, p) => sum + (p.recharge_cny ?? 0), 0),
+    [data]
+  )
   return (
     <Card>
       <CardHeader>
-        <CardTitle className='text-base'>{t('Recharge')}</CardTitle>
+        <CardTitle className='text-base'>
+          {t('Recharge')}
+          <span className='text-muted-foreground ml-1 text-xs font-normal tabular-nums'>
+            ({t('Total')}: ¥{total.toFixed(2)})
+          </span>
+        </CardTitle>
         <div className='text-muted-foreground text-xs'>{t('(Amount ¥)')}</div>
       </CardHeader>
       <CardContent className='h-80'>
