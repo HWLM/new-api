@@ -191,8 +191,8 @@ export type ManageUserAction =
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 
-/** add 模式下的额度来源类型 */
-export type QuotaType = '充值' | '赠送'
+/** add 模式下的额度来源类型；授信的换算规则与充值一致，仅在日志与报表中区分 */
+export type QuotaType = '充值' | '赠送' | '授信'
 
 export interface ManageUserQuotaPayload {
   id: number

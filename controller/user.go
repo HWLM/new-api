@@ -1207,7 +1207,7 @@ type ManageRequest struct {
 	Mode   string `json:"mode"`
 
 	// 仅 action=add_quota + mode=add 使用：管理员录入的原始充值金额与比例，由后端权威换算 value。
-	QuotaType      string  `json:"quota_type,omitempty"`      // "充值" | "赠送"
+	QuotaType      string  `json:"quota_type,omitempty"`      // "充值" | "赠送" | "授信"
 	RechargeAmount float64 `json:"recharge_amount,omitempty"` // 充值金额（人民币 ¥）
 	Ratio          float64 `json:"ratio,omitempty"`           // 充值比例（0.1 ~ 100）
 }
@@ -1303,8 +1303,8 @@ func ManageUser(c *gin.Context) {
 		}
 		switch req.Mode {
 		case "add":
-			// 类型必须明确为 充值 / 赠送
-			if req.QuotaType != model.QuotaTypeRecharge && req.QuotaType != model.QuotaTypeGift {
+			// 类型必须明确为 充值 / 赠送 / 授信
+			if req.QuotaType != model.QuotaTypeRecharge && req.QuotaType != model.QuotaTypeGift && req.QuotaType != model.QuotaTypeCredit {
 				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 				return
 			}
@@ -1316,11 +1316,12 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 				return
 			}
-			// 充值类型还需要再除以「系统设置 → 计费与支付 → 支付网关 → 通用设置 → 价格（本地货币/美元）」。
+			// 充值 / 授信 还需要再除以「系统设置 → 计费与支付 → 支付网关 → 通用设置 → 价格（本地货币/美元）」。
 			// 赠送类型不受 Price 影响，仍按 1:1 入账（前端会把 ratio 强制设为 1）。
+			appliesLocalPrice := req.QuotaType == model.QuotaTypeRecharge || req.QuotaType == model.QuotaTypeCredit
 			divisor := req.Ratio
 			localPrice := operation_setting.Price
-			if req.QuotaType == model.QuotaTypeRecharge {
+			if appliesLocalPrice {
 				if localPrice <= 0 {
 					common.ApiErrorI18n(c, i18n.MsgPaymentLocalPriceInvalid)
 					return
@@ -1338,10 +1339,7 @@ func ManageUser(c *gin.Context) {
 				common.ApiError(c, err)
 				return
 			}
-			actionVerb := "充值"
-			if req.QuotaType == model.QuotaTypeGift {
-				actionVerb = "赠送"
-			}
+			actionVerb := req.QuotaType
 			rechargeInputAmount := req.RechargeAmount
 			rechargeAfterRatioAmount := req.RechargeAmount / divisor
 			logMsg := fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，余额 %s → %s）",
@@ -1349,7 +1347,7 @@ func ManageUser(c *gin.Context) {
 				logger.LogQuota(quotaValue),
 				req.RechargeAmount, req.Ratio,
 				logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue))
-			if req.QuotaType == model.QuotaTypeRecharge {
+			if appliesLocalPrice {
 				logMsg = fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，价格 %.2f，余额 %s → %s）",
 					actionVerb,
 					logger.LogQuota(quotaValue),

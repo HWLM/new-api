@@ -113,6 +113,7 @@ export type DetailsRow = {
   total_requests: number
   total_tokens: number
   total_recharge_cny: number
+  total_credit_cny: number
   total_consumed_usd: number
   remaining_usd: number
 }
@@ -156,6 +157,8 @@ export type DetailsDailyRow = {
   remaining_usd?: number
   // 当天管理员"调整额度-充值"录入金额（¥ 人民币）；无充值时可能缺省
   daily_recharge_cny?: number
+  // 当天管理员"调整额度-授信"录入金额（¥ 人民币）；无授信时可能缺省
+  daily_credit_cny?: number
 }
 
 export type DetailsDailyResp = {
@@ -166,6 +169,7 @@ export type DetailsDailyResp = {
   // 整个查询范围（未分页）内的汇总；用于表格顶部展示"充值总计 / 消耗总计"
   total_consumed_usd: number
   total_recharge_cny: number
+  total_credit_cny: number
 }
 
 // 「当日统计」filter / resp —— 行结构复用 DetailsDailyRow

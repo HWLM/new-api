@@ -171,12 +171,13 @@ const (
 
 // OperationType 子类型标记：用于在 LogTypeManage 等大类下进一步区分具体业务动作。
 // 写入到 logs.operation_type 列，未标记的历史/其他日志为 NULL。
-// QuotaType 进一步区分「调整额度（add 模式）」的来源分类：充值 vs 赠送。
+// QuotaType 进一步区分「调整额度（add 模式）」的来源分类：充值 / 赠送 / 授信。
 // 仅在 add 模式写入；subtract / override 留 NULL。
 const (
 	OperationTypeQuota = "额度" // 管理员调整用户额度（add / subtract / override）
 	QuotaTypeRecharge  = "充值"
 	QuotaTypeGift      = "赠送"
+	QuotaTypeCredit    = "授信" // 换算规则同充值，但在日志与报表中单独统计
 )
 
 // NetQuotaSumTypes 返回"净消耗"统计涉及的日志 type 列表。
@@ -199,6 +200,34 @@ func NetQuotaSumExpr() string {
 		"COALESCE(SUM(CASE WHEN type = %d THEN quota WHEN type = %d THEN -quota ELSE 0 END), 0)",
 		LogTypeConsume, LogTypeRefund,
 	)
+}
+
+// ManageQuotaAmountTypes 返回参与「管理员调整额度」金额聚合的 quota_type 取值。
+// 赠送不计入金额口径（没有对应的录入金额），因此只有充值与授信。
+func ManageQuotaAmountTypes() []string {
+	return []string{QuotaTypeRecharge, QuotaTypeCredit}
+}
+
+// ManageQuotaAmountsSelect 构造「管理员调整额度」按来源拆分的金额聚合 SELECT 片段
+// （已含 user_id，配合 GROUP BY user_id 使用），以及对应的占位符参数。
+//
+// 充值与授信共用 logs.recharge_input_amount 列、靠 quota_type 区分，一次扫描即可产出两个口径。
+// 调用方需自行在 WHERE 中限定 type = LogTypeManage、operation_type = OperationTypeQuota、
+// quota_type IN ManageQuotaAmountTypes() 以及时间窗。
+//
+// withLastRechargeAt = true 时额外产出 last_recharge_at —— 只看充值，授信不参与，
+// 以免改变「最后一次充值时间」列的既有含义。
+// CASE WHEN 是 SQL 标准语法，SQLite/MySQL/PostgreSQL 均支持。
+func ManageQuotaAmountsSelect(withLastRechargeAt bool) (string, []interface{}) {
+	expr := "user_id, " +
+		"COALESCE(SUM(CASE WHEN quota_type = ? THEN recharge_input_amount ELSE 0 END), 0) AS total_recharge, " +
+		"COALESCE(SUM(CASE WHEN quota_type = ? THEN recharge_input_amount ELSE 0 END), 0) AS total_credit"
+	args := []interface{}{QuotaTypeRecharge, QuotaTypeCredit}
+	if withLastRechargeAt {
+		expr += ", COALESCE(MAX(CASE WHEN quota_type = ? THEN created_at END), 0) AS last_recharge_at"
+		args = append(args, QuotaTypeRecharge)
+	}
+	return expr, args
 }
 
 // ClaudeCacheTokensFromOther 解析 logs.other 中 Claude 语义请求需要补加的缓存 token 总量（读 + 写）。

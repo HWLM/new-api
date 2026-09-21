@@ -69,6 +69,7 @@ type detailsRow struct {
 	TotalRequests      int64   `json:"total_requests"`
 	TotalTokens        int64   `json:"total_tokens"`
 	TotalRechargeCny   float64 `json:"total_recharge_cny"`
+	TotalCreditCny     float64 `json:"total_credit_cny"`
 	TotalConsumedUsd   float64 `json:"total_consumed_usd"`
 	RemainingUsd       float64 `json:"remaining_usd"`
 }
@@ -403,11 +404,12 @@ func GetUserStatsDetails(c *gin.Context) {
 		consumeMap[uid] = agg
 	}
 
-	// 7. recharge 聚合：历史段读 vip_daily_consumptions.recharge_amount + last_recharge_at，
+	// 7. recharge 聚合：历史段读 vip_daily_consumptions.recharge_amount / credit_amount + last_recharge_at，
 	//    今天段读 logs。避免对 logs 无时间窗全表 GROUP BY。
 	type rechargeAgg struct {
 		UserId         int
 		TotalRecharge  float64
+		TotalCredit    float64
 		LastRechargeAt int64
 	}
 	rechargeMap := map[int]rechargeAgg{}
@@ -418,6 +420,7 @@ func GetUserStatsDetails(c *gin.Context) {
 		type histRow struct {
 			UserId         int
 			TotalRecharge  float64
+			TotalCredit    float64
 			LastRechargeAt int64
 		}
 		var rows []histRow
@@ -426,6 +429,7 @@ func GetUserStatsDetails(c *gin.Context) {
 			Where("stat_date <= ?", yesterdayStr).
 			Select("user_id, " +
 				"COALESCE(SUM(recharge_amount), 0) AS total_recharge, " +
+				"COALESCE(SUM(credit_amount), 0) AS total_credit, " +
 				"COALESCE(MAX(last_recharge_at), 0) AS last_recharge_at").
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
@@ -436,6 +440,7 @@ func GetUserStatsDetails(c *gin.Context) {
 			rechargeMap[r.UserId] = rechargeAgg{
 				UserId:         r.UserId,
 				TotalRecharge:  r.TotalRecharge,
+				TotalCredit:    r.TotalCredit,
 				LastRechargeAt: r.LastRechargeAt,
 			}
 		}
@@ -446,18 +451,18 @@ func GetUserStatsDetails(c *gin.Context) {
 		type todayRow struct {
 			UserId         int
 			TotalRecharge  float64
+			TotalCredit    float64
 			LastRechargeAt int64
 		}
 		var rows []todayRow
+		selectExpr, selectArgs := model.ManageQuotaAmountsSelect(true)
 		if err := model.LOG_DB.Model(&model.Log{}).
 			Where("type = ?", model.LogTypeManage).
 			Where("operation_type = ?", model.OperationTypeQuota).
-			Where("quota_type = ?", model.QuotaTypeRecharge).
+			Where("quota_type IN ?", model.ManageQuotaAmountTypes()).
 			Where("user_id IN ?", userIds).
 			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
-			Select("user_id, " +
-				"COALESCE(SUM(recharge_input_amount), 0) AS total_recharge, " +
-				"COALESCE(MAX(created_at), 0) AS last_recharge_at").
+			Select(selectExpr, selectArgs...).
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
 			common.ApiError(c, err)
@@ -467,6 +472,7 @@ func GetUserStatsDetails(c *gin.Context) {
 			agg := rechargeMap[r.UserId]
 			agg.UserId = r.UserId
 			agg.TotalRecharge += r.TotalRecharge
+			agg.TotalCredit += r.TotalCredit
 			if r.LastRechargeAt > agg.LastRechargeAt {
 				agg.LastRechargeAt = r.LastRechargeAt
 			}
@@ -544,6 +550,7 @@ func GetUserStatsDetails(c *gin.Context) {
 			TotalRequests:      ca.RequestCount,
 			TotalTokens:        ca.TotalTokens,
 			TotalRechargeCny:   ra.TotalRecharge,
+			TotalCreditCny:     ra.TotalCredit,
 			TotalConsumedUsd:   quotaToUSD(ca.TotalQuota),
 			RemainingUsd:       quotaToUSD(u.Quota),
 		})
@@ -581,6 +588,8 @@ func sortRowsByAggregate(rows []detailsRow, sortBy, sortDir string) {
 		less = func(i, j int) bool { return rows[i].TotalConsumedUsd < rows[j].TotalConsumedUsd }
 	case "recharge":
 		less = func(i, j int) bool { return rows[i].TotalRechargeCny < rows[j].TotalRechargeCny }
+	case "credit":
+		less = func(i, j int) bool { return rows[i].TotalCreditCny < rows[j].TotalCreditCny }
 	case "requests":
 		less = func(i, j int) bool { return rows[i].TotalRequests < rows[j].TotalRequests }
 	case "tokens":
@@ -691,6 +700,8 @@ type detailsDailyRow struct {
 	RemainingUsd *float64 `json:"remaining_usd,omitempty"`
 	// 当日统计专用：当天管理员"调整额度-充值"录入的金额（人民币 ¥）；daily 接口不填，omitempty 不输出
 	DailyRechargeCny *float64 `json:"daily_recharge_cny,omitempty"`
+	// 当天管理员"调整额度-授信"录入的金额（人民币 ¥）；无授信时不输出
+	DailyCreditCny *float64 `json:"daily_credit_cny,omitempty"`
 }
 
 type detailsDailyResp struct {
@@ -701,6 +712,7 @@ type detailsDailyResp struct {
 	// 整个查询范围（未分页）内的汇总；用于表格顶部展示"充值总计 / 消耗总计"。
 	TotalConsumedUsd float64 `json:"total_consumed_usd"`
 	TotalRechargeCny float64 `json:"total_recharge_cny"`
+	TotalCreditCny   float64 `json:"total_credit_cny"`
 }
 
 // parseDetailsDailyFilter 与 parseDetailsFilter 共享了大部分字段，但 date 维度强制传入。
@@ -791,6 +803,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 		RequestCount int64
 		Tokens       int64
 		Recharge     float64
+		Credit       float64
 	}
 	aggMap := make(map[string]aggRow) // key = userId#date
 
@@ -807,10 +820,11 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			RequestCount   int64
 			Tokens         int64
 			RechargeAmount float64
+			CreditAmount   float64
 		}
 		var rows []row
 		if err := tx.
-			Select("user_id, stat_date, quota, request_count, tokens, recharge_amount").
+			Select("user_id, stat_date, quota, request_count, tokens, recharge_amount, credit_amount").
 			Scan(&rows).Error; err != nil {
 			common.ApiError(c, err)
 			return
@@ -824,6 +838,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 				RequestCount: r.RequestCount,
 				Tokens:       r.Tokens,
 				Recharge:     r.RechargeAmount,
+				Credit:       r.CreditAmount,
 			}
 		}
 	}
@@ -863,7 +878,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 				continue
 			}
 			k := fmt.Sprintf("%d#%s", r.UserId, todayStr)
-			// 保留可能已经写入的 Recharge（下一步单独聚合）
+			// 保留可能已经写入的 Recharge / Credit（下一步单独聚合）
 			existing := aggMap[k]
 			aggMap[k] = aggRow{
 				UserId:       r.UserId,
@@ -872,6 +887,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 				RequestCount: r.RequestCount,
 				Tokens:       r.TotalTokens,
 				Recharge:     existing.Recharge,
+				Credit:       existing.Credit,
 			}
 		}
 		// Claude 语义请求补加缓存 token，口径与 vip_daily_consumption 落盘一致。
@@ -887,11 +903,11 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			aggMap[k] = a
 		}
 
-		// 今天的充值：logs 表实时聚合，口径与 vip_daily_consumption.recharge_amount 一致（¥）
+		// 今天的充值 / 授信：logs 表实时聚合，口径与 vip_daily_consumption 对应列一致（¥）
 		rechargeTx := model.LOG_DB.Model(&model.Log{}).
 			Where("type = ?", model.LogTypeManage).
 			Where("operation_type = ?", model.OperationTypeQuota).
-			Where("quota_type = ?", model.QuotaTypeRecharge).
+			Where("quota_type IN ?", model.ManageQuotaAmountTypes()).
 			Where("user_id > 0").
 			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd)
 		if candidateIds != nil {
@@ -900,17 +916,19 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 		type rechargeRow struct {
 			UserId        int
 			TotalRecharge float64
+			TotalCredit   float64
 		}
 		var rechargeRows []rechargeRow
+		selectExpr, selectArgs := model.ManageQuotaAmountsSelect(false)
 		if err := rechargeTx.
-			Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+			Select(selectExpr, selectArgs...).
 			Group("user_id").
 			Scan(&rechargeRows).Error; err != nil {
 			common.ApiError(c, err)
 			return
 		}
 		for _, r := range rechargeRows {
-			if r.TotalRecharge == 0 {
+			if r.TotalRecharge == 0 && r.TotalCredit == 0 {
 				continue
 			}
 			k := fmt.Sprintf("%d#%s", r.UserId, todayStr)
@@ -919,6 +937,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			a.UserId = r.UserId
 			a.Date = todayStr
 			a.Recharge += r.TotalRecharge
+			a.Credit += r.TotalCredit
 			aggMap[k] = a
 		}
 	}
@@ -1011,6 +1030,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 	all := make([]detailsDailyRow, 0, len(aggMap))
 	var totalConsumedUsd float64
 	var totalRechargeCny float64
+	var totalCreditCny float64
 	for _, a := range aggMap {
 		u, ok := userMap[a.UserId]
 		if !ok {
@@ -1032,14 +1052,19 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			DailyConsumedUsd:   dailyConsumedUsd,
 			DailyTokens:        a.Tokens,
 		}
-		// 只有充值 > 0 时才落 DailyRechargeCny，避免所有行都强行输出 ¥0.00
+		// 只有充值 / 授信 > 0 时才落对应字段，避免所有行都强行输出 ¥0.00
 		if a.Recharge != 0 {
 			rc := a.Recharge
 			row.DailyRechargeCny = &rc
 		}
+		if a.Credit != 0 {
+			cr := a.Credit
+			row.DailyCreditCny = &cr
+		}
 		all = append(all, row)
 		totalConsumedUsd += dailyConsumedUsd
 		totalRechargeCny += a.Recharge
+		totalCreditCny += a.Credit
 	}
 
 	// 8. 排序
@@ -1068,6 +1093,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			PageSize:         f.pageSize,
 			TotalConsumedUsd: totalConsumedUsd,
 			TotalRechargeCny: totalRechargeCny,
+			TotalCreditCny:   totalCreditCny,
 		},
 	})
 }
@@ -1156,6 +1182,17 @@ func sortDailyRows(rows []detailsDailyRow, sortBy, sortDir string) {
 			}
 			if rows[j].DailyRechargeCny != nil {
 				b = *rows[j].DailyRechargeCny
+			}
+			return a < b
+		}
+	case "credit":
+		less = func(i, j int) bool {
+			a, b := 0.0, 0.0
+			if rows[i].DailyCreditCny != nil {
+				a = *rows[i].DailyCreditCny
+			}
+			if rows[j].DailyCreditCny != nil {
+				b = *rows[j].DailyCreditCny
 			}
 			return a < b
 		}
@@ -1412,25 +1449,28 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 	}
 	// f.date > todayStr（未来日）：aggMap 留空，全部展示 0
 
-	// 3b. 当日充值聚合：混合模式 —— 历史日读 vip_daily_consumptions.recharge_amount；
-	//     今天实时查 logs（type=3 + operation_type=额度 + quota_type=充值，SUM(recharge_input_amount)）。
+	// 3b. 当日充值 / 授信聚合：混合模式 —— 历史日读 vip_daily_consumptions 的 recharge_amount / credit_amount；
+	//     今天实时查 logs（type=3 + operation_type=额度 + quota_type IN (充值, 授信)，按来源拆分 SUM(recharge_input_amount)）。
 	//     单位：人民币 ¥。未来日：留空，全部 0。
 	rechargeMap := map[int]float64{}
+	creditMap := map[int]float64{}
 	if f.date < todayStr {
 		type row struct {
 			UserId         int
 			RechargeAmount float64
+			CreditAmount   float64
 		}
 		var rows []row
 		if err := model.DB.Model(&model.VipDailyConsumption{}).
 			Where("stat_date = ?", f.date).
 			Where("user_id IN ?", candidateIds).
-			Select("user_id, recharge_amount").
+			Select("user_id, recharge_amount, credit_amount").
 			Scan(&rows).Error; err != nil {
 			return nil, err
 		}
 		for _, r := range rows {
 			rechargeMap[r.UserId] = r.RechargeAmount
+			creditMap[r.UserId] = r.CreditAmount
 		}
 	} else if f.date == todayStr {
 		loc := now.Location()
@@ -1439,21 +1479,24 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 		type row struct {
 			UserId        int
 			TotalRecharge float64
+			TotalCredit   float64
 		}
 		var rows []row
+		selectExpr, selectArgs := model.ManageQuotaAmountsSelect(false)
 		if err := model.LOG_DB.Model(&model.Log{}).
 			Where("type = ?", model.LogTypeManage).
 			Where("operation_type = ?", model.OperationTypeQuota).
-			Where("quota_type = ?", model.QuotaTypeRecharge).
+			Where("quota_type IN ?", model.ManageQuotaAmountTypes()).
 			Where("user_id IN ?", candidateIds).
 			Where("created_at >= ? AND created_at <= ?", todayStart, todayEnd).
-			Select("user_id, COALESCE(SUM(recharge_input_amount), 0) AS total_recharge").
+			Select(selectExpr, selectArgs...).
 			Group("user_id").
 			Scan(&rows).Error; err != nil {
 			return nil, err
 		}
 		for _, r := range rows {
 			rechargeMap[r.UserId] = r.TotalRecharge
+			creditMap[r.UserId] = r.TotalCredit
 		}
 	}
 
@@ -1518,6 +1561,7 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 		_, isOfficial := officialSet[u.Id]
 		remaining := quotaToUSD(u.Quota)
 		recharge := rechargeMap[u.Id]
+		credit := creditMap[u.Id]
 		rows = append(rows, detailsDailyRow{
 			Date:               f.date,
 			UserId:             u.Id,
@@ -1533,6 +1577,7 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 			DailyTokens:        a.Tokens,
 			RemainingUsd:       &remaining,
 			DailyRechargeCny:   &recharge,
+			DailyCreditCny:     &credit,
 		})
 	}
 	return rows, nil

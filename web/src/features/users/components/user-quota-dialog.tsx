@@ -190,6 +190,13 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     ? t('Enter amount in tokens')
     : t('Enter amount in {{currency}}', { currency: currencyLabel })
 
+  // 「授信」的换算规则与「充值」一致，仅在日志与报表中作为独立来源区分。
+  const quotaTypeLabels: Record<QuotaType, string> = {
+    充值: t('Recharge'),
+    赠送: t('Gift'),
+    授信: t('Credit'),
+  }
+
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent>
@@ -238,7 +245,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
               <div className='space-y-2'>
                 <Label>{t('Type')}</Label>
                 <div className='flex gap-1'>
-                  {(['充值', '赠送'] as const).map((q) => (
+                  {(['充值', '赠送', '授信'] as const).map((q) => (
                     <Button
                       key={q}
                       type='button'
@@ -250,7 +257,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                       )}
                       onClick={() => setQuotaType(q)}
                     >
-                      {q === '充值' ? t('Recharge') : t('Gift')}
+                      {quotaTypeLabels[q]}
                     </Button>
                   ))}
                 </div>

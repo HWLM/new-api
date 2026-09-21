@@ -306,6 +306,14 @@ export function DetailsTable({
             </span>
             <span className='flex items-baseline gap-1'>
               <span className='text-muted-foreground'>
+                {t('Credit Total')}
+              </span>
+              <span className='font-medium tabular-nums'>
+                ¥{(dailyQuery.data?.total_credit_cny ?? 0).toFixed(2)}
+              </span>
+            </span>
+            <span className='flex items-baseline gap-1'>
+              <span className='text-muted-foreground'>
                 {t('Consumption Total')}
               </span>
               <span className='font-medium tabular-nums'>
@@ -390,6 +398,13 @@ export function DetailsTable({
                   </TableHead>
                   <TableHead
                     className='cursor-pointer select-none text-right'
+                    onClick={() => handleSort('credit')}
+                  >
+                    {t('Total Credit (¥)')}
+                    {sortIndicator('credit')}
+                  </TableHead>
+                  <TableHead
+                    className='cursor-pointer select-none text-right'
                     onClick={() => handleSort('consumed')}
                   >
                     {t('Total Consumed ($)')}
@@ -409,7 +424,7 @@ export function DetailsTable({
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      <TableCell colSpan={14}>
+                      <TableCell colSpan={15}>
                         <Skeleton className='h-5 w-full' />
                       </TableCell>
                     </TableRow>
@@ -417,7 +432,7 @@ export function DetailsTable({
                 ) : summaryRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={14}
+                      colSpan={15}
                       className='text-muted-foreground text-center'
                     >
                       {t('No data')}
@@ -448,6 +463,9 @@ export function DetailsTable({
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.total_recharge_cny.toFixed(2)}
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        {row.total_credit_cny.toFixed(2)}
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.total_consumed_usd.toFixed(2)}
@@ -522,6 +540,13 @@ export function DetailsTable({
                   </TableHead>
                   <TableHead
                     className='cursor-pointer select-none text-right'
+                    onClick={() => handleSort('credit')}
+                  >
+                    {t('Daily Credit (¥)')}
+                    {sortIndicator('credit')}
+                  </TableHead>
+                  <TableHead
+                    className='cursor-pointer select-none text-right'
                     onClick={() => handleSort('tokens')}
                   >
                     {t('Daily Tokens')}
@@ -533,7 +558,7 @@ export function DetailsTable({
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      <TableCell colSpan={11}>
+                      <TableCell colSpan={12}>
                         <Skeleton className='h-5 w-full' />
                       </TableCell>
                     </TableRow>
@@ -541,7 +566,7 @@ export function DetailsTable({
                 ) : dailyRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={11}
+                      colSpan={12}
                       className='text-muted-foreground text-center'
                     >
                       {t('No data')}
@@ -567,6 +592,9 @@ export function DetailsTable({
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         ¥{(row.daily_recharge_cny ?? 0).toFixed(2)}
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        ¥{(row.daily_credit_cny ?? 0).toFixed(2)}
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.daily_tokens.toLocaleString()}
@@ -600,6 +628,9 @@ export function DetailsTable({
                     {t('Daily Recharge (¥)')}
                   </TableHead>
                   <TableHead className='text-right'>
+                    {t('Daily Credit (¥)')}
+                  </TableHead>
+                  <TableHead className='text-right'>
                     {t('Daily Tokens')}
                   </TableHead>
                   <TableHead className='text-right'>
@@ -611,7 +642,7 @@ export function DetailsTable({
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      <TableCell colSpan={12}>
+                      <TableCell colSpan={13}>
                         <Skeleton className='h-5 w-full' />
                       </TableCell>
                     </TableRow>
@@ -619,7 +650,7 @@ export function DetailsTable({
                 ) : singleDayRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={12}
+                      colSpan={13}
                       className='text-muted-foreground text-center'
                     >
                       {t('No data')}
@@ -645,6 +676,9 @@ export function DetailsTable({
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         ¥{(row.daily_recharge_cny ?? 0).toFixed(2)}
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>
+                        ¥{(row.daily_credit_cny ?? 0).toFixed(2)}
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {row.daily_tokens.toLocaleString()}
