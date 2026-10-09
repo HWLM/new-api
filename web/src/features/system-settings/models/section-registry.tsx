@@ -46,6 +46,7 @@ const MODELS_SECTIONS = [
           global: {
             pass_through_request_enabled:
               settings['global.pass_through_request_enabled'],
+            refusal_no_output_free: settings['global.refusal_no_output_free'],
             image_result_object_store_enabled:
               settings.ImageResultObjectStoreEnabled,
             thinking_model_blacklist: formatJsonForEditor(

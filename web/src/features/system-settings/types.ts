@@ -194,6 +194,7 @@ export type ModelSettings = {
   ImageResultObjectStoreEnabled: boolean
   ImageResultObjectStore: string
   'global.pass_through_request_enabled': boolean
+  'global.refusal_no_output_free': boolean
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'general_setting.ping_interval_enabled': boolean

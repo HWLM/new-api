@@ -1079,3 +1079,38 @@ func TestAppendToolSurchargeLogInfoWritesOnlyStructuredFields(t *testing.T) {
 	assert.NotContains(t, other, "image_generation_call")
 	assert.NotContains(t, other, "image_generation_call_price")
 }
+
+// A billing-exempt response (Claude refusal with no output) must zero out quota
+// and reported usage, matching Anthropic's own billing behaviour.
+func TestCalculateTextQuotaSummaryZeroesQuotaAndUsageWhenBillingExempt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	usage := &dto.Usage{PromptTokens: 412, CompletionTokens: 0, TotalTokens: 412, UsageSemantic: "anthropic"}
+	newRelayInfo := func() *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			RelayFormat:             types.RelayFormatClaude,
+			FinalRequestRelayFormat: types.RelayFormatClaude,
+			OriginModelName:         "claude-fable-5-1",
+			PriceData: hosttypes.PriceData{
+				ModelRatio:      5,
+				CompletionRatio: 5,
+				GroupRatioInfo:  hosttypes.GroupRatioInfo{GroupRatio: 1},
+			},
+			StartTime: time.Now(),
+		}
+	}
+
+	billedCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	billed := calculateTextQuotaSummary(billedCtx, newRelayInfo(), usage)
+	require.Equal(t, 2060, billed.Quota)
+	require.Empty(t, billed.BillingExemptReason)
+
+	exemptCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(exemptCtx, constant.ContextKeyBillingExemptReason, "claude_refusal_no_output")
+	exempt := calculateTextQuotaSummary(exemptCtx, newRelayInfo(), usage)
+	assert.Equal(t, 0, exempt.Quota)
+	assert.Equal(t, "claude_refusal_no_output", exempt.BillingExemptReason)
+	assert.Equal(t, 0, exempt.PromptTokens, "informational usage must not be recorded")
+	assert.Equal(t, 0, exempt.CompletionTokens)
+	assert.Equal(t, 0, exempt.TotalTokens)
+	assert.False(t, exempt.hasBillableUsage())
+}

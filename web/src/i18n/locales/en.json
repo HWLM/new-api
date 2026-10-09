@@ -1657,6 +1657,8 @@
     "Display Token Statistics": "Display Token Statistics",
     "Displayed in": "Displayed in",
     "Displays the mobile sidebar.": "Displays the mobile sidebar.",
+    "Do not bill refusals without output": "Do not bill refusals without output",
+    "Do not charge or record usage when a Messages API upstream returns stop_reason refusal without any output, matching Anthropic billing": "Do not charge or record usage when a Messages API upstream returns stop_reason refusal without any output, matching Anthropic billing",
     "Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.": "Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.",
     "Do not repeat check-in; only once per day": "Do not repeat check-in; only once per day",
     "Do not wait one second between polling async tasks for this channel": "Do not wait one second between polling async tasks for this channel",

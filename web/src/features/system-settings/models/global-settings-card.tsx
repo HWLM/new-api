@@ -102,6 +102,7 @@ const jsonString = z.string().refine((value) => {
 const schema = z.object({
   global: z.object({
     pass_through_request_enabled: z.boolean(),
+    refusal_no_output_free: z.boolean(),
     image_result_object_store_enabled: z.boolean(),
     thinking_model_blacklist: jsonString,
     chat_completions_to_responses_policy: jsonString,
@@ -120,6 +121,7 @@ type FlatGlobalModelSettings = {
   ImageResultObjectStoreEnabled: boolean;
   ImageResultObjectStore: string;
   "global.pass_through_request_enabled": boolean;
+  "global.refusal_no_output_free": boolean;
   "global.thinking_model_blacklist": string;
   "global.chat_completions_to_responses_policy": string;
   "general_setting.ping_interval_enabled": boolean;
@@ -137,6 +139,7 @@ const flattenGlobalValues = (
   ),
   "global.pass_through_request_enabled":
     values.global.pass_through_request_enabled,
+  "global.refusal_no_output_free": values.global.refusal_no_output_free,
   "global.thinking_model_blacklist": normalizeJsonText(
     values.global.thinking_model_blacklist,
     "[]",
@@ -249,9 +252,31 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
               </SettingsSwitchItem>
             )}
           />
-
+          <FormField
+            control={form.control}
+            name="global.refusal_no_output_free"
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t("Do not bill refusals without output")}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      "Do not charge or record usage when a Messages API upstream returns stop_reason refusal without any output, matching Anthropic billing",
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
           <Separator />
-
           <div className="space-y-4">
             {/* <div className="space-y-1">
               <h3 className="text-base font-semibold">
@@ -325,9 +350,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
               )}
             />
           </div>
-
           <Separator />
-
           <FormField
             control={form.control}
             name="global.thinking_model_blacklist"
@@ -365,9 +388,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
               </FormItem>
             )}
           />
-
           <Separator />
-
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <h3 className="text-base font-semibold">
@@ -453,9 +474,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
               )}
             />
           </div>
-
           <Separator />
-
           <FormField
             control={form.control}
             name="general_setting.ping_interval_enabled"
@@ -478,7 +497,6 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
               </SettingsSwitchItem>
             )}
           />
-
           <FormField
             control={form.control}
             name="general_setting.ping_interval_seconds"

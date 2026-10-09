@@ -303,6 +303,7 @@ export function ModelMutateDrawer({
       ImageResultObjectStoreEnabled: false,
       ImageResultObjectStore: '{}',
       'global.pass_through_request_enabled': false,
+      'global.refusal_no_output_free': false,
       'global.thinking_model_blacklist': '[]',
       'global.chat_completions_to_responses_policy': '{}',
       'general_setting.ping_interval_enabled': false,
