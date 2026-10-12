@@ -308,6 +308,7 @@ func migrateDB() error {
 		&VipDailyConsumption{},
 		&VipHourlyConsumption{},
 		&DailySummary{},
+		&CreditRecord{},
 		&RequestAlertRule{},
 		&RequestAlertEvent{},
 		&RequestMetricsLog{},

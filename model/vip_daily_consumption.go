@@ -37,9 +37,13 @@ type VipDailyConsumption struct {
 	Tokens         int64   `json:"tokens" gorm:"default:0;column:tokens"`                                                 // 当天 prompt_tokens + completion_tokens 总和
 	RechargeAmount float64 `json:"recharge_amount" gorm:"default:0;column:recharge_amount"`                               // 当天管理员「调整额度-充值」录入的总金额（人民币 ¥），仅统计 operation_type=额度 + quota_type=充值
 	CreditAmount   float64 `json:"credit_amount" gorm:"default:0;column:credit_amount"`                                   // 当天管理员「调整额度-授信」录入的总金额（人民币 ¥），仅统计 operation_type=额度 + quota_type=授信
-	LastRechargeAt int64   `json:"last_recharge_at" gorm:"default:0;column:last_recharge_at"`                             // 当天最后一次充值日志的 created_at (unix 秒)；0 表示当天无充值（不含授信）
-	LastConsumedAt int64   `json:"last_consumed_at" gorm:"default:0;column:last_consumed_at"`                             // 当天最后一次 consume log 的 created_at (unix 秒)；0 表示当天无消费日志
-	CreatedAt      int64   `json:"created_at" gorm:"autoCreateTime"`
+	GiftAmount     float64 `json:"gift_amount" gorm:"default:0;column:gift_amount"`                                       // 当天管理员「调整额度-赠送」录入的总金额（人民币 ¥），仅统计 operation_type=额度 + quota_type=赠送
+	// RepaymentAmount 当天「授信回款」登记的总金额（人民币 ¥），仅统计 operation_type=额度 + quota_type=回款。
+	// 回款日志不加额度，只用于「授信-回款」口径的报表对冲。
+	RepaymentAmount float64 `json:"repayment_amount" gorm:"default:0;column:repayment_amount"`
+	LastRechargeAt  int64   `json:"last_recharge_at" gorm:"default:0;column:last_recharge_at"` // 当天最后一次充值日志的 created_at (unix 秒)；0 表示当天无充值（不含授信）
+	LastConsumedAt  int64   `json:"last_consumed_at" gorm:"default:0;column:last_consumed_at"` // 当天最后一次 consume log 的 created_at (unix 秒)；0 表示当天无消费日志
+	CreatedAt       int64   `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // UpsertVipDailyConsumption 批量插入/更新某一天的统计数据。
@@ -56,7 +60,7 @@ func UpsertVipDailyConsumption(records []VipDailyConsumption) error {
 	}
 	return DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "stat_date"}},
-		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username", "recharge_amount", "credit_amount", "last_recharge_at", "last_consumed_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"quota", "request_count", "tokens", "username", "recharge_amount", "credit_amount", "gift_amount", "repayment_amount", "last_recharge_at", "last_consumed_at"}),
 	}).Create(&records).Error
 }
 

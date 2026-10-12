@@ -92,6 +92,7 @@ export type DetailsFilter = {
   sales?: string[]        // 归属销售（inviter.display_name）
   user_group?: string[]   // users.group
   is_vip?: '' | '0' | '1'
+  is_credited?: '' | '0' | '1' // 是否授信客户（credit_records 有授信记录）
   last_consume_date_from?: string // YYYY-MM-DD
   page?: number
   page_size?: number
@@ -105,6 +106,7 @@ export type DetailsRow = {
   display_name: string
   is_vip_customer: boolean
   is_official: boolean
+  is_credited: boolean
   business_channel: string
   inviter_display_name: string
   user_group: string
@@ -134,6 +136,7 @@ export type DetailsDailyFilter = {
   sales?: string[]
   user_group?: string[]
   is_vip?: '' | '0' | '1'
+  is_credited?: '' | '0' | '1'
   page?: number
   page_size?: number
   sort_by?: string
@@ -147,6 +150,7 @@ export type DetailsDailyRow = {
   display_name: string
   is_vip_customer: boolean
   is_official: boolean
+  is_credited: boolean
   business_channel: string
   inviter_display_name: string
   user_group: string
@@ -184,6 +188,7 @@ export type DetailsSingleDayFilter = {
   sales?: string[]
   user_group?: string[]
   is_vip?: '' | '0' | '1'
+  is_credited?: '' | '0' | '1'
   page?: number
   page_size?: number
 }

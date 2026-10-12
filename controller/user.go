@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1303,8 +1304,8 @@ func ManageUser(c *gin.Context) {
 		}
 		switch req.Mode {
 		case "add":
-			// 类型必须明确为 充值 / 赠送 / 授信
-			if req.QuotaType != model.QuotaTypeRecharge && req.QuotaType != model.QuotaTypeGift && req.QuotaType != model.QuotaTypeCredit {
+			// 类型必须明确为 充值 / 赠送 / 授信；回款只记账不加额度，走专门的回款接口
+			if !slices.Contains(model.ManageQuotaAddTypes(), req.QuotaType) {
 				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 				return
 			}
@@ -1359,6 +1360,19 @@ func ManageUser(c *gin.Context) {
 			model.RecordManageLog(user.Id, logMsg,
 				model.OperationTypeQuota, req.QuotaType, quotaValue, adminInfo,
 				&rechargeInputAmount, &rechargeAfterRatioAmount, &beforeQuota, &afterQuota)
+			// 授信另外落一条流水，供「充值-授信统计」的授信明细与未回款口径直接聚合，
+			// 不必回头扫 logs / vip_daily_consumptions。写失败不回滚额度变更 ——
+			// 额度已经加成功，报表少一行可以靠回填补，但把到手的额度撤回去会更糟。
+			if req.QuotaType == model.QuotaTypeCredit {
+				if err := model.CreateCreditRecord(&model.CreditRecord{
+					UserId:     user.Id,
+					Type:       model.CreditRecordTypeCredit,
+					Amount:     req.RechargeAmount,
+					OperatorId: c.GetInt("id"),
+				}); err != nil {
+					common.SysError(fmt.Sprintf("failed to record credit for user %d: %s", user.Id, err.Error()))
+				}
+			}
 			recordManageAuditFor(c, user.Id, "user.quota_add", map[string]interface{}{
 				"quota": logger.LogQuota(req.Value),
 			})

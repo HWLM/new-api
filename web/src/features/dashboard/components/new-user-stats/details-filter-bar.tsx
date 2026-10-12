@@ -73,6 +73,7 @@ export function DetailsFilterBar({
       sales: [],
       user_group: [],
       is_vip: '',
+      is_credited: '',
       last_consume_date_from: '',
       page: 1,
       page_size: draft.page_size ?? 20,
@@ -124,6 +125,10 @@ export function DetailsFilterBar({
   }
 
   const vipItems = [
+    { value: '1', label: t('Yes') },
+    { value: '0', label: t('No') },
+  ]
+  const creditedItems = [
     { value: '1', label: t('Yes') },
     { value: '0', label: t('No') },
   ]
@@ -203,6 +208,29 @@ export function DetailsFilterBar({
         </SelectTrigger>
         <SelectContent>
           {vipItems.map((it) => (
+            <SelectItem key={it.value} value={it.value}>
+              {it.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        key={`credited-${vipKey}`}
+        items={creditedItems}
+        value={draft.is_credited || undefined}
+        onValueChange={(v) =>
+          setDraft({
+            ...draft,
+            is_credited: (v ?? '') as DetailsFilter['is_credited'],
+          })
+        }
+      >
+        <SelectTrigger className='w-36'>
+          <SelectValue placeholder={t('Credit Customer?')} />
+        </SelectTrigger>
+        <SelectContent>
+          {creditedItems.map((it) => (
             <SelectItem key={it.value} value={it.value}>
               {it.label}
             </SelectItem>

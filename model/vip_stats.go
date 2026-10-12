@@ -127,13 +127,15 @@ type todayLogAggregate struct {
 	Tokens   int64
 }
 
-// cronLogAggregate cron 任务用：包含消费聚合 + 管理员充值/授信金额的 per-user 数据。
+// cronLogAggregate cron 任务用：包含消费聚合 + 管理员充值/授信/赠送/回款金额的 per-user 数据。
 type cronLogAggregate struct {
 	Quota          int64
 	Requests       int64
 	Tokens         int64
 	Recharge       float64
 	Credit         float64
+	Gift           float64
+	Repayment      float64
 	LastConsumedAt int64 // 当天最后一次 consume log 的 created_at (unix 秒)
 	LastRechargeAt int64 // 当天最后一次充值日志的 created_at (unix 秒)；不含授信
 }
@@ -144,7 +146,7 @@ type cronLogAggregate struct {
 // 两次查询合并：
 //  1. quota 走「净口径」：type=LogTypeConsume 计正、type=LogTypeRefund 计负（视频等异步任务差额结算）
 //     request_count / tokens 仍只算 type=LogTypeConsume（退款不算新请求，tokens 恒为 0）
-//  2. type=manage + operation_type=额度 的 SUM(recharge_input_amount)，按 quota_type 分成充值与授信两个口径
+//  2. type=manage + operation_type=额度 的 SUM(recharge_input_amount)，按 quota_type 分成充值 / 授信 / 赠送 / 回款四个口径
 //
 // 过滤 user_id > 0，避免脏数据（如系统操作）落到统计表导致 user_id=0 的记录。
 func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) {
@@ -194,10 +196,12 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 	}
 
 	type rechargeRow struct {
-		UserId          int
-		TotalRecharge   float64
-		TotalCredit     float64
-		LastRechargeAt  int64
+		UserId         int
+		TotalRecharge  float64
+		TotalCredit    float64
+		TotalGift      float64
+		TotalRepayment float64
+		LastRechargeAt int64
 	}
 	var rechargeRows []rechargeRow
 	selectExpr, selectArgs := ManageQuotaAmountsSelect(true)
@@ -216,6 +220,8 @@ func sumLogsByTimeRange(startTs, endTs int64) (map[int]cronLogAggregate, error) 
 		agg := result[r.UserId]
 		agg.Recharge = r.TotalRecharge
 		agg.Credit = r.TotalCredit
+		agg.Gift = r.TotalGift
+		agg.Repayment = r.TotalRepayment
 		agg.LastRechargeAt = r.LastRechargeAt
 		result[r.UserId] = agg
 	}
@@ -532,20 +538,23 @@ func RunVipDailyStat(statDate string) (int, error) {
 
 		records := make([]VipDailyConsumption, 0, len(perUser))
 		for userId, agg := range perUser {
-			if agg.Quota == 0 && agg.Requests == 0 && agg.Tokens == 0 && agg.Recharge == 0 && agg.Credit == 0 {
+			if agg.Quota == 0 && agg.Requests == 0 && agg.Tokens == 0 &&
+				agg.Recharge == 0 && agg.Credit == 0 && agg.Gift == 0 && agg.Repayment == 0 {
 				continue
 			}
 			records = append(records, VipDailyConsumption{
-				UserId:         userId,
-				Username:       usernameMap[userId],
-				StatDate:       statDate,
-				Quota:          agg.Quota,
-				RequestCount:   agg.Requests,
-				Tokens:         agg.Tokens,
-				RechargeAmount: agg.Recharge,
-				CreditAmount:   agg.Credit,
-				LastConsumedAt: agg.LastConsumedAt,
-				LastRechargeAt: agg.LastRechargeAt,
+				UserId:          userId,
+				Username:        usernameMap[userId],
+				StatDate:        statDate,
+				Quota:           agg.Quota,
+				RequestCount:    agg.Requests,
+				Tokens:          agg.Tokens,
+				RechargeAmount:  agg.Recharge,
+				CreditAmount:    agg.Credit,
+				GiftAmount:      agg.Gift,
+				RepaymentAmount: agg.Repayment,
+				LastConsumedAt:  agg.LastConsumedAt,
+				LastRechargeAt:  agg.LastRechargeAt,
 			})
 		}
 		if err := UpsertVipDailyConsumption(records); err != nil {

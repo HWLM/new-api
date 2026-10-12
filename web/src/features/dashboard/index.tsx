@@ -129,6 +129,11 @@ const LazyNewUserStats = lazy(() =>
     default: m.NewUserStats,
   })),
 );
+const LazyCreditStats = lazy(() =>
+  import("./components/credit-stats/credit-stats").then((m) => ({
+    default: m.CreditStats,
+  })),
+);
 const LazyFlowCharts = lazy(() =>
   import("./components/flow/flow-charts").then((m) => ({
     default: m.FlowCharts,
@@ -211,6 +216,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   },
   "new-user-stats": {
     titleKey: "New User Statistics",
+  },
+  "credit-stats": {
+    titleKey: "Recharge & Credit Statistics",
   },
 };
 
@@ -458,6 +466,13 @@ export function Dashboard() {
             <FadeIn>
               <Suspense fallback={<ModelChartsFallback />}>
                 <LazyNewUserStats />
+              </Suspense>
+            </FadeIn>
+          )}
+          {activeSection === "credit-stats" && isAdmin && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyCreditStats />
               </Suspense>
             </FadeIn>
           )}

@@ -111,6 +111,7 @@ function toDetailsParams(f: DetailsFilter): Record<string, string> {
   if (f.sales && f.sales.length) p.sales = f.sales.join(',')
   if (f.user_group && f.user_group.length) p.user_group = f.user_group.join(',')
   if (f.is_vip) p.is_vip = f.is_vip
+  if (f.is_credited) p.is_credited = f.is_credited
   if (f.last_consume_date_from)
     p.last_consume_date_from = f.last_consume_date_from
   if (f.page) p.page = String(f.page)
@@ -139,6 +140,7 @@ function toDetailsDailyParams(f: DetailsDailyFilter): Record<string, string> {
   if (f.sales && f.sales.length) p.sales = f.sales.join(',')
   if (f.user_group && f.user_group.length) p.user_group = f.user_group.join(',')
   if (f.is_vip) p.is_vip = f.is_vip
+  if (f.is_credited) p.is_credited = f.is_credited
   if (f.page) p.page = String(f.page)
   if (f.page_size) p.page_size = String(f.page_size)
   if (f.sort_by) p.sort_by = f.sort_by
@@ -165,6 +167,7 @@ function toDetailsSingleDayParams(
   if (f.sales && f.sales.length) p.sales = f.sales.join(',')
   if (f.user_group && f.user_group.length) p.user_group = f.user_group.join(',')
   if (f.is_vip) p.is_vip = f.is_vip
+  if (f.is_credited) p.is_credited = f.is_credited
   if (f.page) p.page = String(f.page)
   if (f.page_size) p.page_size = String(f.page_size)
   return p

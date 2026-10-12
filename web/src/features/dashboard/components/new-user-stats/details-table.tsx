@@ -209,6 +209,14 @@ export function DetailsTable({
           {t('Official Customer')}
         </Badge>
       )}
+      {row.is_credited && (
+        <Badge
+          variant='outline'
+          className='border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300'
+        >
+          {t('Credit Customer')}
+        </Badge>
+      )}
     </div>
   )
 
