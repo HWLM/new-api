@@ -38,7 +38,7 @@ type DailySummary struct {
 	Quota                  int64   `json:"quota" gorm:"default:0"`                                                    // 当天全量用户总消耗 quota
 	RequestCount           int64   `json:"request_count" gorm:"default:0;column:request_count"`                       // 当天全量请求次数
 	Tokens                 int64   `json:"tokens" gorm:"default:0"`                                                   // 当天全量 prompt_tokens + completion_tokens
-	RechargeAmount         float64 `json:"recharge_amount" gorm:"default:0;column:recharge_amount"`                   // 当天全量管理员充值金额（人民币 ¥）
+	RechargeAmount         float64 `json:"recharge_amount" gorm:"default:0;column:recharge_amount"`                   // 当天全量管理员充值金额（人民币 ¥），只含 quota_type=充值
 	OfficialQuota          int64   `json:"official_quota" gorm:"default:0;column:official_quota"`                     // 当天正式用户消耗 quota
 	OfficialRechargeAmount float64 `json:"official_recharge_amount" gorm:"default:0;column:official_recharge_amount"` // 当天正式用户充值金额（人民币 ¥）
 	// 累计列：截至 stat_date 当日（含当日）的累加值

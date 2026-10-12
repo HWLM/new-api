@@ -86,6 +86,12 @@ const DASHBOARD_SECTIONS = [
     visibility: 'admin',
     build: () => null,
   },
+  {
+    id: 'credit-stats',
+    titleKey: 'Recharge & Credit Statistics',
+    visibility: 'admin',
+    build: () => null,
+  },
 ] as const satisfies ReadonlyArray<{
   id: string
   titleKey: string

@@ -415,6 +415,20 @@ func SetApiRouter(router *gin.Engine) {
 			userStatsRoute.GET("/user_trend", controller.GetUserStatsUserTrend)
 			userStatsRoute.POST("/repair_tokens", controller.RepairUserStatsTokens)
 		}
+
+		// 数据看板 -> 充值-授信统计 tab（admin only）
+		creditStatsRoute := apiRouter.Group("/credit_stats")
+		creditStatsRoute.Use(middleware.AdminAuth())
+		{
+			creditStatsRoute.GET("/summary", controller.GetCreditStatsSummary)
+			creditStatsRoute.GET("/trend", controller.GetCreditStatsTrend)
+			creditStatsRoute.GET("/details_summary", controller.GetCreditDetailsSummary)
+			creditStatsRoute.GET("/details_monthly", controller.GetCreditDetailsMonthly)
+			creditStatsRoute.GET("/records", controller.GetCreditRepaymentRecords)
+			creditStatsRoute.GET("/amount_details", controller.GetCreditAmountDetails)
+			creditStatsRoute.POST("/repayment", controller.CreateCreditRepayment)
+			creditStatsRoute.POST("/backfill", controller.CreateCreditBackfill)
+		}
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)
 

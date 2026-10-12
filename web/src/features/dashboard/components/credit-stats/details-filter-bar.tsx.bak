@@ -1,0 +1,94 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { MultiSelect } from '@/components/multi-select'
+import type { FilterOptions } from '../new-user-stats/types'
+
+// 汇总标签只筛用户与归属；明细标签多一个月份区间。
+// 两种模式共用这一个筛选条，由 mode 决定是否渲染月份输入。
+export type CreditDetailsFilterValue = {
+  username: string
+  channel: string[]
+  sales: string[]
+  startMonth: string
+  endMonth: string
+}
+
+export function DetailsFilterBar({
+  mode,
+  value,
+  options,
+  onApply,
+}: {
+  mode: 'summary' | 'monthly'
+  value: CreditDetailsFilterValue
+  options: FilterOptions | undefined
+  onApply: (next: CreditDetailsFilterValue) => void
+}) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState<CreditDetailsFilterValue>(value)
+
+  useEffect(() => {
+    setDraft(value)
+  }, [value, mode])
+
+  return (
+    <div className='flex flex-wrap items-center gap-2'>
+      {mode === 'monthly' && (
+        <>
+          <Input
+            type='month'
+            className='w-36'
+            value={draft.startMonth}
+            onChange={(e) =>
+              setDraft({ ...draft, startMonth: e.target.value })
+            }
+            placeholder={t('Start month')}
+          />
+          <span className='text-muted-foreground'>-</span>
+          <Input
+            type='month'
+            className='w-36'
+            value={draft.endMonth}
+            onChange={(e) => setDraft({ ...draft, endMonth: e.target.value })}
+            placeholder={t('End month')}
+          />
+        </>
+      )}
+
+      <Input
+        className='w-52'
+        value={draft.username}
+        onChange={(e) => setDraft({ ...draft, username: e.target.value })}
+        placeholder={t('Please enter username / display name')}
+      />
+
+      <MultiSelect
+        className='w-44'
+        options={(options?.channels ?? []).map((c) => ({
+          label: c,
+          value: c,
+        }))}
+        value={draft.channel}
+        onChange={(next) => setDraft({ ...draft, channel: next })}
+        placeholder={t('Please select channel')}
+      />
+
+      <MultiSelect
+        className='w-44'
+        options={(options?.sales ?? []).map((s) => ({ label: s, value: s }))}
+        value={draft.sales}
+        onChange={(next) => setDraft({ ...draft, sales: next })}
+        placeholder={t('Please select sales')}
+      />
+
+      <Button onClick={() => onApply(draft)}>{t('Query')}</Button>
+    </div>
+  )
+}

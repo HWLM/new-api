@@ -36,6 +36,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // =========================================================
@@ -48,6 +49,7 @@ type detailsFilter struct {
 	sales               []string // 归属销售（inviter.display_name）IN
 	userGroups          []string // users.group IN
 	isVip               *bool
+	isCredited          *bool  // 是否授信客户：credit_records 中有授信记录
 	lastConsumeDateFrom string // YYYY-MM-DD, 用户最后一次消耗日期 >= 这一天
 	page                int
 	pageSize            int
@@ -60,7 +62,8 @@ type detailsRow struct {
 	Username           string  `json:"username"`
 	DisplayName        string  `json:"display_name"`
 	IsVipCustomer      bool    `json:"is_vip_customer"`
-	IsOfficial         bool    `json:"is_official"` // group ∈ OfficialUserGroups
+	IsOfficial         bool    `json:"is_official"`  // group ∈ OfficialUserGroups
+	IsCredited         bool    `json:"is_credited"`  // credit_records 中有授信记录
 	BusinessChannel    string  `json:"business_channel"`
 	InviterDisplayName string  `json:"inviter_display_name"`
 	UserGroup          string  `json:"user_group"`
@@ -95,6 +98,12 @@ func parseDetailsFilter(c *gin.Context) *detailsFilter {
 		b, e := strconv.ParseBool(v)
 		if e == nil {
 			f.isVip = &b
+		}
+	}
+	if v := c.Query("is_credited"); v != "" {
+		b, e := strconv.ParseBool(v)
+		if e == nil {
+			f.isCredited = &b
 		}
 	}
 	if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
@@ -180,6 +189,21 @@ func GetUserStatsDetails(c *gin.Context) {
 	}
 	if f.isVip != nil {
 		userTx = userTx.Where("is_vip_customer = ?", *f.isVip)
+	}
+	{
+		tx, hasAny, err := applyCreditedUserFilter(userTx, f.isCredited)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if !hasAny {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data":    detailsResp{Rows: []detailsRow{}, Total: 0, Page: f.page, PageSize: f.pageSize},
+			})
+			return
+		}
+		userTx = tx
 	}
 
 	// 3. last_consume_date_from：拿到最后消费日期 >= X 的 user_ids
@@ -531,17 +555,20 @@ func GetUserStatsDetails(c *gin.Context) {
 	}
 
 	// 10. 拼装 detailsRow
+	creditedSet := loadCreditedUserSet()
 	rows := make([]detailsRow, 0, len(users))
 	for _, u := range users {
 		ca := consumeMap[u.Id]
 		ra := rechargeMap[u.Id]
 		_, isOfficial := officialSet[u.Id]
+		_, isCredited := creditedSet[u.Id]
 		rows = append(rows, detailsRow{
 			UserId:             u.Id,
 			Username:           u.Username,
 			DisplayName:        u.DisplayName,
 			IsVipCustomer:      u.IsVipCustomer,
 			IsOfficial:         isOfficial,
+			IsCredited:         isCredited,
 			BusinessChannel:    inviterChannelMap[u.InviterId],
 			InviterDisplayName: inviterDisplayMap[u.InviterId],
 			UserGroup:          u.UserGroup,
@@ -607,6 +634,46 @@ func sortRowsByAggregate(rows []detailsRow, sortBy, sortDir string) {
 func commonUserGroupCol() string {
 	// 复用 model 层暴露的列引用变量（commonGroupCol 是 logs/users 共用的 group 列引用）
 	return model.UsersGroupCol()
+}
+
+// loadCreditedUserSet 返回「授信客户」user_id 集合（credit_records 中有 type=授信 的记录）。
+// 查询失败时返回空集合并吞掉错误 —— 这个标签只影响展示，不该让整张明细表加载失败。
+func loadCreditedUserSet() map[int]struct{} {
+	set := map[int]struct{}{}
+	ids, err := model.GetCreditedUserIds()
+	if err != nil {
+		common.SysError("failed to load credited user ids: " + err.Error())
+		return set
+	}
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return set
+}
+
+// applyCreditedUserFilter 按「是否授信客户」过滤 users 查询。
+// 授信客户集合存在 credit_records 而非 users 表，无法直接 WHERE，只能先取 id 再 IN / NOT IN。
+// 第二个返回值为 false 表示该条件下不可能有任何用户命中，调用方应直接返回空结果。
+func applyCreditedUserFilter(tx *gorm.DB, isCredited *bool) (*gorm.DB, bool, error) {
+	if isCredited == nil {
+		return tx, true, nil
+	}
+	ids, err := model.GetCreditedUserIds()
+	if err != nil {
+		return nil, false, err
+	}
+	if *isCredited {
+		// 要求是授信客户，但一个授信记录都没有 → 必然空结果
+		if len(ids) == 0 {
+			return tx, false, nil
+		}
+		return tx.Where("id IN ?", ids), true, nil
+	}
+	// 要求非授信客户：没有任何授信用户时所有人都符合，不必加条件
+	if len(ids) == 0 {
+		return tx, true, nil
+	}
+	return tx.Where("id NOT IN ?", ids), true, nil
 }
 
 // =========================================================
@@ -677,6 +744,7 @@ type detailsDailyFilter struct {
 	sales      []string
 	userGroups []string
 	isVip      *bool
+	isCredited *bool // 是否授信客户：credit_records 中有授信记录
 	page       int
 	pageSize   int
 	sortBy     string // date / username / display_name / requests / consumed / tokens
@@ -690,6 +758,7 @@ type detailsDailyRow struct {
 	DisplayName        string  `json:"display_name"`
 	IsVipCustomer      bool    `json:"is_vip_customer"`
 	IsOfficial         bool    `json:"is_official"`
+	IsCredited         bool    `json:"is_credited"` // credit_records 中有授信记录
 	BusinessChannel    string  `json:"business_channel"`
 	InviterDisplayName string  `json:"inviter_display_name"`
 	UserGroup          string  `json:"user_group"`
@@ -731,6 +800,12 @@ func parseDetailsDailyFilter(c *gin.Context) (*detailsDailyFilter, error) {
 		b, e := strconv.ParseBool(v)
 		if e == nil {
 			f.isVip = &b
+		}
+	}
+	if v := c.Query("is_credited"); v != "" {
+		b, e := strconv.ParseBool(v)
+		if e == nil {
+			f.isCredited = &b
 		}
 	}
 	if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
@@ -1027,6 +1102,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 	}
 
 	// 7. 拼装所有 detailsDailyRow（一行 = 一用户一天）
+	creditedSet := loadCreditedUserSet()
 	all := make([]detailsDailyRow, 0, len(aggMap))
 	var totalConsumedUsd float64
 	var totalRechargeCny float64
@@ -1037,6 +1113,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			continue // 用户已删除等异常
 		}
 		_, isOfficial := officialSet[a.UserId]
+		_, isCredited := creditedSet[a.UserId]
 		dailyConsumedUsd := quotaToUSD(a.Quota)
 		row := detailsDailyRow{
 			Date:               a.Date,
@@ -1045,6 +1122,7 @@ func GetUserStatsDetailsDaily(c *gin.Context) {
 			DisplayName:        u.DisplayName,
 			IsVipCustomer:      u.IsVipCustomer,
 			IsOfficial:         isOfficial,
+			IsCredited:         isCredited,
 			BusinessChannel:    inviterChannelMap[u.InviterId],
 			InviterDisplayName: inviterDisplayMap[u.InviterId],
 			UserGroup:          u.UserGroup,
@@ -1125,7 +1203,8 @@ func resolveDailyCandidateUserIds(f *detailsDailyFilter) ([]int, bool, error) {
 		}
 	}
 
-	hasUserLevelFilter := f.username != "" || needInviterFilter || len(f.userGroups) > 0 || f.isVip != nil
+	hasUserLevelFilter := f.username != "" || needInviterFilter || len(f.userGroups) > 0 ||
+		f.isVip != nil || f.isCredited != nil
 	if !hasUserLevelFilter {
 		return nil, true, nil
 	}
@@ -1143,6 +1222,16 @@ func resolveDailyCandidateUserIds(f *detailsDailyFilter) ([]int, bool, error) {
 	}
 	if f.isVip != nil {
 		tx = tx.Where("is_vip_customer = ?", *f.isVip)
+	}
+	{
+		filtered, hasAny, err := applyCreditedUserFilter(tx, f.isCredited)
+		if err != nil {
+			return nil, false, err
+		}
+		if !hasAny {
+			return nil, false, nil
+		}
+		tx = filtered
 	}
 	var ids []int
 	if err := tx.Pluck("id", &ids).Error; err != nil {
@@ -1224,6 +1313,7 @@ type detailsSingleDayFilter struct {
 	sales      []string
 	userGroups []string
 	isVip      *bool
+	isCredited *bool // 是否授信客户：credit_records 中有授信记录
 	page       int
 	pageSize   int
 }
@@ -1252,6 +1342,11 @@ func parseDetailsSingleDayFilter(c *gin.Context) (*detailsSingleDayFilter, error
 	if v := c.Query("is_vip"); v != "" {
 		if b, e := strconv.ParseBool(v); e == nil {
 			f.isVip = &b
+		}
+	}
+	if v := c.Query("is_credited"); v != "" {
+		if b, e := strconv.ParseBool(v); e == nil {
+			f.isCredited = &b
 		}
 	}
 	if p, e := strconv.Atoi(c.Query("page")); e == nil && p > 0 {
@@ -1350,6 +1445,23 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 	}
 	if f.isVip != nil {
 		userTx = userTx.Where("is_vip_customer = ?", *f.isVip)
+	}
+	{
+		tx, hasAny, err := applyCreditedUserFilter(userTx, f.isCredited)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if !hasAny {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data": detailsSingleDayResp{
+					Rows: []detailsDailyRow{}, Total: 0, Page: f.page, PageSize: f.pageSize,
+				},
+			})
+			return
+		}
+		userTx = tx
 	}
 
 	type userBrief struct {
@@ -1555,10 +1667,12 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 	})
 
 	// 7. 拼装
+	creditedSet := loadCreditedUserSet()
 	rows := make([]detailsDailyRow, 0, len(users))
 	for _, u := range users {
 		a := aggMap[u.Id]
 		_, isOfficial := officialSet[u.Id]
+		_, isCredited := creditedSet[u.Id]
 		remaining := quotaToUSD(u.Quota)
 		recharge := rechargeMap[u.Id]
 		credit := creditMap[u.Id]
@@ -1569,6 +1683,7 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 			DisplayName:        u.DisplayName,
 			IsVipCustomer:      u.IsVipCustomer,
 			IsOfficial:         isOfficial,
+			IsCredited:         isCredited,
 			BusinessChannel:    inviterChannelMap[u.InviterId],
 			InviterDisplayName: inviterDisplayMap[u.InviterId],
 			UserGroup:          u.UserGroup,

@@ -171,14 +171,23 @@ const (
 
 // OperationType 子类型标记：用于在 LogTypeManage 等大类下进一步区分具体业务动作。
 // 写入到 logs.operation_type 列，未标记的历史/其他日志为 NULL。
-// QuotaType 进一步区分「调整额度（add 模式）」的来源分类：充值 / 赠送 / 授信。
+// QuotaType 进一步区分「调整额度（add 模式）」的来源分类：充值 / 赠送 / 授信 / 回款。
 // 仅在 add 模式写入；subtract / override 留 NULL。
 const (
 	OperationTypeQuota = "额度" // 管理员调整用户额度（add / subtract / override）
 	QuotaTypeRecharge  = "充值"
 	QuotaTypeGift      = "赠送"
 	QuotaTypeCredit    = "授信" // 换算规则同充值，但在日志与报表中单独统计
+	// QuotaTypeRepayment 是「授信回款」记账日志：只登记客户还款金额（logs.recharge_input_amount），
+	// 不改变用户额度（quota 恒为 0），因此不走 add_quota 流程，由充值-授信统计页的回款操作写入。
+	QuotaTypeRepayment = "回款"
 )
+
+// ManageQuotaAddTypes 返回「调整额度-add 模式」允许的 quota_type 取值。
+// 回款不在其中：它只记账不加额度，由专门的回款接口写入。
+func ManageQuotaAddTypes() []string {
+	return []string{QuotaTypeRecharge, QuotaTypeGift, QuotaTypeCredit}
+}
 
 // NetQuotaSumTypes 返回"净消耗"统计涉及的日志 type 列表。
 // 视频等异步任务在完成时若实际扣费小于预扣，会写一条 LogTypeRefund 抵消差额；
@@ -203,26 +212,30 @@ func NetQuotaSumExpr() string {
 }
 
 // ManageQuotaAmountTypes 返回参与「管理员调整额度」金额聚合的 quota_type 取值。
-// 赠送不计入金额口径（没有对应的录入金额），因此只有充值与授信。
+// 四个口径都把管理员录入金额写在 logs.recharge_input_amount（赠送按 1:1 入账，金额仍然登记），
+// 回款只记账不加额度，但同样复用这一列。
 func ManageQuotaAmountTypes() []string {
-	return []string{QuotaTypeRecharge, QuotaTypeCredit}
+	return []string{QuotaTypeRecharge, QuotaTypeCredit, QuotaTypeGift, QuotaTypeRepayment}
 }
 
 // ManageQuotaAmountsSelect 构造「管理员调整额度」按来源拆分的金额聚合 SELECT 片段
 // （已含 user_id，配合 GROUP BY user_id 使用），以及对应的占位符参数。
 //
-// 充值与授信共用 logs.recharge_input_amount 列、靠 quota_type 区分，一次扫描即可产出两个口径。
+// 充值 / 授信 / 赠送 / 回款共用 logs.recharge_input_amount 列、靠 quota_type 区分，
+// 一次扫描即可产出四个口径。
 // 调用方需自行在 WHERE 中限定 type = LogTypeManage、operation_type = OperationTypeQuota、
 // quota_type IN ManageQuotaAmountTypes() 以及时间窗。
 //
-// withLastRechargeAt = true 时额外产出 last_recharge_at —— 只看充值，授信不参与，
+// withLastRechargeAt = true 时额外产出 last_recharge_at —— 只看充值，其余口径不参与，
 // 以免改变「最后一次充值时间」列的既有含义。
 // CASE WHEN 是 SQL 标准语法，SQLite/MySQL/PostgreSQL 均支持。
 func ManageQuotaAmountsSelect(withLastRechargeAt bool) (string, []interface{}) {
 	expr := "user_id, " +
 		"COALESCE(SUM(CASE WHEN quota_type = ? THEN recharge_input_amount ELSE 0 END), 0) AS total_recharge, " +
-		"COALESCE(SUM(CASE WHEN quota_type = ? THEN recharge_input_amount ELSE 0 END), 0) AS total_credit"
-	args := []interface{}{QuotaTypeRecharge, QuotaTypeCredit}
+		"COALESCE(SUM(CASE WHEN quota_type = ? THEN recharge_input_amount ELSE 0 END), 0) AS total_credit, " +
+		"COALESCE(SUM(CASE WHEN quota_type = ? THEN recharge_input_amount ELSE 0 END), 0) AS total_gift, " +
+		"COALESCE(SUM(CASE WHEN quota_type = ? THEN recharge_input_amount ELSE 0 END), 0) AS total_repayment"
+	args := []interface{}{QuotaTypeRecharge, QuotaTypeCredit, QuotaTypeGift, QuotaTypeRepayment}
 	if withLastRechargeAt {
 		expr += ", COALESCE(MAX(CASE WHEN quota_type = ? THEN created_at END), 0) AS last_recharge_at"
 		args = append(args, QuotaTypeRecharge)
