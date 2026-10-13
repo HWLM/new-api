@@ -1449,17 +1449,10 @@ func loadSingleDayAllRows(f *detailsSingleDayFilter) ([]detailsDailyRow, error) 
 	{
 		tx, hasAny, err := applyCreditedUserFilter(userTx, f.isCredited)
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			return nil, err
 		}
 		if !hasAny {
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"data": detailsSingleDayResp{
-					Rows: []detailsDailyRow{}, Total: 0, Page: f.page, PageSize: f.pageSize,
-				},
-			})
-			return
+			return []detailsDailyRow{}, nil
 		}
 		userTx = tx
 	}
