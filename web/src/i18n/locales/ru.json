@@ -6027,6 +6027,7 @@
     "Outstanding Credit Amount": "Сумма непогашенного кредита",
     "Please enter repayment amount": "Введите сумму возврата",
     "Please enter username / display name": "Введите имя пользователя / отображаемое имя",
+    "Receivable": "Остаток к получению",
     "Recharge & Credit Statistics": "Статистика пополнений и кредитов",
     "Recharge Amount (¥)": "Сумма пополнения (¥)",
     "Repayment": "Возврат",
@@ -6038,6 +6039,7 @@
     "Repayment recorded successfully": "Возврат успешно зарегистрирован",
     "Start month": "Начальный месяц",
     "Total Credit Amount": "Общая сумма кредита",
+    "Total consumption of credit customers - total repayment (all time)": "Общее потребление кредитных клиентов − общий возврат (за всё время)",
     "Total credit - total repayment (all time)": "Общий кредит − общий возврат (за всё время)",
     "Total Repayment Amount": "Общая сумма возврата",
     "View Details": "Посмотреть детали"

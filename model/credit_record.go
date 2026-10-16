@@ -95,21 +95,19 @@ func CreateCreditRecordInTx(tx *gorm.DB, record *CreditRecord) error {
 	return tx.Create(record).Error
 }
 
-// SumCreditOutstanding 返回全平台未回款授信金额 = 总授信 - 总回款。
-// 按业务约定不为负，回款多于授信时返回 0。
-// 该口径是全时间总额，不参与任何时间筛选。
-func SumCreditOutstanding() (float64, error) {
+// SumCreditTotals 返回全平台全时间的授信总额与回款总额。
+// 这是「不参与时间筛选」的全量口径，供未回款授信金额与剩余应收两张卡片取数。
+//
+// 直接对 credit_records 做一次两列聚合即可 —— 这张表只在管理员录入授信 / 登记回款时
+// 各写一行，数据量是业务操作次数级别，不会像 vip_daily_consumptions（用户 × 天）
+// 或 logs（全量请求）那样随时间膨胀。
+func SumCreditTotals() (CreditAggregate, error) {
 	selectExpr, args := creditSumSelect(false)
 	var row CreditAggregate
-	if err := DB.Model(&CreditRecord{}).
+	err := DB.Model(&CreditRecord{}).
 		Select(selectExpr, args...).
-		Scan(&row).Error; err != nil {
-		return 0, err
-	}
-	if outstanding := row.TotalCredit - row.TotalRepayment; outstanding > 0 {
-		return outstanding, nil
-	}
-	return 0, nil
+		Scan(&row).Error
+	return row, err
 }
 
 // SumCreditInRange 聚合 [startTs, endTs] 内的授信与回款总额（全平台）。
@@ -180,6 +178,60 @@ func SumCreditByUsers(userIds []int) (map[int]CreditAggregate, error) {
 		result[r.UserId] = r
 	}
 	return result, nil
+}
+
+// SumCreditByUsersInRange 按用户聚合 [startTs, endTs] 内的授信 / 回款总额。
+// userIds 语义同 SumCreditByUsers：nil 表示不限用户，长度 0 表示明确无匹配用户。
+func SumCreditByUsersInRange(startTs, endTs int64, userIds []int) (map[int]CreditAggregate, error) {
+	result := make(map[int]CreditAggregate)
+	if userIds != nil && len(userIds) == 0 {
+		return result, nil
+	}
+	selectExpr, args := creditSumSelect(true)
+	tx := DB.Model(&CreditRecord{}).
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs)
+	if userIds != nil {
+		tx = tx.Where("user_id IN ?", userIds)
+	}
+	var rows []CreditAggregate
+	if err := tx.Select(selectExpr, args...).Group("user_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		result[r.UserId] = r
+	}
+	return result, nil
+}
+
+// CreditDailyAggregate 某用户在某一天的授信 / 回款聚合。
+type CreditDailyAggregate struct {
+	Day            string  `json:"day"` // YYYY-MM-DD
+	UserId         int     `json:"user_id"`
+	TotalCredit    float64 `json:"total_credit"`
+	TotalRepayment float64 `json:"total_repayment"`
+}
+
+// SumCreditByUserDay 按 (用户, 天) 聚合 [startTs, endTs] 内的授信 / 回款，
+// 供「按天统计」明细按日期维度取授信金额。userIds 语义同 SumCreditByUsers。
+func SumCreditByUserDay(startTs, endTs int64, userIds []int) ([]CreditDailyAggregate, error) {
+	if userIds != nil && len(userIds) == 0 {
+		return nil, nil
+	}
+	dayExpr := creditDayExpr()
+	selectExpr, args := creditSumSelect(true)
+	tx := DB.Model(&CreditRecord{}).
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs)
+	if userIds != nil {
+		tx = tx.Where("user_id IN ?", userIds)
+	}
+	var rows []CreditDailyAggregate
+	if err := tx.
+		Select(dayExpr+" AS day, "+selectExpr, args...).
+		Group(dayExpr + ", user_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // CreditMonthlyAggregate 某用户在某个月份的授信 / 回款聚合。

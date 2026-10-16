@@ -50,16 +50,17 @@ var creditTrendDimensionColumns = map[string]string{
 	"gift":     "gift_amount",
 }
 
-// creditStatsSummaryResp 顶部 5 张卡片
+// creditStatsSummaryResp 顶部 6 张卡片
 type creditStatsSummaryResp struct {
 	RechargeAmount    float64 `json:"recharge_amount"`    // 充值金额（¥）
 	GiftAmount        float64 `json:"gift_amount"`        // 赠送金额（¥）
 	CreditAmount      float64 `json:"credit_amount"`      // 授信金额（¥）
 	RepaymentAmount   float64 `json:"repayment_amount"`   // 回款金额（¥）
+	Receivable        float64 `json:"receivable"`         // 剩余应收 = 授信客户总消耗（quota/QuotaPerUnit） - 总回款，不为负
 	OutstandingCredit float64 `json:"outstanding_credit"` // 未回款授信金额（¥）= 授信 - 回款，不为负
 }
 
-// GetCreditStatsSummary 顶部 5 张卡片：按查询时间区间汇总平台总的充值、赠送、授信、回款金额。
+// GetCreditStatsSummary 顶部 6 张卡片：按查询时间区间汇总平台总的充值、赠送、授信、回款金额。
 // GET /api/credit_stats/summary?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 func GetCreditStatsSummary(c *gin.Context) {
 	startDate, endDate, ok := parseCreditDateRange(c)
@@ -93,8 +94,8 @@ func GetCreditStatsSummary(c *gin.Context) {
 		return
 	}
 
-	// 未回款授信金额是「全时间总额」口径，不随上面的时间筛选变化，单独算。
-	outstanding, err := sumOutstandingCredit()
+	// 剩余应收 / 未回款授信金额都是「全时间总额」口径，不随上面的时间筛选变化，单独算。
+	receivable, outstanding, err := sumCreditReceivable()
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -107,6 +108,7 @@ func GetCreditStatsSummary(c *gin.Context) {
 			GiftAmount:        total.Gift,
 			CreditAmount:      creditAgg.TotalCredit,
 			RepaymentAmount:   creditAgg.TotalRepayment,
+			Receivable:        receivable,
 			OutstandingCredit: outstanding,
 		},
 	})
@@ -653,13 +655,48 @@ func (a *creditAmounts) add(other creditAmounts) {
 	a.Repayment += other.Repayment
 }
 
-// sumOutstandingCredit 返回全平台未回款授信金额 = 总授信 - 总回款，按业务约定不为负。
+// sumCreditReceivable 返回两个「全时间总额」口径的卡片值：剩余应收、未回款授信金额。
 //
-// 该口径是全时间总额且不参与时间筛选，直接对 credit_records 做一次两列聚合即可 ——
-// 这张表只在管理员录入授信 / 登记回款时各写一行，数据量是业务操作次数级别，
-// 不会像 vip_daily_consumptions（用户 × 天）或 logs（全量请求）那样随时间膨胀。
-func sumOutstandingCredit() (float64, error) {
-	return model.SumCreditOutstanding()
+//	剩余应收         = 所有授信用户的累计消耗 - 总回款，不为负
+//	未回款授信金额   = 总授信 - 总回款，不为负
+//
+// 两者都不参与时间筛选，共用同一次 credit_records 的两列聚合。
+//
+// 累计消耗的取数：历史段走 vip_daily_consumptions（WHERE user_id IN (授信用户)，
+// 走 user_id 索引，扫到的行数 = 授信用户数 × 天数，与表总量无关），今天那段回 logs 实时补，
+// 和充值 / 赠送卡片同一套「汇总表 + 今天」切分口径。
+func sumCreditReceivable() (receivable, outstanding float64, err error) {
+	totals, err := model.SumCreditTotals()
+	if err != nil {
+		return 0, 0, err
+	}
+	if outstanding = totals.TotalCredit - totals.TotalRepayment; outstanding < 0 {
+		outstanding = 0
+	}
+
+	creditedIds, err := model.GetCreditedUserIds()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// 汇总表只写到昨天，今天的消耗还没落库，必须回 logs 实时补。
+	todayStr := time.Now().Format("2006-01-02")
+	histQuota, err := model.SumVipDailyQuotaBefore(creditedIds, todayStr)
+	if err != nil {
+		return 0, 0, err
+	}
+	todayStart, todayEnd := todayUnixRange()
+	todayQuota, _, err := sumTodayConsumeRecharge(todayStart, todayEnd, creditedIds)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// 消耗按 quota / QuotaPerUnit 折算，口径与「新用户统计 -> 明细数据」的
+	// 总消耗额列（quotaToUSD）一致，不再乘支付价格换算成人民币。
+	if receivable = quotaToUSD(histQuota+todayQuota) - totals.TotalRepayment; receivable < 0 {
+		receivable = 0
+	}
+	return receivable, outstanding, nil
 }
 
 // creditAmountByDimension 按趋势图选中的汇总表列名取对应口径的金额，

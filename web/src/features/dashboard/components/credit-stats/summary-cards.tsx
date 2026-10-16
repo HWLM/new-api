@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type { CreditSummary } from './types'
 
 // 骨架卡片用固定 key，避免用数组下标做 key
-const SKELETON_CARD_KEYS = ['c1', 'c2', 'c3', 'c4', 'c5']
+const SKELETON_CARD_KEYS = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6']
 
 function formatAmount(n: number): string {
   return n.toLocaleString(undefined, {
@@ -74,7 +74,7 @@ export function SummaryCards({
 
   if (isLoading || !data) {
     return (
-      <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5'>
+      <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6'>
         {SKELETON_CARD_KEYS.map((key) => (
           <Card key={key} className='gap-1 py-3 sm:py-4'>
             <CardContent className='px-4 sm:px-5'>
@@ -111,6 +111,13 @@ export function SummaryCards({
         : undefined,
     },
     {
+      // 全时间总额口径，与上方时间筛选无关，单独标注避免误读。
+      // 不带币种后缀：消耗按 quota/QuotaPerUnit 折算，与「新用户统计」的总消耗额同口径。
+      label: t('Receivable'),
+      value: data.receivable,
+      subtitle: t('Total consumption of credit customers - total repayment (all time)'),
+    },
+    {
       // 全时间总额口径，与上方时间筛选无关，单独标注避免误读
       label: t('Outstanding Credit (¥)'),
       value: data.outstanding_credit,
@@ -119,7 +126,7 @@ export function SummaryCards({
   ]
 
   return (
-    <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5'>
+    <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6'>
       {items.map((item) => (
         <CardCell key={item.label} item={item} detailsLabel={t('View Details')} />
       ))}

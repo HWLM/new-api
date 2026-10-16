@@ -6027,6 +6027,7 @@
     "Outstanding Credit Amount": "未回款授信金额",
     "Please enter repayment amount": "请输入回款金额",
     "Please enter username / display name": "请输入用户名/简称",
+    "Receivable": "剩余应收",
     "Recharge & Credit Statistics": "充值-授信统计",
     "Recharge Amount (¥)": "充值金额（¥）",
     "Repayment": "回款",
@@ -6038,6 +6039,7 @@
     "Repayment recorded successfully": "回款登记成功",
     "Start month": "开始月份",
     "Total Credit Amount": "总授信金额",
+    "Total consumption of credit customers - total repayment (all time)": "全时间授信客户总消耗 − 总回款",
     "Total credit - total repayment (all time)": "全时间总授信 − 总回款",
     "Total Repayment Amount": "总回款金额",
     "View Details": "查看明细"
