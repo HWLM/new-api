@@ -97,6 +97,7 @@ type User struct {
 	TotalQuota         *int64                     `json:"total_quota,omitempty" gorm:"type:bigint;column:total_quota"`
 	RequestCount       int                        `json:"request_count" gorm:"type:int;default:0;"` // request number
 	Group              string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
+	MaxConcurrency     int                        `json:"max_concurrency" gorm:"type:int;default:0;column:max_concurrency"` // -1 = 不限；0 = 使用系统默认值；>0 = 自定义上限
 	AffCode            string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	AffCount           int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
 	AffQuota           int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
@@ -122,16 +123,17 @@ type User struct {
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:          user.Id,
-		Role:        user.Role,
-		Group:       user.Group,
-		Quota:       user.Quota,
-		Status:      user.Status,
-		Username:    user.Username,
-		Setting:     user.Setting,
-		Email:       user.Email,
-		AuthVersion: user.AuthVersion,
-		CacheSchema: userCacheSchemaVersion,
+		Id:             user.Id,
+		Role:           user.Role,
+		Group:          user.Group,
+		Quota:          user.Quota,
+		Status:         user.Status,
+		Username:       user.Username,
+		Setting:        user.Setting,
+		Email:          user.Email,
+		MaxConcurrency: user.MaxConcurrency,
+		AuthVersion:    user.AuthVersion,
+		CacheSchema:    userCacheSchemaVersion,
 	}
 	return cache
 }
@@ -1175,6 +1177,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		"group":              newUser.Group,
 		"remark":             newUser.Remark,
 		"allow_online_topup": newUser.AllowOnlineTopup,
+		"max_concurrency":    newUser.MaxConcurrency,
 	}
 	// settlement_currency 为空表示本次请求未提交该字段（如用户列表里仅切换"允许在线充值"的
 	// 部分更新），此时保留数据库原值，避免把用户的结算方式误清为默认（按人民币）。

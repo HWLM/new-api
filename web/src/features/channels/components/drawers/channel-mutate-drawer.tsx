@@ -132,6 +132,7 @@ import {
   getAllModels,
   getChannel,
   getChannelKey,
+  getChannels,
   getGroups,
   getPrefillGroups,
   refreshCodexCredential,
@@ -686,6 +687,16 @@ export function ChannelMutateDrawer({
     queryFn: () => getPrefillGroups('model'),
   })
 
+  // Fetch channel list for fallback-channel dropdown. We pull a large page
+  // because the dropdown filters client-side; status is left blank so disabled
+  // channels still appear (admin may be preparing to re-enable them, and the
+  // existing selection must still render).
+  const { data: fallbackChannelListData } = useQuery({
+    queryKey: ['channels', 'for-fallback'],
+    queryFn: () => getChannels({ p: 1, page_size: 1000, id_sort: true }),
+    staleTime: 60_000,
+  })
+
   const { copyToClipboard } = useCopyToClipboard()
 
   const {
@@ -917,6 +928,18 @@ export function ChannelMutateDrawer({
       label: group,
     }))
   }, [groupsData, currentGroups])
+
+  // Fallback channel options: all channels except the one being edited.
+  // On create, channelId is null so nothing is excluded.
+  const fallbackChannelOptions = useMemo(() => {
+    const items = fallbackChannelListData?.data?.items ?? []
+    return items
+      .filter((channel) => channel.id !== channelId)
+      .map((channel) => ({
+        value: String(channel.id),
+        label: `#${channel.id} ${channel.name || ''}`.trim(),
+      }))
+  }, [fallbackChannelListData, channelId])
 
   // Parse current models as array
   const currentModelsArray = useMemo(
@@ -3643,6 +3666,66 @@ export function ChannelMutateDrawer({
                                         )}
                                       />
                                     )}
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+
+                          <div className='border-border/60 rounded-lg border p-4'>
+                            <FormField
+                              control={form.control}
+                              name='fallback_channel_id'
+                              render={({ field }) => (
+                                <FormItem className='space-y-3'>
+                                  <div className='space-y-1'>
+                                    <FormLabel>
+                                      {t('Fallback channel')}
+                                    </FormLabel>
+                                    <FormDescription>
+                                      {t(
+                                        "When this channel's owner exceeds their concurrency limit, requests are routed to the channel with this ID instead. 0 means no fallback."
+                                      )}
+                                    </FormDescription>
+                                  </div>
+                                  <FormControl>
+                                    <Select
+                                      items={[
+                                        { value: '0', label: t('None') },
+                                        ...fallbackChannelOptions,
+                                      ]}
+                                      onValueChange={(value) =>
+                                        field.onChange(Number(value) || 0)
+                                      }
+                                      value={String(field.value ?? 0)}
+                                    >
+                                      <SelectTrigger className='w-full'>
+                                        <SelectValue
+                                          placeholder={t('None')}
+                                        />
+                                      </SelectTrigger>
+                                      <SelectContent
+                                        alignItemWithTrigger={false}
+                                        className='max-h-80 w-[var(--radix-select-trigger-width)] min-w-0'
+                                      >
+                                        <SelectGroup>
+                                          <SelectItem value='0'>
+                                            {t('None')}
+                                          </SelectItem>
+                                          {fallbackChannelOptions.map(
+                                            (option) => (
+                                              <SelectItem
+                                                key={option.value}
+                                                value={option.value}
+                                              >
+                                                {option.label}
+                                              </SelectItem>
+                                            )
+                                          )}
+                                        </SelectGroup>
+                                      </SelectContent>
+                                    </Select>
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>

@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { adjustUserQuota } from '../api'
 import type {
   ManageUserQuotaPayload,
@@ -44,6 +45,7 @@ import type {
 const RATIO_MIN = 0.1
 const RATIO_MAX = 100
 const QUOTA_PER_USD = 500_000 // 与后端 common.QuotaPerUnit 对齐，仅用于预览展示
+const REMARK_MAX_LEN = 500
 
 interface UserQuotaDialogProps {
   open: boolean
@@ -63,6 +65,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const [quotaType, setQuotaType] = useState<QuotaType>('充值')
   const [rechargeAmount, setRechargeAmount] = useState('') // add 模式：USD
   const [ratio, setRatio] = useState('1')
+  const [remark, setRemark] = useState('')
   const [loading, setLoading] = useState(false)
 
   const { meta: currencyMeta } = getCurrencyDisplay()
@@ -115,12 +118,14 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     setRechargeAmount('')
     setQuotaType('充值')
     setRatio(String(props.topupGroupRatio ?? 1))
+    setRemark('')
     setMode('add')
   }
 
   const handleConfirm = async () => {
     setLoading(true)
     try {
+      const trimmedRemark = remark.trim().slice(0, REMARK_MAX_LEN)
       let payload: ManageUserQuotaPayload
       if (mode === 'add') {
         if (rechargeNum <= 0) {
@@ -151,6 +156,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           quota_type: quotaType,
           recharge_amount: rechargeNum,
           ratio: isGift ? 1 : ratioNum,
+          remark: trimmedRemark || undefined,
         }
       } else {
         if (!amount) return
@@ -162,6 +168,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           action: 'add_quota',
           mode,
           value,
+          remark: trimmedRemark || undefined,
         }
       }
 
@@ -334,6 +341,19 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
               />
             </div>
           )}
+
+          <div className='space-y-2'>
+            <Label>{t('Remark')}</Label>
+            <Textarea
+              rows={2}
+              maxLength={REMARK_MAX_LEN}
+              placeholder={t(
+                'Optional note for this adjustment (visible to admins in record details)'
+              )}
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant='outline' onClick={handleCancel}>

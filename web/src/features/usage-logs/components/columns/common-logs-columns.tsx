@@ -370,6 +370,18 @@ export function useCommonLogsColumns(
           const channelChain = hasRetryChain
             ? useChannel.join(' → ')
             : undefined
+          // 兜底渠道重导记录：other.admin_info.fallback_from 存在表示本次请求
+          // 的原目标渠道并非最终命中的渠道（使用者并发超限触发了兜底）。
+          // 展示 #原 → #当前。因为嵌在 admin_info 之下，普通使用者 API 回传时
+          // 后端 formatUserLogs 已经剥离，前端这里只会在 admin 视角命中。
+          const fallbackFrom = other?.admin_info?.fallback_from as
+            | { channel_id?: number; channel_name?: string; group?: string }
+            | undefined
+          const hasFallback =
+            !!fallbackFrom &&
+            typeof fallbackFrom.channel_id === 'number' &&
+            fallbackFrom.channel_id > 0 &&
+            fallbackFrom.channel_id !== log.channel
           const channelDisplay = log.channel_name
             ? `${log.channel_name} #${log.channel}`
             : `#${log.channel}`
@@ -398,6 +410,26 @@ export function useCommonLogsColumns(
                       showDot={false}
                       className='font-mono'
                     />
+                    {hasFallback && (
+                      <>
+                        <span
+                          className='text-muted-foreground text-[11px] leading-none'
+                          aria-hidden='true'
+                        >
+                          ←
+                        </span>
+                        <StatusBadge
+                          label={`#${fallbackFrom!.channel_id}`}
+                          autoColor={String(fallbackFrom!.channel_id)}
+                          copyText={String(fallbackFrom!.channel_id)}
+                          size='sm'
+                          showDot={false}
+                          variant='neutral'
+                          className='font-mono opacity-70'
+                          aria-label={t('Fallback from')}
+                        />
+                      </>
+                    )}
                     {showMultiKeyIndex && (
                       <StatusBadge
                         label={String(multiKeyIndex)}
@@ -473,6 +505,16 @@ export function useCommonLogsColumns(
                     <p>
                       {sensitiveVisible ? channelDisplay : channelIdDisplay}
                     </p>
+                    {hasFallback && (
+                      <p className='text-muted-foreground text-xs'>
+                        {t('Fallback from')}:{' '}
+                        <span className='font-mono'>
+                          {fallbackFrom!.channel_name
+                            ? `${fallbackFrom!.channel_name} #${fallbackFrom!.channel_id}`
+                            : `#${fallbackFrom!.channel_id}`}
+                        </span>
+                      </p>
+                    )}
                     {channelChain && (
                       <p className='text-muted-foreground text-xs'>
                         {t('Chain')}: {channelChain}

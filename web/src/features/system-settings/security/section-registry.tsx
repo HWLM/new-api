@@ -37,6 +37,9 @@ const SECURITY_SECTIONS = [
           ModelRequestRateLimitDurationMinutes:
             settings.ModelRequestRateLimitDurationMinutes,
           ModelRequestRateLimitGroup: settings.ModelRequestRateLimitGroup,
+          MaxConcurrentRequestsPerUserEnabled:
+            settings.MaxConcurrentRequestsPerUserEnabled,
+          MaxConcurrentRequestsPerUser: settings.MaxConcurrentRequestsPerUser,
         }}
       />
     ),

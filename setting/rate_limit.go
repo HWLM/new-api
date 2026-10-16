@@ -16,6 +16,16 @@ var ModelRequestRateLimitSuccessCount = 1000
 var ModelRequestRateLimitGroup = map[string][2]int{}
 var ModelRequestRateLimitMutex sync.RWMutex
 
+// 每用户并发请求上限（in-flight 请求数）。超限请求会被重导到渠道配置的
+// FallbackChannelId，而不是直接 429。
+//
+// MaxConcurrentRequestsPerUser 的取值语义：
+//   -1  = 全局不限（除非使用者单独设了正值）
+//    0  = 关闭（等同于 Enabled=false）
+//   >0  = 全局默认上限
+var MaxConcurrentRequestsPerUserEnabled = false
+var MaxConcurrentRequestsPerUser = 10
+
 func ModelRequestRateLimitGroup2JSONString() string {
 	ModelRequestRateLimitMutex.RLock()
 	defer ModelRequestRateLimitMutex.RUnlock()

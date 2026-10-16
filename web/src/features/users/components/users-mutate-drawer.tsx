@@ -34,6 +34,7 @@ import {
 } from '@/components/drawer-layout'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -453,29 +454,21 @@ export function UsersMutateDrawer({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>{t('Group')}</FormLabel>
-                        <Select
-                          items={groups.map((group) => ({
-                            value: group,
-                            label: group,
-                          }))}
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('Select a group')} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent alignItemWithTrigger={false}>
-                            <SelectGroup>
-                              {groups.map((group) => (
-                                <SelectItem key={group} value={group}>
-                                  {group}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <Combobox
+                            options={groups.map((group) => ({
+                              value: group,
+                              label: group,
+                            }))}
+                            value={field.value}
+                            onValueChange={(value) =>
+                              field.onChange(value ?? '')
+                            }
+                            placeholder={t('Select a group')}
+                            searchPlaceholder={t('Search groups...')}
+                            emptyText={t('No group found.')}
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -518,6 +511,58 @@ export function UsersMutateDrawer({
                         <FormMessage />
                       </FormItem>
                     )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='max_concurrency'
+                    render={({ field }) => {
+                      const value = field.value ?? 0
+                      return (
+                        <FormItem>
+                          <FormLabel>{t('Max concurrent requests')}</FormLabel>
+                          <FormControl>
+                            <div className='flex items-center gap-2'>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value === 0 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(0)}
+                              >
+                                {t('System default')}
+                              </Button>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value < 0 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(-1)}
+                              >
+                                {t('Unlimited')}
+                              </Button>
+                              <Input
+                                type='number'
+                                min={1}
+                                value={value > 0 ? value : ''}
+                                onChange={(e) => {
+                                  const n = Number(e.target.value)
+                                  field.onChange(
+                                    Number.isFinite(n) && n > 0 ? n : 0
+                                  )
+                                }}
+                                placeholder={t('Custom limit')}
+                                className='w-32'
+                              />
+                            </div>
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              '0 = system default, -1 = unlimited, >0 = custom limit'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )
+                    }}
                   />
 
                   <FormField

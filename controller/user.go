@@ -1211,7 +1211,13 @@ type ManageRequest struct {
 	QuotaType      string  `json:"quota_type,omitempty"`      // "充值" | "赠送" | "授信"
 	RechargeAmount float64 `json:"recharge_amount,omitempty"` // 充值金额（人民币 ¥）
 	Ratio          float64 `json:"ratio,omitempty"`           // 充值比例（0.1 ~ 100）
+
+	// Remark 仅 action=add_quota 使用：管理员为本次额度调整录入的备注，
+	// 会追加到日志 content 中并写入 Other.admin_info.remark，供管理员在记录详情中查看。
+	Remark string `json:"remark,omitempty"`
 }
+
+const manageQuotaRemarkMaxLen = 500
 
 const (
 	manageQuotaRatioMin = 0.1
@@ -1302,6 +1308,17 @@ func ManageUser(c *gin.Context) {
 			"admin_id":       c.GetInt("id"),
 			"admin_username": c.GetString("username"),
 		}
+		remark := strings.TrimSpace(req.Remark)
+		if len([]rune(remark)) > manageQuotaRemarkMaxLen {
+			remark = string([]rune(remark)[:manageQuotaRemarkMaxLen])
+		}
+		if remark != "" {
+			adminInfo["remark"] = remark
+		}
+		remarkSuffix := ""
+		if remark != "" {
+			remarkSuffix = fmt.Sprintf("，备注：%s", remark)
+		}
 		switch req.Mode {
 		case "add":
 			// 类型必须明确为 充值 / 赠送 / 授信；回款只记账不加额度，走专门的回款接口
@@ -1343,17 +1360,19 @@ func ManageUser(c *gin.Context) {
 			actionVerb := req.QuotaType
 			rechargeInputAmount := req.RechargeAmount
 			rechargeAfterRatioAmount := req.RechargeAmount / divisor
-			logMsg := fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，余额 %s → %s）",
+			logMsg := fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，余额 %s → %s）%s",
 				actionVerb,
 				logger.LogQuota(quotaValue),
 				req.RechargeAmount, req.Ratio,
-				logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue))
+				logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue),
+				remarkSuffix)
 			if appliesLocalPrice {
-				logMsg = fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，价格 %.2f，余额 %s → %s）",
+				logMsg = fmt.Sprintf("管理员%s用户额度 %s（页面输入金额 %.2f ¥，比例 %.2f，价格 %.2f，余额 %s → %s）%s",
 					actionVerb,
 					logger.LogQuota(quotaValue),
 					req.RechargeAmount, req.Ratio, localPrice,
-					logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue))
+					logger.LogQuota(oldQuota), logger.LogQuota(oldQuota+quotaValue),
+					remarkSuffix)
 			}
 			beforeQuota := int64(oldQuota)
 			afterQuota := int64(oldQuota + quotaValue)
@@ -1388,7 +1407,8 @@ func ManageUser(c *gin.Context) {
 			beforeQuota := int64(user.Quota)
 			afterQuota := int64(user.Quota - req.Value)
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), model.OperationTypeQuota, "", -req.Value, adminInfo, nil, nil, &beforeQuota, &afterQuota)
+				fmt.Sprintf("管理员减少用户额度 %s%s", logger.LogQuota(req.Value), remarkSuffix),
+				model.OperationTypeQuota, "", -req.Value, adminInfo, nil, nil, &beforeQuota, &afterQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_subtract", map[string]interface{}{
 				"quota": logger.LogQuota(req.Value),
 			})
@@ -1401,7 +1421,8 @@ func ManageUser(c *gin.Context) {
 			beforeQuota := int64(oldQuota)
 			afterQuota := int64(req.Value)
 			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), model.OperationTypeQuota, "", req.Value-oldQuota, adminInfo, nil, nil, &beforeQuota, &afterQuota)
+				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s%s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value), remarkSuffix),
+				model.OperationTypeQuota, "", req.Value-oldQuota, adminInfo, nil, nil, &beforeQuota, &afterQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_override", map[string]interface{}{
 				"from": logger.LogQuota(oldQuota),
 				"to":   logger.LogQuota(req.Value),

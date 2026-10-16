@@ -639,8 +639,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const changedFieldsText = changedFieldTokens
     .map((field) => t(CHANNEL_FIELD_LABELS[field] ?? field))
     .join(", ");
+  const manageRemark =
+    isManage && props.isAdmin && adminInfo?.remark
+      ? String(adminInfo.remark)
+      : "";
   const showManageAuditSection =
-    isManage && props.isAdmin && (operationText != null || auditRoute != null);
+    isManage &&
+    props.isAdmin &&
+    (operationText != null || auditRoute != null || manageRemark !== "");
 
   // Login audit (type=7); visible to the log owner, not admin-only.
   const isLogin = props.log.type === 7;
@@ -743,6 +749,34 @@ export function DetailsDialog(props: DetailsDialogProps) {
               mono
             />
           )}
+
+          {props.isAdmin &&
+            other?.admin_info?.fallback_from &&
+            typeof other.admin_info.fallback_from.channel_id === "number" &&
+            other.admin_info.fallback_from.channel_id > 0 &&
+            other.admin_info.fallback_from.channel_id !== props.log.channel && (
+              <DetailRow
+                label={t("Fallback from")}
+                value={
+                  <span>
+                    {other.admin_info.fallback_from.channel_id}
+                    {other.admin_info.fallback_from.channel_name && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        ({other.admin_info.fallback_from.channel_name})
+                      </span>
+                    )}
+                    {other.admin_info.fallback_from.group && (
+                      <span className="text-muted-foreground">
+                        {" · "}
+                        {t("Group")}: {other.admin_info.fallback_from.group}
+                      </span>
+                    )}
+                  </span>
+                }
+                mono
+              />
+            )}
 
           {channelChain && props.isAdmin && (
             <DetailRow label={t("Retry Chain")} value={channelChain} mono />
@@ -1002,6 +1036,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 label={t("Changed Fields")}
                 value={changedFieldsText}
               />
+            )}
+            {manageRemark !== "" && (
+              <DetailRow label={t("Remark")} value={manageRemark} />
             )}
             {auditRoute?.method && auditRoute?.route && (
               <DetailRow

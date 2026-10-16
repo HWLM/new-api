@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -160,6 +161,26 @@ func Distribute() func(c *gin.Context) {
 						return
 					}
 				}
+
+				// 兜底渠道重导：使用者当前 in-flight 超限，且命中渠道配置了
+				// FallbackChannelId，则改走该兜底渠道。只做一跳，不递归。
+				overloaded := common.GetContextKeyBool(c, constant.ContextKeyUserOverloaded)
+				if channel != nil {
+					common.SysLog(fmt.Sprintf("[distribute] user=%d model=%q selected channel=%d (fallback_channel_id=%d) overloaded=%v",
+						c.GetInt("id"), modelRequest.Model, channel.Id, channel.FallbackChannelId, overloaded))
+				}
+				if overloaded && channel != nil {
+					if fb := redirectToFallbackChannel(c, channel, modelRequest.Model, selectGroup); fb != nil {
+						// 记录重导前的原渠道信息，供消费日志审计
+						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, channel.Id)
+						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelName, channel.Name)
+						common.SetContextKey(c, constant.ContextKeyFallbackFromGroup, selectGroup)
+						channel = fb.channel
+						selectGroup = fb.group
+						common.SetContextKey(c, constant.ContextKeyUsingGroup, selectGroup)
+						common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
+					}
+				}
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
@@ -183,6 +204,86 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	}
 	config := channel.GetOtherSettings().AdvancedCustom
 	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
+}
+
+type fallbackResolution struct {
+	channel *model.Channel
+	group   string
+}
+
+// redirectToFallbackChannel 读取 channel.FallbackChannelId，校验兜底渠道可用并
+// 支持当前模型后，返回替换后的渠道和分组。任何不满足条件的情况（未配置、自环、
+// 已禁用、模型不支持）都返回 nil，保留原渠道。
+//
+// 计费分组策略：**兜底时保留使用者原分组（origGroup）**，而不是切到兜底渠道
+// 所属的分组。原因：
+//   - 兜底是后台强制路由，不应改变用户看到的计费口径（避免跨分组计费漂移）
+//   - 兜底渠道可能根本没绑原分组（例如用户在 default、B 只绑 backup）；若切到
+//     backup，使用者原本在 default 下的 GroupRatio 配置就失效，可能命中默认倍率
+//   - 便于日志与账单对账：无论是否触发兜底，同一个请求的 group 字段始终是用户
+//     本来会使用的那个
+// 仅当 origGroup 为空或等于 "auto"（例如 token 使用 auto 分组、兜底渠道未参与
+// 自动分组链时）才回退到兜底渠道自己的第一个分组。
+//
+// 仅做一跳，不处理兜底渠道自身的 FallbackChannelId，避免链式跳转。
+func redirectToFallbackChannel(c *gin.Context, original *model.Channel, modelName, origGroup string) *fallbackResolution {
+	if original == nil || original.FallbackChannelId <= 0 || original.FallbackChannelId == original.Id {
+		return nil
+	}
+	fb, err := model.CacheGetChannel(original.FallbackChannelId)
+	if err != nil || fb == nil {
+		logger.LogWarn(c, fmt.Sprintf("fallback channel %d not found for channel %d: %v", original.FallbackChannelId, original.Id, err))
+		return nil
+	}
+	if fb.Status != common.ChannelStatusEnabled {
+		logger.LogWarn(c, fmt.Sprintf("fallback channel %d is disabled, keeping original channel %d", fb.Id, original.Id))
+		return nil
+	}
+	if !channelSupportsModel(fb, modelName) {
+		logger.LogWarn(c, fmt.Sprintf("fallback channel %d does not support model %q, keeping original channel %d", fb.Id, modelName, original.Id))
+		return nil
+	}
+	if !channelSupportsRequestPath(fb, c.Request.URL.Path, modelName) {
+		logger.LogWarn(c, fmt.Sprintf("fallback channel %d does not support request path %q, keeping original channel %d", fb.Id, c.Request.URL.Path, original.Id))
+		return nil
+	}
+	group := pickFallbackChannelGroup(fb, origGroup)
+	if group == "" {
+		logger.LogWarn(c, fmt.Sprintf("fallback channel %d has no group configured and origGroup is empty, keeping original channel %d", fb.Id, original.Id))
+		return nil
+	}
+	logger.LogInfo(c, fmt.Sprintf("overload redirect: user=%d model=%q from channel %d (group=%s) to channel %d (billing group=%s)",
+		c.GetInt("id"), modelName, original.Id, origGroup, fb.Id, group))
+	return &fallbackResolution{channel: fb, group: group}
+}
+
+// channelSupportsModel 以 "," 包裹两端做精确匹配，避免 "gpt-4" 误中 "gpt-4o"。
+func channelSupportsModel(channel *model.Channel, modelName string) bool {
+	if channel == nil || modelName == "" {
+		return false
+	}
+	return strings.Contains(","+channel.Models+",", ","+modelName+",")
+}
+
+// pickFallbackChannelGroup 决定兜底命中时写入 ContextKeyUsingGroup/AutoGroup 的
+// 分组。策略：
+//  1. 使用者原分组是具体分组（非空、非 "auto"）→ 直接沿用，保持计费口径稳定。
+//     即使兜底渠道的 Group 字段没绑该分组也成立：兜底是后台强制路由，不受
+//     Ability/可见性约束。
+//  2. 使用者原分组是 "auto" 或为空（例如 playground 走到了 auto 链但未定格）
+//     → 退回使用兜底渠道自己的首个分组，至少能走通。
+func pickFallbackChannelGroup(channel *model.Channel, preferred string) string {
+	if preferred != "" && preferred != "auto" {
+		return preferred
+	}
+	if channel == nil {
+		return ""
+	}
+	groups := channel.GetGroups()
+	if len(groups) == 0 {
+		return ""
+	}
+	return groups[0]
 }
 
 // getModelFromRequest 从请求中读取模型信息

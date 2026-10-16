@@ -45,14 +45,22 @@ const (
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"
 
 	/* user related keys */
-	ContextKeyUserId      ContextKey = "id"
-	ContextKeyUserSetting ContextKey = "user_setting"
-	ContextKeyUserQuota   ContextKey = "user_quota"
-	ContextKeyUserStatus  ContextKey = "user_status"
-	ContextKeyUserEmail   ContextKey = "user_email"
-	ContextKeyUserGroup   ContextKey = "user_group"
-	ContextKeyUsingGroup  ContextKey = "group"
-	ContextKeyUserName    ContextKey = "username"
+	ContextKeyUserId         ContextKey = "id"
+	ContextKeyUserSetting    ContextKey = "user_setting"
+	ContextKeyUserQuota      ContextKey = "user_quota"
+	ContextKeyUserStatus     ContextKey = "user_status"
+	ContextKeyUserEmail      ContextKey = "user_email"
+	ContextKeyUserGroup      ContextKey = "user_group"
+	ContextKeyUsingGroup     ContextKey = "group"
+	ContextKeyUserName       ContextKey = "username"
+	ContextKeyUserOverloaded ContextKey = "user_overloaded"
+
+	// 兜底渠道重导的审计字段。仅在 Distribute 把请求从原渠道改到渠道的
+	// FallbackChannelId 时写入；消费日志生成阶段读出并落到 other.fallback_from
+	// 顶层字段，供前端日志列表展示「原渠道 → 当前渠道」。
+	ContextKeyFallbackFromChannelId   ContextKey = "fallback_from_channel_id"
+	ContextKeyFallbackFromChannelName ContextKey = "fallback_from_channel_name"
+	ContextKeyFallbackFromGroup       ContextKey = "fallback_from_group"
 
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 
