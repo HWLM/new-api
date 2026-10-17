@@ -171,8 +171,8 @@ const (
 
 // OperationType 子类型标记：用于在 LogTypeManage 等大类下进一步区分具体业务动作。
 // 写入到 logs.operation_type 列，未标记的历史/其他日志为 NULL。
-// QuotaType 进一步区分「调整额度（add 模式）」的来源分类：充值 / 赠送 / 授信 / 回款。
-// 仅在 add 模式写入；subtract / override 留 NULL。
+// QuotaType 进一步区分「调整额度（add / subtract 模式）」的来源分类：充值 / 赠送 / 授信 / 回款。
+// override 模式是覆盖语义、没有「充值了多少」的概念，留 NULL。
 const (
 	OperationTypeQuota = "额度" // 管理员调整用户额度（add / subtract / override）
 	QuotaTypeRecharge  = "充值"
@@ -186,6 +186,19 @@ const (
 // ManageQuotaAddTypes 返回「调整额度-add 模式」允许的 quota_type 取值。
 // 回款不在其中：它只记账不加额度，由专门的回款接口写入。
 func ManageQuotaAddTypes() []string {
+	return []string{QuotaTypeRecharge, QuotaTypeGift, QuotaTypeCredit}
+}
+
+// ManageQuotaSubtractTypes 返回「调整额度-subtract 模式」允许的 quota_type 取值。
+//
+// 减少额度时登记类型，是为了让金额口径能算出净额：减少会写一条
+// recharge_input_amount 为负的日志，于是 ManageQuotaAmountsSelect 的
+// SUM(CASE WHEN quota_type = ...) 直接得到「充值 - 退款」的净值，
+// 所有读这些口径的报表（新用户统计、充值-授信统计、邀请人/推广统计、
+// daily_summary 累计列）都不需要各自再减一次退款。
+//
+// 取值与 add 一致：回款不在其中（它只记账、不改额度）。
+func ManageQuotaSubtractTypes() []string {
 	return []string{QuotaTypeRecharge, QuotaTypeGift, QuotaTypeCredit}
 }
 
@@ -223,11 +236,17 @@ func ManageQuotaAmountTypes() []string {
 //
 // 充值 / 授信 / 赠送 / 回款共用 logs.recharge_input_amount 列、靠 quota_type 区分，
 // 一次扫描即可产出四个口径。
+//
+// 产出的是**净额**：subtract 模式写入的 recharge_input_amount 为负数，
+// 因此 SUM 自然等于「加的 - 减的」。例如今天充值 100、明天减少 50，
+// 两天合计为 50，不需要调用方再单独扣减退款。
+//
 // 调用方需自行在 WHERE 中限定 type = LogTypeManage、operation_type = OperationTypeQuota、
 // quota_type IN ManageQuotaAmountTypes() 以及时间窗。
 //
 // withLastRechargeAt = true 时额外产出 last_recharge_at —— 只看充值，其余口径不参与，
-// 以免改变「最后一次充值时间」列的既有含义。
+// 以免改变「最后一次充值时间」列的既有含义。注意减少额度的日志也带 quota_type=充值，
+// 同样会参与 MAX，即「最后一次充值相关操作」的时间。
 // CASE WHEN 是 SQL 标准语法，SQLite/MySQL/PostgreSQL 均支持。
 func ManageQuotaAmountsSelect(withLastRechargeAt bool) (string, []interface{}) {
 	expr := "user_id, " +

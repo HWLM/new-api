@@ -47,7 +47,10 @@ type CreditRecord struct {
 	Id     int     `json:"id" gorm:"primaryKey"`
 	UserId int     `json:"user_id" gorm:"index;index:idx_credit_records_user_type,priority:1"`
 	Type   int     `json:"type" gorm:"index:idx_credit_records_user_type,priority:2"` // 1=授信 2=回款
-	Amount float64 `json:"amount"`                                                    // 操作金额（人民币 ¥），恒为正数
+	// Amount 操作金额（人民币 ¥）。正数为发生额（新增授信 / 登记回款），
+	// 负数为冲回：管理员「调整额度-减少」且类型=授信时写入负数，
+	// 于是所有 SUM(amount) 聚合天然得到净额，不需要各自再减一次。
+	Amount float64 `json:"amount"`
 	Remark string  `json:"remark" gorm:"type:text"`
 	// OperatorId 执行操作的管理员 id；0 表示来源不可考（历史回填数据）。
 	OperatorId int   `json:"operator_id" gorm:"default:0"`
@@ -74,12 +77,13 @@ func creditSumSelect(withUserId bool) (string, []interface{}) {
 }
 
 // CreateCreditRecord 写入一条授信 / 回款流水。
+// amount 允许为负（授信冲回），但不允许为 0 —— 0 不改变任何口径，只会污染流水。
 func CreateCreditRecord(record *CreditRecord) error {
 	if record.Type != CreditRecordTypeCredit && record.Type != CreditRecordTypeRepayment {
 		return fmt.Errorf("invalid credit record type: %d", record.Type)
 	}
-	if record.Amount <= 0 {
-		return fmt.Errorf("credit record amount must be positive, got %v", record.Amount)
+	if record.Amount == 0 {
+		return fmt.Errorf("credit record amount must not be zero")
 	}
 	return DB.Create(record).Error
 }
@@ -89,8 +93,8 @@ func CreateCreditRecordInTx(tx *gorm.DB, record *CreditRecord) error {
 	if record.Type != CreditRecordTypeCredit && record.Type != CreditRecordTypeRepayment {
 		return fmt.Errorf("invalid credit record type: %d", record.Type)
 	}
-	if record.Amount <= 0 {
-		return fmt.Errorf("credit record amount must be positive, got %v", record.Amount)
+	if record.Amount == 0 {
+		return fmt.Errorf("credit record amount must not be zero")
 	}
 	return tx.Create(record).Error
 }
@@ -313,13 +317,17 @@ func GetCreditRecordUserIds() ([]int, error) {
 	return ids, err
 }
 
-// GetCreditedUserIds 返回所有有过「授信」记录的 user_id（不含只有回款的用户）。
+// GetCreditedUserIds 返回所有授信净额 > 0 的 user_id（不含只有回款的用户）。
 // 供新用户统计的「授信客户」标签与筛选判定使用。
+//
+// 用净额而不是「存在授信行」：授信后又全额冲回（减少额度-授信）的用户净额为 0，
+// 业务上已经不是授信客户，不该继续带标签。
 func GetCreditedUserIds() ([]int, error) {
 	var ids []int
 	err := DB.Model(&CreditRecord{}).
 		Where("type = ?", CreditRecordTypeCredit).
-		Distinct().
+		Group("user_id").
+		Having("COALESCE(SUM(amount), 0) > 0").
 		Pluck("user_id", &ids).Error
 	return ids, err
 }

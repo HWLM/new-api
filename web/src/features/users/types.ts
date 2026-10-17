@@ -191,18 +191,22 @@ export type ManageUserAction =
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 
-/** add 模式下的额度来源类型；授信的换算规则与充值一致，仅在日志与报表中区分 */
+/** 额度来源类型；授信的换算规则与充值一致，仅在日志与报表中区分 */
 export type QuotaType = '充值' | '赠送' | '授信'
 
 export interface ManageUserQuotaPayload {
   id: number
   action: 'add_quota'
   mode: QuotaAdjustMode
-  /** 仅 subtract / override 模式使用：直接 quota 单位的数值 */
+  /** override 模式、以及不带类型的 subtract 使用：直接 quota 单位的数值 */
   value?: number
-  /** 仅 add 模式使用 */
+  /** add / subtract 模式使用：额度来源类型 */
   quota_type?: QuotaType
-  /** 仅 add 模式使用：充值金额（USD） */
+  /**
+   * add / subtract 模式使用：管理员页面填写的原始金额。
+   * add 时按「金额 ÷ 比例 ÷ 价格」换算；subtract 时填多少就减多少（不换算），
+   * 并以负数记入 logs.recharge_input_amount，使各金额口径得到净额。
+   */
   recharge_amount?: number
   /** 仅 add 模式使用：充值比例 */
   ratio?: number
