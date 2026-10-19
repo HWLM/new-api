@@ -789,6 +789,19 @@ function DailyView(props: {
     )
   }
 
+  // 范围合计：按天接口一次返回整个查询区间的全部行（无分页），
+  // 所以直接在前端累加即可，与「新用户统计 -> 明细数据」的范围合计口径一致。
+  const rangeTotals = useMemo(() => {
+    return (data ?? []).reduce(
+      (acc, r: InviterDailyRow) => {
+        acc.recharge += r.total_recharge_cny ?? 0
+        acc.consumed += r.total_consumed ?? 0
+        return acc
+      },
+      { recharge: 0, consumed: 0 }
+    )
+  }, [data])
+
   return (
     <>
       <div className='flex flex-wrap items-end gap-3'>
@@ -824,6 +837,24 @@ function DailyView(props: {
         <div className='ms-auto'>
           <ModeSwitch mode={props.mode} onChange={props.onModeChange} />
         </div>
+      </div>
+
+      <div className='bg-muted/30 flex items-center gap-4 rounded-md border px-3 py-2 text-xs sm:text-sm'>
+        <span className='text-muted-foreground'>{t('Range Totals')}:</span>
+        <span className='flex items-baseline gap-1'>
+          <span className='text-muted-foreground'>{t('Recharge Total')}</span>
+          <span className='font-medium tabular-nums'>
+            ¥{rangeTotals.recharge.toFixed(2)}
+          </span>
+        </span>
+        <span className='flex items-baseline gap-1'>
+          <span className='text-muted-foreground'>
+            {t('Consumption Total')}
+          </span>
+          <span className='font-medium tabular-nums'>
+            {formatCurrencyFromUSD(quotaToUsd(rangeTotals.consumed))}
+          </span>
+        </span>
       </div>
 
       <Table>

@@ -1,9 +1,12 @@
 package controller
 
-// 充值-授信统计的「今天走 logs、历史走汇总表」切分逻辑测试。
+// 充值-授信统计顶部卡片的取数口径测试。
 //
-// 这段切分是整个页面数据正确性的关键：切错会双算（同一笔钱既在汇总表又在 logs 被统计到）
-// 或漏算（今天登记的授信当天看不到）。
+// 覆盖三组容易出错的约定：
+//  1. 充值 / 赠送的「今天走 logs、历史走汇总表」切分 —— 切错会双算（同一笔钱既在汇总表
+//     又在 logs 被统计到）或漏算（今天登记的充值当天看不到）。
+//  2. 授信 / 回款只认 credit_records，不读 logs 与 vip_daily_consumptions。
+//  3. 剩余应收 / 未回款授信金额是全时间口径，不随时间筛选变化，且都不为负。
 
 import (
 	"fmt"
@@ -37,7 +40,7 @@ func setupCreditStatsTestDB(t *testing.T) *gorm.DB {
 	model.LOG_DB = db
 
 	require.NoError(t, db.AutoMigrate(
-		&model.User{}, &model.Log{}, &model.VipDailyConsumption{}, &model.DailySummary{},
+		&model.User{}, &model.Log{}, &model.VipDailyConsumption{}, &model.CreditRecord{},
 	))
 
 	t.Cleanup(func() {
@@ -48,7 +51,7 @@ func setupCreditStatsTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// seedCreditManageLog 写一条管理员额度日志（充值/赠送/授信/回款共用 recharge_input_amount 列）。
+// seedCreditManageLog 写一条管理员额度日志（充值 / 赠送共用 recharge_input_amount 列）。
 func seedCreditManageLog(t *testing.T, db *gorm.DB, userID int, quotaType string, amount float64, createdAt int64) {
 	t.Helper()
 	opType := model.OperationTypeQuota
@@ -61,6 +64,29 @@ func seedCreditManageLog(t *testing.T, db *gorm.DB, userID int, quotaType string
 		QuotaType:           &qt,
 		RechargeInputAmount: &amt,
 		CreatedAt:           createdAt,
+	}).Error)
+}
+
+// seedCreditRecord 写一条授信 / 回款流水。GORM 的 autoCreateTime 不会覆盖非零 CreatedAt，
+// 所以这里能精确控制流水落在哪一天。
+func seedCreditRecord(t *testing.T, db *gorm.DB, userID, recordType int, amount float64, createdAt int64) {
+	t.Helper()
+	require.NoError(t, db.Create(&model.CreditRecord{
+		UserId:    userID,
+		Type:      recordType,
+		Amount:    amount,
+		CreatedAt: createdAt,
+	}).Error)
+}
+
+// seedConsumeLog 写一条消耗日志（净消耗口径的正向部分）。
+func seedConsumeLog(t *testing.T, db *gorm.DB, userID int, quota int, createdAt int64) {
+	t.Helper()
+	require.NoError(t, db.Create(&model.Log{
+		UserId:    userID,
+		Type:      model.LogTypeConsume,
+		Quota:     quota,
+		CreatedAt: createdAt,
 	}).Error)
 }
 
@@ -109,17 +135,17 @@ func TestSplitCreditRangeBoundaries(t *testing.T) {
 	}
 }
 
-// 「今天」档位：汇总表里没有今天的行，金额必须全部来自 logs。
-func TestCreditSummaryTodayReadsLogs(t *testing.T) {
+// 「今天」档位：汇总表里没有今天的行，充值 / 赠送必须全部来自 logs，
+// 授信 / 回款必须来自 credit_records。
+func TestCreditSummaryTodayReadsLogsAndRecords(t *testing.T) {
 	db := setupCreditStatsTestDB(t)
 	today := time.Now().Format("2006-01-02")
 	now := time.Now().Unix()
 
-	// 今天的四笔操作只存在于 logs
 	seedCreditManageLog(t, db, 1, model.QuotaTypeRecharge, 100, now)
 	seedCreditManageLog(t, db, 1, model.QuotaTypeGift, 20, now)
-	seedCreditManageLog(t, db, 2, model.QuotaTypeCredit, 500, now)
-	seedCreditManageLog(t, db, 2, model.QuotaTypeRepayment, 200, now)
+	seedCreditRecord(t, db, 2, model.CreditRecordTypeCredit, 500, now)
+	seedCreditRecord(t, db, 2, model.CreditRecordTypeRepayment, 200, now)
 
 	resp := callCreditSummary(t, today, today)
 
@@ -131,7 +157,22 @@ func TestCreditSummaryTodayReadsLogs(t *testing.T) {
 	assert.InDelta(t, 300, resp.OutstandingCredit, 1e-9)
 }
 
-// 跨天区间：昨天来自汇总表、今天来自 logs，两段相加且互不重复。
+// 授信走 credit_records 而不是 logs：授信操作会同时往 logs 写一条审计记录（双写），
+// 如果卡片还从 logs 读就会把同一笔授信算两遍。
+func TestCreditSummaryIgnoresCreditLogs(t *testing.T) {
+	db := setupCreditStatsTestDB(t)
+	today := time.Now().Format("2006-01-02")
+	now := time.Now().Unix()
+
+	// 一笔 500 的授信：credit_records 一行 + logs 一行审计（线上就是这样双写的）
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 500, now)
+	seedCreditManageLog(t, db, 1, model.QuotaTypeCredit, 500, now)
+
+	resp := callCreditSummary(t, today, today)
+	assert.InDelta(t, 500, resp.CreditAmount, 1e-9)
+}
+
+// 跨天区间：充值的昨天那段来自汇总表、今天那段来自 logs，两段相加且互不重复。
 // 这里特意让昨天的 logs 也留有记录（真实环境 cron 落盘后 logs 并不会删除），
 // 验证历史段不会被 logs 二次计入。
 func TestCreditSummaryMergesHistoryAndToday(t *testing.T) {
@@ -141,30 +182,27 @@ func TestCreditSummaryMergesHistoryAndToday(t *testing.T) {
 	yesterdayTs := time.Now().AddDate(0, 0, -1).Unix()
 	now := time.Now().Unix()
 
-	// 昨天：已被 cron 落盘到汇总表，同时 logs 里原始记录仍在
+	// 昨天的充值：已被 cron 落盘到汇总表，同时 logs 里原始记录仍在
 	require.NoError(t, db.Create(&model.VipDailyConsumption{
-		UserId: 1, StatDate: yesterdayStr,
-		RechargeAmount: 1000, CreditAmount: 300, RepaymentAmount: 100,
+		UserId: 1, StatDate: yesterdayStr, RechargeAmount: 1000,
 	}).Error)
 	seedCreditManageLog(t, db, 1, model.QuotaTypeRecharge, 1000, yesterdayTs)
-	seedCreditManageLog(t, db, 1, model.QuotaTypeCredit, 300, yesterdayTs)
-	seedCreditManageLog(t, db, 1, model.QuotaTypeRepayment, 100, yesterdayTs)
-	// 同一天的全局汇总行，供未回款口径读累计列
-	require.NoError(t, db.Create(&model.DailySummary{
-		StatDate: yesterdayStr, CumCreditAmount: 300, CumRepaymentAmount: 100,
-	}).Error)
 
-	// 今天：只在 logs 里
+	// 昨天的授信 / 回款：credit_records 是实时表，不存在「落盘」概念
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 300, yesterdayTs)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeRepayment, 100, yesterdayTs)
+
+	// 今天：充值只在 logs，授信在 credit_records
 	seedCreditManageLog(t, db, 1, model.QuotaTypeRecharge, 50, now)
-	seedCreditManageLog(t, db, 1, model.QuotaTypeCredit, 200, now)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 200, now)
 
 	resp := callCreditSummary(t, yesterdayStr, todayStr)
 
-	// 前四项受时间筛选：昨天 1000 + 今天 50，昨天的 logs 不得被重复计入
+	// 充值：昨天 1000（汇总表）+ 今天 50（logs），昨天的 logs 不得被重复计入
 	assert.InDelta(t, 1050, resp.RechargeAmount, 1e-9)
 	assert.InDelta(t, 500, resp.CreditAmount, 1e-9)
 	assert.InDelta(t, 100, resp.RepaymentAmount, 1e-9)
-	// 未回款走累计列 + 今天：(300+200) - (100+0) = 400
+	// 未回款是全时间口径：(300+200) - 100 = 400
 	assert.InDelta(t, 400, resp.OutstandingCredit, 1e-9)
 }
 
@@ -184,43 +222,98 @@ func TestCreditSummaryExcludesTodayWhenOutOfRange(t *testing.T) {
 	assert.InDelta(t, 700, resp.RechargeAmount, 1e-9)
 }
 
-// 未回款授信按业务约定不为负：回款多于授信时显示 0 而不是负数。
-func TestCreditSummaryOutstandingNeverNegative(t *testing.T) {
+// 剩余应收与未回款授信都按业务约定不为负：回款多于授信 / 多于消耗时显示 0 而不是负数。
+func TestCreditSummaryNeverNegative(t *testing.T) {
 	db := setupCreditStatsTestDB(t)
 	today := time.Now().Format("2006-01-02")
+	now := time.Now().Unix()
 
-	seedCreditManageLog(t, db, 1, model.QuotaTypeCredit, 100, time.Now().Unix())
-	seedCreditManageLog(t, db, 1, model.QuotaTypeRepayment, 250, time.Now().Unix())
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 100, now)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeRepayment, 250, now)
 
 	resp := callCreditSummary(t, today, today)
 	assert.InDelta(t, 0, resp.OutstandingCredit, 1e-9)
+	// 该用户没有任何消耗，总消耗 0 - 回款 250 为负，应收应落到 0
+	assert.InDelta(t, 0, resp.Receivable, 1e-9)
 }
 
-// 未回款授信是全时间口径：读 daily_summaries 累计列（截至昨天）+ 今天 logs，
-// 且不随 start_date/end_date 变化 —— 换任何时间档位都应该是同一个值。
+// 剩余应收 = 授信客户的累计消耗（历史汇总表 + 今天 logs，按 quota/QuotaPerUnit 折算）
+// - 总回款，且与未回款授信一样不随时间筛选变化。
+func TestCreditSummaryReceivable(t *testing.T) {
+	db := setupCreditStatsTestDB(t)
+	todayStr := time.Now().Format("2006-01-02")
+	yesterdayStr := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	weekAgoStr := time.Now().AddDate(0, 0, -6).Format("2006-01-02")
+	now := time.Now().Unix()
+
+	// 固定换算参数，避免测试依赖站点配置
+	originalQuotaPerUnit := common.QuotaPerUnit
+	t.Cleanup(func() { common.QuotaPerUnit = originalQuotaPerUnit })
+	common.QuotaPerUnit = 500_000.0
+
+	// 用户 1 是授信客户，用户 2 不是 —— 用户 2 的消耗不能进应收
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 1000, now)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeRepayment, 400, now)
+
+	// 用户 1 的历史消耗（汇总表，截至昨天）：2 天共 1_000_000 quota = 2
+	require.NoError(t, db.Create(&model.VipDailyConsumption{
+		UserId: 1, StatDate: weekAgoStr, Quota: 500_000,
+	}).Error)
+	require.NoError(t, db.Create(&model.VipDailyConsumption{
+		UserId: 1, StatDate: yesterdayStr, Quota: 500_000,
+	}).Error)
+	// 用户 1 今天的消耗只在 logs：250_000 quota = 0.5
+	seedConsumeLog(t, db, 1, 250_000, now)
+
+	// 噪声：非授信客户的消耗（汇总表 + 今天 logs）都不应计入
+	require.NoError(t, db.Create(&model.VipDailyConsumption{
+		UserId: 2, StatDate: yesterdayStr, Quota: 9_000_000,
+	}).Error)
+	seedConsumeLog(t, db, 2, 9_000_000, now)
+
+	// 2.5 - 400 为负 → 先验证不为负的兜底，再换一组能算出正值的回款额
+	resp := callCreditSummary(t, todayStr, todayStr)
+	assert.InDelta(t, 0, resp.Receivable, 1e-9)
+
+	// 把回款改成 1：2.5 - 1 = 1.5
+	require.NoError(t, db.Model(&model.CreditRecord{}).
+		Where("type = ?", model.CreditRecordTypeRepayment).
+		Update("amount", 1).Error)
+
+	// 三种时间档位，应收都应相同（全时间口径）
+	for _, r := range [][2]string{
+		{todayStr, todayStr},
+		{weekAgoStr, todayStr},
+		{weekAgoStr, yesterdayStr},
+	} {
+		resp := callCreditSummary(t, r[0], r[1])
+		assert.InDelta(t, 1.5, resp.Receivable, 1e-9, "range %s~%s", r[0], r[1])
+	}
+}
+
+// 未回款授信是全时间口径：不随 start_date/end_date 变化 —— 换任何时间档位都是同一个值。
 func TestCreditSummaryOutstandingIgnoresDateFilter(t *testing.T) {
 	db := setupCreditStatsTestDB(t)
 	todayStr := time.Now().Format("2006-01-02")
 	yesterdayStr := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	weekAgoStr := time.Now().AddDate(0, 0, -6).Format("2006-01-02")
 
-	// 历史累计：截至昨天 授信 1000、回款 400。
-	// 特意再写一条更早的行，验证取的是 stat_date 最大那条而不是求和。
-	require.NoError(t, db.Create(&model.DailySummary{
-		StatDate: weekAgoStr, CumCreditAmount: 600, CumRepaymentAmount: 100,
-	}).Error)
-	require.NoError(t, db.Create(&model.DailySummary{
-		StatDate: yesterdayStr, CumCreditAmount: 1000, CumRepaymentAmount: 400,
-	}).Error)
+	// 一周前：授信 600、回款 100
+	weekAgoTs := time.Now().AddDate(0, 0, -6).Unix()
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 600, weekAgoTs)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeRepayment, 100, weekAgoTs)
+	// 昨天：授信 400、回款 300
+	yesterdayTs := time.Now().AddDate(0, 0, -1).Unix()
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 400, yesterdayTs)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeRepayment, 300, yesterdayTs)
+	// 今天：授信 300、回款 50
+	now := time.Now().Unix()
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 300, now)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeRepayment, 50, now)
 
-	// 今天：logs 里再加 授信 300、回款 50
-	seedCreditManageLog(t, db, 1, model.QuotaTypeCredit, 300, time.Now().Unix())
-	seedCreditManageLog(t, db, 1, model.QuotaTypeRepayment, 50, time.Now().Unix())
-
-	// (1000+300) - (400+50) = 850
+	// (600+400+300) - (100+300+50) = 850
 	const wantOutstanding = 850.0
 
-	// 三种时间档位，未回款都应相同
 	for _, r := range [][2]string{
 		{todayStr, todayStr},
 		{weekAgoStr, todayStr},
@@ -232,16 +325,20 @@ func TestCreditSummaryOutstandingIgnoresDateFilter(t *testing.T) {
 	}
 }
 
-// daily_summaries 为空（首次部署 / cron 没跑过）时按 0 起算，只统计今天的 logs。
-func TestCreditSummaryOutstandingWithoutSummaryRows(t *testing.T) {
+// credit_records 为空（功能刚上线、还没录入过）时四个金额与两个全时间口径都应为 0，
+// 而不是报错或读出 logs 里的历史授信。
+func TestCreditSummaryWithoutCreditRecords(t *testing.T) {
 	db := setupCreditStatsTestDB(t)
 	today := time.Now().Format("2006-01-02")
 
+	// logs 里有授信审计记录，但 credit_records 空 —— 卡片只认新表
 	seedCreditManageLog(t, db, 1, model.QuotaTypeCredit, 700, time.Now().Unix())
-	seedCreditManageLog(t, db, 1, model.QuotaTypeRepayment, 200, time.Now().Unix())
 
 	resp := callCreditSummary(t, today, today)
-	assert.InDelta(t, 500, resp.OutstandingCredit, 1e-9)
+	assert.InDelta(t, 0, resp.CreditAmount, 1e-9)
+	assert.InDelta(t, 0, resp.RepaymentAmount, 1e-9)
+	assert.InDelta(t, 0, resp.OutstandingCredit, 1e-9)
+	assert.InDelta(t, 0, resp.Receivable, 1e-9)
 }
 
 // callCreditSummary 发一次 summary 请求并解出 data 段。

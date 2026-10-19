@@ -38,12 +38,33 @@ import { UserQuotaHistoryList } from './user-quota-history-list'
 
 const PAGE_SIZE = 10
 
-// Keep in sync with backend model.LogType* and IsUserQuotaHistoryFilterType.
-const FILTER_ALL = '0'
-const LOG_TYPE_TOPUP = '1'
-const LOG_TYPE_CONSUME = '2'
-const LOG_TYPE_MANAGE = '3'
-const LOG_TYPE_REFUND = '6'
+// Composite filter values. Format:
+//   "all"         → no filter
+//   "<type>"      → ?type=<type>
+//   "3:<quota>"   → ?type=3&quota_type=<quota> (Recharge/Gift/Credit sub-filter)
+// Keep type ids in sync with backend model.LogType* and quota_type strings in
+// sync with model.QuotaType* / IsUserQuotaHistoryFilterQuotaType.
+const FILTER_ALL = 'all'
+const FILTER_TOPUP = '1'
+const FILTER_CONSUME = '2'
+const FILTER_MANAGE = '3'
+const FILTER_MANAGE_RECHARGE = '3:充值'
+const FILTER_MANAGE_GIFT = '3:赠送'
+const FILTER_MANAGE_CREDIT = '3:授信'
+const FILTER_REFUND = '6'
+
+function parseFilterValue(value: string): {
+  type?: number
+  quotaType?: string
+} {
+  if (value === FILTER_ALL) return {}
+  const [typePart, quotaPart] = value.split(':')
+  const type = Number(typePart)
+  return {
+    type: Number.isFinite(type) && type > 0 ? type : undefined,
+    quotaType: quotaPart || undefined,
+  }
+}
 
 interface UserQuotaHistoryDialogProps {
   open: boolean
@@ -55,16 +76,11 @@ export function UserQuotaHistoryDialog(props: UserQuotaHistoryDialogProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
   const [typeFilter, setTypeFilter] = useState<string>(FILTER_ALL)
-  const typeNum = Number(typeFilter)
+  const { type, quotaType } = parseFilterValue(typeFilter)
   const query = useQuery({
     queryKey: ['users', 'quota-history', props.user.id, page, typeFilter],
     queryFn: () =>
-      getUserQuotaHistory(
-        props.user.id,
-        page,
-        PAGE_SIZE,
-        typeNum > 0 ? typeNum : undefined
-      ),
+      getUserQuotaHistory(props.user.id, page, PAGE_SIZE, type, quotaType),
     enabled: props.open,
     placeholderData: (previousData) => previousData,
   })
@@ -76,10 +92,13 @@ export function UserQuotaHistoryDialog(props: UserQuotaHistoryDialogProps) {
 
   const typeOptions = [
     { value: FILTER_ALL, label: t('All types') },
-    { value: LOG_TYPE_TOPUP, label: t('Top-up') },
-    { value: LOG_TYPE_CONSUME, label: t('Consume') },
-    { value: LOG_TYPE_MANAGE, label: t('Quota adjustment') },
-    { value: LOG_TYPE_REFUND, label: t('Refund') },
+    { value: FILTER_TOPUP, label: t('Top-up') },
+    { value: FILTER_CONSUME, label: t('Consume') },
+    { value: FILTER_MANAGE, label: t('Quota adjustment') },
+    { value: FILTER_MANAGE_RECHARGE, label: `· ${t('Recharge')}` },
+    { value: FILTER_MANAGE_GIFT, label: `· ${t('Gift')}` },
+    { value: FILTER_MANAGE_CREDIT, label: `· ${t('Credit')}` },
+    { value: FILTER_REFUND, label: t('Refund') },
   ]
 
   const footer = (

@@ -125,6 +125,7 @@ export function DetailsTable({
         sales: filter.sales,
         user_group: filter.user_group,
         is_vip: filter.is_vip,
+        is_credited: filter.is_credited,
         page: filter.page,
         page_size: filter.page_size,
         sort_by: filter.sort_by,
@@ -149,6 +150,7 @@ export function DetailsTable({
         sales: filter.sales,
         user_group: filter.user_group,
         is_vip: filter.is_vip,
+        is_credited: filter.is_credited,
         page: filter.page,
         page_size: filter.page_size,
       }),
@@ -244,6 +246,7 @@ export function DetailsTable({
         sales: filter.sales,
         user_group: filter.user_group,
         is_vip: filter.is_vip,
+        is_credited: filter.is_credited,
       })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')

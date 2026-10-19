@@ -38,6 +38,13 @@ func LogGroupCol() string {
 	return logGroupCol
 }
 
+// InitColumnRefs 重新计算跨 DB 的保留字列引用（`group` / `key`）与布尔字面量。
+// 正常启动时由 InitDB / InitLogDB 调用 initCol 完成；测试里直连 sqlite、
+// 不走 InitDB 的场景需要显式调一次，否则这些变量是空串，拼出的 SQL 会语法错误。
+func InitColumnRefs() {
+	initCol()
+}
+
 func initCol() {
 	// init common column names
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {

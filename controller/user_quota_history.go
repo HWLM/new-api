@@ -153,8 +153,20 @@ func GetUserQuotaHistory(c *gin.Context) {
 		filterType = parsed
 	}
 
+	// Optional quota_type sub-filter for the manage branch (充值/赠送/授信).
+	// Can be combined with ?type=3 or stand alone; when present without a type,
+	// the backend pins LogTypeManage automatically.
+	var filterQuotaType string
+	if raw := c.Query("quota_type"); raw != "" {
+		if !model.IsUserQuotaHistoryFilterQuotaType(raw) {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		filterQuotaType = raw
+	}
+
 	pageInfo := common.GetPageQuery(c)
-	logs, total, err := model.GetUserQuotaHistoryFiltered(userId, filterType, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	logs, total, err := model.GetUserQuotaHistoryFiltered(userId, filterType, filterQuotaType, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -164,8 +176,9 @@ func GetUserQuotaHistory(c *gin.Context) {
 	// filter is applied we can no longer reconstruct balances from deltas, so
 	// only stored snapshots are trusted (newerDelta=0, hasUnknownNewer=true).
 	var newerDelta int64
-	hasUnknownNewer := filterType != 0
-	if filterType == 0 && len(logs) > 0 && (logs[0].BeforeQuota == nil || logs[0].AfterQuota == nil) {
+	filtered := filterType != 0 || filterQuotaType != ""
+	hasUnknownNewer := filtered
+	if !filtered && len(logs) > 0 && (logs[0].BeforeQuota == nil || logs[0].AfterQuota == nil) {
 		newerDelta, hasUnknownNewer, err = model.GetUserQuotaHistoryNewerDelta(userId, logs[0].Id)
 		if err != nil {
 			common.ApiError(c, err)

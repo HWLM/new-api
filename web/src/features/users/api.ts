@@ -112,10 +112,15 @@ export async function getUserQuotaHistory(
   userId: number,
   page: number,
   pageSize: number,
-  type?: number
+  type?: number,
+  quotaType?: string
 ): Promise<UserQuotaHistoryResponse> {
-  const params: Record<string, number> = { p: page, page_size: pageSize }
+  const params: Record<string, number | string> = {
+    p: page,
+    page_size: pageSize,
+  }
   if (type && type > 0) params.type = type
+  if (quotaType) params.quota_type = quotaType
   const res = await api.get(`/api/user/${userId}/quota-history`, {
     params,
   })

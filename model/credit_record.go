@@ -47,7 +47,10 @@ type CreditRecord struct {
 	Id     int     `json:"id" gorm:"primaryKey"`
 	UserId int     `json:"user_id" gorm:"index;index:idx_credit_records_user_type,priority:1"`
 	Type   int     `json:"type" gorm:"index:idx_credit_records_user_type,priority:2"` // 1=授信 2=回款
-	Amount float64 `json:"amount"`                                                    // 操作金额（人民币 ¥），恒为正数
+	// Amount 操作金额（人民币 ¥）。正数为发生额（新增授信 / 登记回款），
+	// 负数为冲回：管理员「调整额度-减少」且类型=授信时写入负数，
+	// 于是所有 SUM(amount) 聚合天然得到净额，不需要各自再减一次。
+	Amount float64 `json:"amount"`
 	Remark string  `json:"remark" gorm:"type:text"`
 	// OperatorId 执行操作的管理员 id；0 表示来源不可考（历史回填数据）。
 	OperatorId int   `json:"operator_id" gorm:"default:0"`
@@ -74,12 +77,13 @@ func creditSumSelect(withUserId bool) (string, []interface{}) {
 }
 
 // CreateCreditRecord 写入一条授信 / 回款流水。
+// amount 允许为负（授信冲回），但不允许为 0 —— 0 不改变任何口径，只会污染流水。
 func CreateCreditRecord(record *CreditRecord) error {
 	if record.Type != CreditRecordTypeCredit && record.Type != CreditRecordTypeRepayment {
 		return fmt.Errorf("invalid credit record type: %d", record.Type)
 	}
-	if record.Amount <= 0 {
-		return fmt.Errorf("credit record amount must be positive, got %v", record.Amount)
+	if record.Amount == 0 {
+		return fmt.Errorf("credit record amount must not be zero")
 	}
 	return DB.Create(record).Error
 }
@@ -89,27 +93,25 @@ func CreateCreditRecordInTx(tx *gorm.DB, record *CreditRecord) error {
 	if record.Type != CreditRecordTypeCredit && record.Type != CreditRecordTypeRepayment {
 		return fmt.Errorf("invalid credit record type: %d", record.Type)
 	}
-	if record.Amount <= 0 {
-		return fmt.Errorf("credit record amount must be positive, got %v", record.Amount)
+	if record.Amount == 0 {
+		return fmt.Errorf("credit record amount must not be zero")
 	}
 	return tx.Create(record).Error
 }
 
-// SumCreditOutstanding 返回全平台未回款授信金额 = 总授信 - 总回款。
-// 按业务约定不为负，回款多于授信时返回 0。
-// 该口径是全时间总额，不参与任何时间筛选。
-func SumCreditOutstanding() (float64, error) {
+// SumCreditTotals 返回全平台全时间的授信总额与回款总额。
+// 这是「不参与时间筛选」的全量口径，供未回款授信金额与剩余应收两张卡片取数。
+//
+// 直接对 credit_records 做一次两列聚合即可 —— 这张表只在管理员录入授信 / 登记回款时
+// 各写一行，数据量是业务操作次数级别，不会像 vip_daily_consumptions（用户 × 天）
+// 或 logs（全量请求）那样随时间膨胀。
+func SumCreditTotals() (CreditAggregate, error) {
 	selectExpr, args := creditSumSelect(false)
 	var row CreditAggregate
-	if err := DB.Model(&CreditRecord{}).
+	err := DB.Model(&CreditRecord{}).
 		Select(selectExpr, args...).
-		Scan(&row).Error; err != nil {
-		return 0, err
-	}
-	if outstanding := row.TotalCredit - row.TotalRepayment; outstanding > 0 {
-		return outstanding, nil
-	}
-	return 0, nil
+		Scan(&row).Error
+	return row, err
 }
 
 // SumCreditInRange 聚合 [startTs, endTs] 内的授信与回款总额（全平台）。
@@ -180,6 +182,60 @@ func SumCreditByUsers(userIds []int) (map[int]CreditAggregate, error) {
 		result[r.UserId] = r
 	}
 	return result, nil
+}
+
+// SumCreditByUsersInRange 按用户聚合 [startTs, endTs] 内的授信 / 回款总额。
+// userIds 语义同 SumCreditByUsers：nil 表示不限用户，长度 0 表示明确无匹配用户。
+func SumCreditByUsersInRange(startTs, endTs int64, userIds []int) (map[int]CreditAggregate, error) {
+	result := make(map[int]CreditAggregate)
+	if userIds != nil && len(userIds) == 0 {
+		return result, nil
+	}
+	selectExpr, args := creditSumSelect(true)
+	tx := DB.Model(&CreditRecord{}).
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs)
+	if userIds != nil {
+		tx = tx.Where("user_id IN ?", userIds)
+	}
+	var rows []CreditAggregate
+	if err := tx.Select(selectExpr, args...).Group("user_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		result[r.UserId] = r
+	}
+	return result, nil
+}
+
+// CreditDailyAggregate 某用户在某一天的授信 / 回款聚合。
+type CreditDailyAggregate struct {
+	Day            string  `json:"day"` // YYYY-MM-DD
+	UserId         int     `json:"user_id"`
+	TotalCredit    float64 `json:"total_credit"`
+	TotalRepayment float64 `json:"total_repayment"`
+}
+
+// SumCreditByUserDay 按 (用户, 天) 聚合 [startTs, endTs] 内的授信 / 回款，
+// 供「按天统计」明细按日期维度取授信金额。userIds 语义同 SumCreditByUsers。
+func SumCreditByUserDay(startTs, endTs int64, userIds []int) ([]CreditDailyAggregate, error) {
+	if userIds != nil && len(userIds) == 0 {
+		return nil, nil
+	}
+	dayExpr := creditDayExpr()
+	selectExpr, args := creditSumSelect(true)
+	tx := DB.Model(&CreditRecord{}).
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs)
+	if userIds != nil {
+		tx = tx.Where("user_id IN ?", userIds)
+	}
+	var rows []CreditDailyAggregate
+	if err := tx.
+		Select(dayExpr+" AS day, "+selectExpr, args...).
+		Group(dayExpr + ", user_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // CreditMonthlyAggregate 某用户在某个月份的授信 / 回款聚合。
@@ -261,13 +317,17 @@ func GetCreditRecordUserIds() ([]int, error) {
 	return ids, err
 }
 
-// GetCreditedUserIds 返回所有有过「授信」记录的 user_id（不含只有回款的用户）。
+// GetCreditedUserIds 返回所有授信净额 > 0 的 user_id（不含只有回款的用户）。
 // 供新用户统计的「授信客户」标签与筛选判定使用。
+//
+// 用净额而不是「存在授信行」：授信后又全额冲回（减少额度-授信）的用户净额为 0，
+// 业务上已经不是授信客户，不该继续带标签。
 func GetCreditedUserIds() ([]int, error) {
 	var ids []int
 	err := DB.Model(&CreditRecord{}).
 		Where("type = ?", CreditRecordTypeCredit).
-		Distinct().
+		Group("user_id").
+		Having("COALESCE(SUM(amount), 0) > 0").
 		Pluck("user_id", &ids).Error
 	return ids, err
 }

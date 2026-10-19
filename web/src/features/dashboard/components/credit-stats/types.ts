@@ -7,12 +7,13 @@ For commercial licensing, please contact support@quantumnous.com
 // 后端 controller/credit_stats.go 的响应类型对应。
 // 所有金额单位都是人民币 ¥（管理员页面录入即是 ¥）。
 
-// 顶部 5 张卡片
+// 顶部 6 张卡片
 export type CreditSummary = {
   recharge_amount: number
   gift_amount: number
   credit_amount: number
   repayment_amount: number
+  receivable: number
   outstanding_credit: number
 }
 

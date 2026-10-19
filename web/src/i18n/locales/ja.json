@@ -6061,6 +6061,7 @@
     "Outstanding Credit Amount": "未回収与信金額",
     "Please enter repayment amount": "回収金額を入力してください",
     "Please enter username / display name": "ユーザー名／表示名を入力してください",
+    "Receivable": "残存売掛金",
     "Recharge & Credit Statistics": "チャージ・与信統計",
     "Recharge Amount (¥)": "チャージ金額（¥）",
     "Repayment": "回収",
@@ -6072,6 +6073,7 @@
     "Repayment recorded successfully": "回収を登録しました",
     "Start month": "開始月",
     "Total Credit Amount": "与信金額合計",
+    "Total consumption of credit customers - total repayment (all time)": "全期間の与信顧客の消費合計 − 回収合計",
     "Total credit - total repayment (all time)": "全期間の与信合計 − 回収合計",
     "Total Repayment Amount": "回収金額合計",
     "View Details": "明細を見る"

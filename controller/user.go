@@ -1207,10 +1207,13 @@ type ManageRequest struct {
 	Value  int    `json:"value"`
 	Mode   string `json:"mode"`
 
-	// 仅 action=add_quota + mode=add 使用：管理员录入的原始充值金额与比例，由后端权威换算 value。
+	// 以下三个字段供 action=add_quota 的 add / subtract 模式使用。
+	// add：管理员录入的原始充值金额与比例，由后端权威换算 value。
+	// subtract：只用 QuotaType + RechargeAmount，页面填多少就减多少，不走比例 / 价格换算；
+	//           RechargeAmount 会以负数记入 logs.recharge_input_amount，使金额口径得到净额。
 	QuotaType      string  `json:"quota_type,omitempty"`      // "充值" | "赠送" | "授信"
-	RechargeAmount float64 `json:"recharge_amount,omitempty"` // 充值金额（人民币 ¥）
-	Ratio          float64 `json:"ratio,omitempty"`           // 充值比例（0.1 ~ 100）
+	RechargeAmount float64 `json:"recharge_amount,omitempty"` // 金额（人民币 ¥）
+	Ratio          float64 `json:"ratio,omitempty"`           // 充值比例（0.1 ~ 100），仅 add 模式使用
 
 	// Remark 仅 action=add_quota 使用：管理员为本次额度调整录入的备注，
 	// 会追加到日志 content 中并写入 Other.admin_info.remark，供管理员在记录详情中查看。
@@ -1396,22 +1399,73 @@ func ManageUser(c *gin.Context) {
 				"quota": logger.LogQuota(req.Value),
 			})
 		case "subtract":
-			if req.Value <= 0 {
-				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
-				return
+			// 带类型的减少：登记来源分类，并在 logs 写一条金额为负的记录，
+			// 让「充值 / 赠送 / 授信」各口径的 SUM 直接等于净额（加的 - 减的）。
+			//
+			// 扣减量仍用前端算好的 Value（quota 单位），与不带类型的分支完全一致 ——
+			// 「页面填多少就减多少」的既有行为不变。RechargeAmount 只是页面填写的
+			// 原始数字，用于记账展示，不参与任何换算，因此后端不需要知道展示汇率。
+			if req.QuotaType != "" {
+				if !slices.Contains(model.ManageQuotaSubtractTypes(), req.QuotaType) {
+					common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+					return
+				}
+				if req.Value <= 0 || req.RechargeAmount <= 0 {
+					common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
+					return
+				}
+				oldQuota := user.Quota
+				if err := model.DecreaseUserQuotaAndTotal(user.Id, req.Value); err != nil {
+					common.ApiError(c, err)
+					return
+				}
+				// 负金额：与 add 的 recharge_input_amount 共用一列，靠符号区分加减。
+				rechargeInputAmount := -req.RechargeAmount
+				beforeQuota := int64(oldQuota)
+				afterQuota := int64(oldQuota - req.Value)
+				model.RecordManageLog(user.Id,
+					fmt.Sprintf("管理员减少用户额度（%s） %s（页面输入金额 %.2f，余额 %s → %s）",
+						req.QuotaType,
+						logger.LogQuota(req.Value),
+						req.RechargeAmount,
+						logger.LogQuota(oldQuota), logger.LogQuota(oldQuota-req.Value)),
+					model.OperationTypeQuota, req.QuotaType, -req.Value, adminInfo,
+					&rechargeInputAmount, nil, &beforeQuota, &afterQuota)
+				// 授信冲回同样落一条流水（金额为负），让授信统计页的总授信、
+				// 未回款、月度滚动都跟着减。写失败不回滚额度 —— 与 add 同样的取舍。
+				if req.QuotaType == model.QuotaTypeCredit {
+					if err := model.CreateCreditRecord(&model.CreditRecord{
+						UserId:     user.Id,
+						Type:       model.CreditRecordTypeCredit,
+						Amount:     -req.RechargeAmount,
+						OperatorId: c.GetInt("id"),
+					}); err != nil {
+						common.SysError(fmt.Sprintf("failed to record credit reversal for user %d: %s", user.Id, err.Error()))
+					}
+				}
+				recordManageAuditFor(c, user.Id, "user.quota_subtract", map[string]interface{}{
+					"quota":      logger.LogQuota(req.Value),
+					"quota_type": req.QuotaType,
+				})
+			} else {
+				// 不带类型：保留原有行为（直接按 value 扣、不登记来源），
+				// 供旧客户端与非报表场景的调用方继续使用。
+				if req.Value <= 0 {
+					common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
+					return
+				}
+				if err := model.DecreaseUserQuotaAndTotal(user.Id, req.Value); err != nil {
+					common.ApiError(c, err)
+					return
+				}
+				beforeQuota := int64(user.Quota)
+				afterQuota := int64(user.Quota - req.Value)
+				model.RecordManageLog(user.Id,
+					fmt.Sprintf("管理员减少用户额度 %s%s", logger.LogQuota(req.Value), remarkSuffix), model.OperationTypeQuota, "", -req.Value, adminInfo, nil, nil, &beforeQuota, &afterQuota)
+				recordManageAuditFor(c, user.Id, "user.quota_subtract", map[string]interface{}{
+					"quota": logger.LogQuota(req.Value),
+				})
 			}
-			if err := model.DecreaseUserQuotaAndTotal(user.Id, req.Value); err != nil {
-				common.ApiError(c, err)
-				return
-			}
-			beforeQuota := int64(user.Quota)
-			afterQuota := int64(user.Quota - req.Value)
-			model.RecordManageLog(user.Id,
-				fmt.Sprintf("管理员减少用户额度 %s%s", logger.LogQuota(req.Value), remarkSuffix),
-				model.OperationTypeQuota, "", -req.Value, adminInfo, nil, nil, &beforeQuota, &afterQuota)
-			recordManageAuditFor(c, user.Id, "user.quota_subtract", map[string]interface{}{
-				"quota": logger.LogQuota(req.Value),
-			})
 		case "override":
 			oldQuota := user.Quota
 			if err := model.OverrideUserQuotaAndTotal(user.Id, oldQuota, req.Value); err != nil {

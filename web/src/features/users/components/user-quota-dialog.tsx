@@ -170,6 +170,13 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           value,
           remark: trimmedRemark || undefined,
         }
+        // 减少模式登记来源类型：后端据此在 logs 写一条金额为负的记录，
+        // 让「充值 / 赠送 / 授信」各口径的合计自动变成净额（加的 - 减的）。
+        // amountValue 是页面填写的原始数字，不参与额度换算（扣减量仍是 value）。
+        if (mode === 'subtract') {
+          payload.quota_type = quotaType
+          payload.recharge_amount = Math.abs(amountValue)
+        }
       }
 
       const result = await adjustUserQuota(payload)
@@ -247,29 +254,31 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
             </div>
           </div>
 
+          {mode !== 'override' && (
+            <div className='space-y-2'>
+              <Label>{t('Type')}</Label>
+              <div className='flex gap-1'>
+                {(['充值', '赠送', '授信'] as const).map((q) => (
+                  <Button
+                    key={q}
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className={cn(
+                      quotaType === q &&
+                        'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
+                    )}
+                    onClick={() => setQuotaType(q)}
+                  >
+                    {quotaTypeLabels[q]}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {mode === 'add' ? (
             <>
-              <div className='space-y-2'>
-                <Label>{t('Type')}</Label>
-                <div className='flex gap-1'>
-                  {(['充值', '赠送', '授信'] as const).map((q) => (
-                    <Button
-                      key={q}
-                      type='button'
-                      variant='outline'
-                      size='sm'
-                      className={cn(
-                        quotaType === q &&
-                          'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
-                      )}
-                      onClick={() => setQuotaType(q)}
-                    >
-                      {quotaTypeLabels[q]}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
               <div className='space-y-2'>
                 <Label>{t('Recharge Amount (USD)')}</Label>
                 <Input
