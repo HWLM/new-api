@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +54,19 @@ func UserConcurrencyLimit() func(c *gin.Context) {
 			common.SysLog("[concurrency] no user id in context, skip")
 			c.Next()
 			return
+		}
+
+		// 拒答降级判定：若该用户当前处于拒答比超限的降级态，置 Overloaded 标记，
+		// 让 Distribute 中间件把请求重导到渠道的 FallbackChannelId。
+		// 判定失败不阻断主流程；仅影响渠道选择。
+		if demoted, ratio, windowCount := service.IsUserDemoted(c, userID); demoted {
+			common.SetContextKey(c, constant.ContextKeyUserOverloaded, true)
+			common.SetContextKey(c, constant.ContextKeyRefusalDemoted, true)
+			common.SetContextKey(c, constant.ContextKeyRefusalDemoteRatio, ratio)
+			common.SetContextKey(c, constant.ContextKeyRefusalDemoteWindow, windowCount)
+			common.SysLog(fmt.Sprintf("[concurrency] user=%d refusal demoted ratio=%.2f window=%d, routing to fallback",
+				userID, ratio, windowCount))
+			// 不 return：继续走并发计数逻辑，保证 release/decr 配对与原语义一致。
 		}
 
 		// 并发上限三态语义（user 和 global 同套）：

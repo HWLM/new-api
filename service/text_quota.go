@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -558,4 +559,14 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
+
+	// 异步更新用户的拒答滑窗。仅对「文本类」relay 生效；拒答口径为
+	// Claude stop_reason=refusal（BillingExemptReason 命中专用枚举）。
+	if IsTextClassRelayFormat(relayInfo.GetFinalRequestRelayFormat()) {
+		userID := relayInfo.UserId
+		refused := IsRefusalBillingExemptReason(summary.BillingExemptReason)
+		gopool.Go(func() {
+			RecordRefusalOutcome(context.Background(), userID, refused)
+		})
+	}
 }

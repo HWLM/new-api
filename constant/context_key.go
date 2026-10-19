@@ -55,6 +55,17 @@ const (
 	ContextKeyUserName       ContextKey = "username"
 	ContextKeyUserOverloaded ContextKey = "user_overloaded"
 
+	// ContextKeyRefusalDemoted 标记本次请求因「用户拒答比超限」被降级到兜底渠道。
+	// 由 middleware.UserConcurrencyLimit 在渠道分发前写入；同时也会写
+	// ContextKeyUserOverloaded=true 以复用 Distribute 中间件已有的
+	// FallbackChannelId 重导逻辑。
+	ContextKeyRefusalDemoted ContextKey = "refusal_demoted"
+	// ContextKeyRefusalDemoteRatio 命中降级时记录当前滑窗的拒答比
+	// （0~1 的 float64），仅用于审计日志。
+	ContextKeyRefusalDemoteRatio ContextKey = "refusal_demote_ratio"
+	// ContextKeyRefusalDemoteWindow 命中降级时记录当前滑窗样本总数。
+	ContextKeyRefusalDemoteWindow ContextKey = "refusal_demote_window"
+
 	// 兜底渠道重导的审计字段。仅在 Distribute 把请求从原渠道改到渠道的
 	// FallbackChannelId 时写入；消费日志生成阶段读出并落到 other.fallback_from
 	// 顶层字段，供前端日志列表展示「原渠道 → 当前渠道」。

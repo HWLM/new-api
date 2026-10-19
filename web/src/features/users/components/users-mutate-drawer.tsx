@@ -567,6 +567,55 @@ export function UsersMutateDrawer({
 
                   <FormField
                     control={form.control}
+                    name='refusal_demote_override'
+                    render={({ field }) => {
+                      const value = field.value ?? 0
+                      return (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Refusal demotion override')}
+                          </FormLabel>
+                          <FormControl>
+                            <div className='flex items-center gap-2'>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value === 0 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(0)}
+                              >
+                                {t('Follow global')}
+                              </Button>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value === 1 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(1)}
+                              >
+                                {t('Force enabled')}
+                              </Button>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value < 0 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(-1)}
+                              >
+                                {t('Never demote')}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Override refusal-rate demotion for this user. Follow global = use system setting; Force enabled = always subject to demotion; Never demote = exempt this user even when the global switch is on.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )
+                    }}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name='remark'
                     render={({ field }) => (
                       <FormItem>

@@ -48,6 +48,13 @@ export const userSchema = z.object({
   request_count: z.number(),
   group: z.string(),
   max_concurrency: z.number().optional(),
+  /**
+   * 拒答降级用户级三态开关：
+   *   -1  该用户永远不降级
+   *    0  跟随全局 refusal_demote_setting.enabled
+   *    1  该用户强制启用（即便全局关闭）
+   */
+  refusal_demote_override: z.number().optional(),
   aff_code: z.string().optional(),
   aff_count: z.number().optional(),
   aff_quota: z.number().optional(),
@@ -176,6 +183,8 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   max_concurrency?: number // Only used when updating user; 0 = system default
+  /** 拒答降级用户级三态：-1=永不降级，0=跟随全局，1=强制启用 */
+  refusal_demote_override?: number
   remark?: string // Only used when updating user
   /** 结算方式：'CNY' = 按人民币，'USD' = 按美元 */
   settlement_currency?: string

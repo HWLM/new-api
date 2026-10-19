@@ -14,17 +14,18 @@ import (
 const userCacheSchemaVersion = 3
 
 type UserBase struct {
-	Id             int    `json:"id"`
-	Role           int    `json:"role"`
-	Group          string `json:"group"`
-	Email          string `json:"email"`
-	Quota          int    `json:"quota"`
-	Status         int    `json:"status"`
-	Username       string `json:"username"`
-	Setting        string `json:"setting"`
-	MaxConcurrency int    `json:"max_concurrency"`
-	AuthVersion    int64  `json:"-"`
-	CacheSchema    int    `json:"-"`
+	Id                    int    `json:"id"`
+	Role                  int    `json:"role"`
+	Group                 string `json:"group"`
+	Email                 string `json:"email"`
+	Quota                 int    `json:"quota"`
+	Status                int    `json:"status"`
+	Username              string `json:"username"`
+	Setting               string `json:"setting"`
+	MaxConcurrency        int    `json:"max_concurrency"`
+	RefusalDemoteOverride int    `json:"refusal_demote_override"`
+	AuthVersion           int64  `json:"-"`
+	CacheSchema           int    `json:"-"`
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {

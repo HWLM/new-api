@@ -99,6 +99,36 @@ func appendFallbackFromInfo(ctx *gin.Context, other map[string]interface{}) {
 	adminInfo["fallback_from"] = info
 }
 
+// appendRefusalDemoteInfo 若本次请求因「用户拒答比超限」被降级到兜底渠道，
+// 把触发信息写到 other.admin_info.refusal_demote_triggered。嵌到 admin_info
+// 之下，普通用户视图自动剥离——避免终端用户看到风控内部指标。
+func appendRefusalDemoteInfo(ctx *gin.Context, other map[string]interface{}) {
+	if ctx == nil || other == nil {
+		return
+	}
+	if !common.GetContextKeyBool(ctx, constant.ContextKeyRefusalDemoted) {
+		return
+	}
+	info := map[string]interface{}{}
+	if raw, ok := common.GetContextKey(ctx, constant.ContextKeyRefusalDemoteRatio); ok {
+		if ratio, ok := raw.(float64); ok {
+			info["ratio"] = ratio
+		}
+	}
+	if window := common.GetContextKeyInt(ctx, constant.ContextKeyRefusalDemoteWindow); window > 0 {
+		info["window_size"] = window
+	}
+	s := operation_setting.GetRefusalDemoteSetting()
+	info["threshold_pct"] = s.ThresholdPct
+	info["demote_seconds"] = s.DemoteSeconds
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		adminInfo = map[string]interface{}{}
+		other["admin_info"] = adminInfo
+	}
+	adminInfo["refusal_demote_triggered"] = info
+}
+
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) map[string]interface{} {
 	other := make(map[string]interface{})
@@ -143,6 +173,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
 	appendFallbackFromInfo(ctx, other)
+	appendRefusalDemoteInfo(ctx, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)
