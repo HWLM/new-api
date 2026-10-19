@@ -132,7 +132,7 @@ function UserQuotaHistoryContent(props: UserQuotaHistoryListProps) {
     <StaticDataTable
       data={props.items}
       getRowKey={(item) => item.id}
-      tableClassName='min-w-[980px]'
+      tableClassName='min-w-[1180px]'
       tableContainerClassName='h-full overflow-auto'
       headerClassName='bg-background sticky top-0 z-10'
       className={cn('h-full', props.isFetching && 'opacity-70')}
@@ -186,6 +186,37 @@ function UserQuotaHistoryContent(props: UserQuotaHistoryListProps) {
           cellClassName: ' tabular-nums',
           cell: (item) =>
             item.after_quota == null ? '-' : formatQuota(item.after_quota),
+        },
+        {
+          id: 'remark',
+          header: t('Remark'),
+          className: 'w-[200px]',
+          cell: (item) => {
+            const remark = item.remark?.trim()
+            if (!remark) {
+              return <span className='text-muted-foreground'>-</span>
+            }
+            return (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div
+                      tabIndex={0}
+                      className='focus-visible:ring-ring w-full max-w-50 cursor-help rounded-sm focus-visible:ring-2 focus-visible:outline-none'
+                    />
+                  }
+                >
+                  <p className='truncate text-sm'>{remark}</p>
+                </TooltipTrigger>
+                <TooltipContent
+                  side='top'
+                  className='max-w-sm items-start text-left whitespace-normal'
+                >
+                  <p className='break-words whitespace-pre-wrap'>{remark}</p>
+                </TooltipContent>
+              </Tooltip>
+            )
+          },
         },
         {
           id: 'details',

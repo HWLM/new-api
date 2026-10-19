@@ -70,6 +70,35 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 	}
 }
 
+// appendFallbackFromInfo 若本次请求因使用者并发超限触发了兜底渠道重导，
+// 把重导前的原渠道信息写到 other.admin_info.fallback_from。嵌到 admin_info
+// 之下是为了让 formatUserLogs 对普通使用者自动剥离——避免客户在自助日志里
+// 看到路由细节与运营配置。前端详情页也额外加了 isAdmin 判断作为二道闸。
+func appendFallbackFromInfo(ctx *gin.Context, other map[string]interface{}) {
+	if ctx == nil || other == nil {
+		return
+	}
+	id := common.GetContextKeyInt(ctx, constant.ContextKeyFallbackFromChannelId)
+	if id <= 0 {
+		return
+	}
+	info := map[string]interface{}{
+		"channel_id": id,
+	}
+	if name := common.GetContextKeyString(ctx, constant.ContextKeyFallbackFromChannelName); name != "" {
+		info["channel_name"] = name
+	}
+	if group := common.GetContextKeyString(ctx, constant.ContextKeyFallbackFromGroup); group != "" {
+		info["group"] = group
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		adminInfo = map[string]interface{}{}
+		other["admin_info"] = adminInfo
+	}
+	adminInfo["fallback_from"] = info
+}
+
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) map[string]interface{} {
 	other := make(map[string]interface{})
@@ -113,6 +142,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
+	appendFallbackFromInfo(ctx, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)

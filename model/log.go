@@ -1141,18 +1141,47 @@ func userQuotaHistoryQuery(userId int) *gorm.DB {
 		)
 }
 
+// userQuotaHistoryQueryWithType narrows the base quota-history query to a
+// single log type. filterType == 0 means "no filter"; LogTypeManage is also
+// pinned to operation_type = 额度 so unrelated manage logs (e.g. channel
+// updates) are excluded.
+func userQuotaHistoryQueryWithType(userId int, filterType int) *gorm.DB {
+	if filterType == 0 {
+		return userQuotaHistoryQuery(userId)
+	}
+	q := LOG_DB.Model(&Log{}).Where("user_id = ?", userId)
+	if filterType == LogTypeManage {
+		return q.Where("type = ? AND operation_type = ?", LogTypeManage, OperationTypeQuota)
+	}
+	return q.Where("type = ?", filterType)
+}
+
+// IsUserQuotaHistoryFilterType reports whether t is a type the quota-history
+// endpoint supports as a filter (topup / consume / refund / manage).
+func IsUserQuotaHistoryFilterType(t int) bool {
+	switch t {
+	case LogTypeTopup, LogTypeConsume, LogTypeRefund, LogTypeManage:
+		return true
+	}
+	return false
+}
+
 func GetUserQuotaHistory(userId int, startIdx int, num int) (logs []*Log, total int64, err error) {
+	return GetUserQuotaHistoryFiltered(userId, 0, startIdx, num)
+}
+
+func GetUserQuotaHistoryFiltered(userId int, filterType int, startIdx int, num int) (logs []*Log, total int64, err error) {
 	if LOG_DB == nil {
 		return nil, 0, errors.New("log database is not initialized")
 	}
 
-	query := userQuotaHistoryQuery(userId)
+	query := userQuotaHistoryQueryWithType(userId, filterType)
 	if err = query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	err = query.
-		Select("id, user_id, created_at, type, content, model_name, token_name, quota, before_quota, after_quota, operation_type, quota_type, request_id, recharge_input_amount, recharge_after_ratio_amount").
+		Select("id, user_id, created_at, type, content, model_name, token_name, quota, before_quota, after_quota, operation_type, quota_type, request_id, recharge_input_amount, recharge_after_ratio_amount, other").
 		Order("id DESC").
 		Limit(num).
 		Offset(startIdx).

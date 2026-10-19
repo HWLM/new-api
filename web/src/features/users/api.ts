@@ -111,10 +111,13 @@ export async function getUser(id: number): Promise<ApiResponse<User>> {
 export async function getUserQuotaHistory(
   userId: number,
   page: number,
-  pageSize: number
+  pageSize: number,
+  type?: number
 ): Promise<UserQuotaHistoryResponse> {
+  const params: Record<string, number> = { p: page, page_size: pageSize }
+  if (type && type > 0) params.type = type
   const res = await api.get(`/api/user/${userId}/quota-history`, {
-    params: { p: page, page_size: pageSize },
+    params,
   })
   return res.data
 }

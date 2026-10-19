@@ -78,6 +78,8 @@ const createRateLimitSchema = (t: (key: string) => string) =>
       .refine(isValidJSON, {
         message: t('Invalid JSON format or values out of allowed range'),
       }),
+    MaxConcurrentRequestsPerUserEnabled: z.boolean(),
+    MaxConcurrentRequestsPerUser: z.number().int().min(-1).max(100000),
   })
 
 type RateLimitFormValues = z.infer<ReturnType<typeof createRateLimitSchema>>
@@ -316,6 +318,77 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                 <FormMessage />
               </FormItem>
             )}
+          />
+
+          <FormField
+            control={form.control}
+            name='MaxConcurrentRequestsPerUserEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Per-user concurrent-request limit')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'When a user exceeds this limit, new requests are routed to the fallback channel configured on their selected channel.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='MaxConcurrentRequestsPerUser'
+            render={({ field }) => {
+              const value = field.value ?? 10
+              return (
+                <FormItem>
+                  <FormLabel>{t('Default limit')}</FormLabel>
+                  <FormControl>
+                    <div className='flex items-center gap-2'>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant={value < 0 ? 'default' : 'outline'}
+                        onClick={() => field.onChange(-1)}
+                      >
+                        {t('Unlimited')}
+                      </Button>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={100000}
+                        step={1}
+                        value={value > 0 ? value : ''}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value)
+                          field.onChange(
+                            Number.isFinite(n) && n > 0 ? n : 1
+                          )
+                        }}
+                        placeholder={t('Custom limit')}
+                        className='w-40'
+                      />
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Applied when a user does not have a custom concurrency limit configured. -1 means unlimited for all users.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )
+            }}
           />
         </SettingsForm>
       </Form>
