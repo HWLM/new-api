@@ -28,13 +28,15 @@ func TestIsTextClassRelayFormat(t *testing.T) {
 	}
 }
 
-func TestIsRefusalBillingExemptReason(t *testing.T) {
-	assert.True(t, IsRefusalBillingExemptReason("claude_refusal_no_output"),
+func TestIsRefusalAdminRejectReason(t *testing.T) {
+	assert.True(t, IsRefusalAdminRejectReason("claude_stop_reason=refusal"),
 		"canonical Claude refusal reason must count")
-	assert.False(t, IsRefusalBillingExemptReason(""),
-		"empty exempt reason is not a refusal")
-	assert.False(t, IsRefusalBillingExemptReason("openai_finish_reason=content_filter"),
+	assert.False(t, IsRefusalAdminRejectReason(""),
+		"empty admin reject reason is not a refusal")
+	assert.False(t, IsRefusalAdminRejectReason("openai_finish_reason=content_filter"),
 		"other provider reasons must NOT count as refusal")
-	assert.False(t, IsRefusalBillingExemptReason("gemini_block_reason=SAFETY"),
+	assert.False(t, IsRefusalAdminRejectReason("gemini_block_reason=SAFETY"),
 		"gemini block is not a refusal under this feature")
+	assert.False(t, IsRefusalAdminRejectReason("claude_refusal_no_output"),
+		"the billing-exempt reason string is unrelated and must not count")
 }

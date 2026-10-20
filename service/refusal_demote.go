@@ -14,11 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Refusal 判定口径：仅 Claude stop_reason=refusal 会把
-// ContextKeyBillingExemptReason 置为该字面量，参见
-// relay/channel/claude/relay-claude.go:claudeRefusalNoOutputExemptReason。
-// 跨包契约常量；双向改动需同步两处。
-const refusalExemptReasonClaudeNoOutput = "claude_refusal_no_output"
+// Refusal 判定口径：仅 Claude stop_reason=refusal 命中。
+//
+// 该字符串由 relay/channel/claude/relay-claude.go:maybeMarkClaudeRefusal
+// 在检测到 stop_reason=refusal 时写入 ContextKeyAdminRejectReason，
+// 与是否豁免计费（global.refusal_no_output_free）解耦，拒答降级因此
+// 不依赖该豁免开关的状态。双向改动需同步两处。
+const refusalAdminRejectReasonClaude = "claude_stop_reason=refusal"
 
 const (
 	refusalWindowKeyPrefix  = "refusal:win:"
@@ -49,10 +51,11 @@ func IsTextClassRelayFormat(f types.RelayFormat) bool {
 	return false
 }
 
-// IsRefusalBillingExemptReason 判定 BillingExemptReason 是否属于「拒答」口径。
-// 当前仅 Claude 的 stop_reason=refusal 命中。
-func IsRefusalBillingExemptReason(reason string) bool {
-	return reason == refusalExemptReasonClaudeNoOutput
+// IsRefusalAdminRejectReason 判定 AdminRejectReason 是否属于「拒答」口径。
+// 当前仅 Claude 的 stop_reason=refusal 命中。该信号由 Claude channel 在
+// 检测到 stop_reason=refusal 时无条件写入，不依赖 global.refusal_no_output_free。
+func IsRefusalAdminRejectReason(reason string) bool {
+	return reason == refusalAdminRejectReasonClaude
 }
 
 // isRefusalDemoteEffectiveForUser 根据全局开关和 User.RefusalDemoteOverride

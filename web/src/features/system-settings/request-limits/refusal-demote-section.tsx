@@ -43,24 +43,65 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
+// react-hook-form 会把字段名中的 `.` 视为嵌套路径。后端 Option key 是扁平
+// 的 `refusal_demote_setting.enabled` 之类，所以这里 schema 使用嵌套结构，
+// 并在保存时还原为扁平 key 发送给后端。
 const refusalDemoteSchema = z.object({
-  'refusal_demote_setting.enabled': z.boolean(),
-  'refusal_demote_setting.window_size': z.number().int().min(1).max(10000),
-  'refusal_demote_setting.min_samples': z.number().int().min(1).max(10000),
-  'refusal_demote_setting.threshold_pct': z.number().int().min(1).max(100),
-  'refusal_demote_setting.demote_seconds': z.number().int().min(60).max(86400),
-  'refusal_demote_setting.window_ttl_seconds': z
-    .number()
-    .int()
-    .min(60)
-    .max(604800),
+  refusal_demote_setting: z.object({
+    enabled: z.boolean(),
+    window_size: z.number().int().min(1).max(10000),
+    min_samples: z.number().int().min(1).max(10000),
+    threshold_pct: z.number().int().min(1).max(100),
+    demote_seconds: z.number().int().min(60).max(86400),
+    window_ttl_seconds: z.number().int().min(60).max(604800),
+  }),
 })
 
-type RefusalDemoteFormValues = z.infer<typeof refusalDemoteSchema>
+type RefusalDemoteFormValues = z.output<typeof refusalDemoteSchema>
+type RefusalDemoteFormInput = z.input<typeof refusalDemoteSchema>
+
+type NormalizedRefusalDemoteValues = {
+  'refusal_demote_setting.enabled': boolean
+  'refusal_demote_setting.window_size': number
+  'refusal_demote_setting.min_samples': number
+  'refusal_demote_setting.threshold_pct': number
+  'refusal_demote_setting.demote_seconds': number
+  'refusal_demote_setting.window_ttl_seconds': number
+}
 
 type RefusalDemoteSectionProps = {
-  defaultValues: RefusalDemoteFormValues
+  defaultValues: NormalizedRefusalDemoteValues
 }
+
+const buildFormDefaults = (
+  defaults: NormalizedRefusalDemoteValues
+): RefusalDemoteFormInput => ({
+  refusal_demote_setting: {
+    enabled: defaults['refusal_demote_setting.enabled'],
+    window_size: defaults['refusal_demote_setting.window_size'],
+    min_samples: defaults['refusal_demote_setting.min_samples'],
+    threshold_pct: defaults['refusal_demote_setting.threshold_pct'],
+    demote_seconds: defaults['refusal_demote_setting.demote_seconds'],
+    window_ttl_seconds:
+      defaults['refusal_demote_setting.window_ttl_seconds'],
+  },
+})
+
+const normalizeFormValues = (
+  values: RefusalDemoteFormValues
+): NormalizedRefusalDemoteValues => ({
+  'refusal_demote_setting.enabled': values.refusal_demote_setting.enabled,
+  'refusal_demote_setting.window_size':
+    values.refusal_demote_setting.window_size,
+  'refusal_demote_setting.min_samples':
+    values.refusal_demote_setting.min_samples,
+  'refusal_demote_setting.threshold_pct':
+    values.refusal_demote_setting.threshold_pct,
+  'refusal_demote_setting.demote_seconds':
+    values.refusal_demote_setting.demote_seconds,
+  'refusal_demote_setting.window_ttl_seconds':
+    values.refusal_demote_setting.window_ttl_seconds,
+})
 
 export function RefusalDemoteSection({
   defaultValues,
@@ -68,23 +109,29 @@ export function RefusalDemoteSection({
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
 
-  const form = useForm<RefusalDemoteFormValues>({
+  const form = useForm<
+    RefusalDemoteFormInput,
+    unknown,
+    RefusalDemoteFormValues
+  >({
     resolver: zodResolver(refusalDemoteSchema),
     mode: 'onChange',
-    defaultValues,
+    defaultValues: buildFormDefaults(defaultValues),
   })
 
   useEffect(() => {
-    form.reset(defaultValues)
+    form.reset(buildFormDefaults(defaultValues))
   }, [defaultValues, form])
 
   const onSubmit = async (values: RefusalDemoteFormValues) => {
-    const updates = Object.entries(values).filter(
-      ([key, value]) =>
-        value !== defaultValues[key as keyof RefusalDemoteFormValues]
-    )
+    const normalized = normalizeFormValues(values)
+    const updates = (
+      Object.entries(normalized) as Array<
+        [keyof NormalizedRefusalDemoteValues, boolean | number]
+      >
+    ).filter(([key, value]) => value !== defaultValues[key])
     for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value: value ?? '' })
+      await updateOption.mutateAsync({ key, value })
     }
   }
 

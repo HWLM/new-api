@@ -561,10 +561,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	})
 
 	// 异步更新用户的拒答滑窗。仅对「文本类」relay 生效；拒答口径为
-	// Claude stop_reason=refusal（BillingExemptReason 命中专用枚举）。
+	// Claude stop_reason=refusal（AdminRejectReason 命中专用枚举），
+	// 与计费豁免开关 global.refusal_no_output_free 解耦。
 	if IsTextClassRelayFormat(relayInfo.GetFinalRequestRelayFormat()) {
 		userID := relayInfo.UserId
-		refused := IsRefusalBillingExemptReason(summary.BillingExemptReason)
+		refused := IsRefusalAdminRejectReason(adminRejectReason)
 		gopool.Go(func() {
 			RecordRefusalOutcome(context.Background(), userID, refused)
 		})
