@@ -164,6 +164,8 @@ func Distribute() func(c *gin.Context) {
 
 				// 兜底渠道重导：使用者当前 in-flight 超限，且命中渠道配置了
 				// FallbackChannelId，则改走该兜底渠道。只做一跳，不递归。
+				// 若超限但未配置兜底（或兜底本身不可用），直接 429 拒绝，
+				// 保持「超限请求必须走兜底」的硬承诺。
 				overloaded := common.GetContextKeyBool(c, constant.ContextKeyUserOverloaded)
 				if channel != nil {
 					common.SysLog(fmt.Sprintf("[distribute] user=%d model=%q selected channel=%d (fallback_channel_id=%d) overloaded=%v",
@@ -179,6 +181,13 @@ func Distribute() func(c *gin.Context) {
 						selectGroup = fb.group
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, selectGroup)
 						common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
+					} else {
+						// 兜底不可用（未配置 / 自环 / 已禁用 / 不支持模型等）→ 429
+						common.SysLog(fmt.Sprintf("[distribute] user=%d rejected: overloaded without usable fallback (channel=%d fallback_channel_id=%d)",
+							c.GetInt("id"), channel.Id, channel.FallbackChannelId))
+						abortWithOpenAiMessage(c, http.StatusTooManyRequests,
+							"Too many pending requests, please retry later")
+						return
 					}
 				}
 			}
