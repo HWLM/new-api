@@ -128,6 +128,7 @@ func UserConcurrencyLimit() func(c *gin.Context) {
 			globalMax, userCustom, over))
 		if over {
 			common.SetContextKey(c, constant.ContextKeyUserOverloaded, true)
+			common.SetContextKey(c, constant.ContextKeyConcurrencyOverloaded, true)
 		}
 		c.Next()
 	}

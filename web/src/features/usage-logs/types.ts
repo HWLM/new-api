@@ -198,10 +198,19 @@ export interface LogOtherData {
     // channel's configured FallbackChannelId. Nested under admin_info so
     // formatUserLogs strips it for non-admin viewers; the details dialog also
     // guards rendering behind isAdmin.
+    //
+    // reason 字段用于区分触发来源：
+    //   - "refusal_demote"               仅拒答降级触发
+    //   - "concurrency_overload"         仅并发超限触发
+    //   - "refusal_demote+concurrency"   两者同时命中
     fallback_from?: {
       channel_id: number
       channel_name?: string
       group?: string
+      reason?:
+        | 'refusal_demote'
+        | 'concurrency_overload'
+        | 'refusal_demote+concurrency'
     }
   }
   // Language-independent operation descriptor (audit/login logs).

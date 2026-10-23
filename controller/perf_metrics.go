@@ -4,7 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -65,7 +68,7 @@ func GetPerfMetrics(c *gin.Context) {
 		return
 	}
 
-	result.Groups = filterActiveGroups(result.Groups)
+	result.Groups = filterGroupsByCurrentUser(c, result.Groups)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -73,10 +76,34 @@ func GetPerfMetrics(c *gin.Context) {
 	})
 }
 
-func filterActiveGroups(groups []perfmetrics.GroupResult) []perfmetrics.GroupResult {
-	activeRatios := ratio_setting.GetGroupRatioCopy()
+// filterGroupsByCurrentUser keeps only groups the current viewer is allowed to
+// see. Root users see every active group; everyone else is scoped to their
+// user-group visibility (same rules the pricing endpoint uses). Guests get the
+// guest/public visibility set.
+func filterGroupsByCurrentUser(c *gin.Context, groups []perfmetrics.GroupResult) []perfmetrics.GroupResult {
+	userGroup := ""
+	userRole := common.RoleGuestUser
+	if userId, exists := c.Get("id"); exists {
+		if user, err := model.GetUserCache(userId.(int)); err == nil {
+			userGroup = user.Group
+			userRole = user.Role
+		}
+	}
+
+	if userRole >= common.RoleRootUser {
+		activeRatios := ratio_setting.GetGroupRatioCopy()
+		return lo.Filter(groups, func(g perfmetrics.GroupResult, _ int) bool {
+			_, ok := activeRatios[g.Group]
+			return ok || g.Group == "auto"
+		})
+	}
+
+	usableGroups := service.GetUserUsableGroups(userGroup, userRole)
 	return lo.Filter(groups, func(g perfmetrics.GroupResult, _ int) bool {
-		_, ok := activeRatios[g.Group]
-		return ok || g.Group == "auto"
+		if g.Group == "auto" {
+			return true
+		}
+		_, ok := usableGroups[g.Group]
+		return ok
 	})
 }

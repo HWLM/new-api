@@ -161,17 +161,23 @@ function average(
   )
 }
 
-export function ModelDetailsPerformance(props: { model: PricingModel }) {
+export function ModelDetailsPerformance(props: {
+  model: PricingModel
+  visibleGroups?: string[]
+}) {
   const { t } = useTranslation()
   const metricsQuery = useQuery({
     queryKey: ['perf-metrics', props.model.model_name],
     queryFn: () => getPerfMetrics(props.model.model_name, 24),
     staleTime: 60 * 1000,
   })
-  const groups = useMemo(
-    () => metricsQuery.data?.data.groups ?? [],
-    [metricsQuery.data]
-  )
+  const groups = useMemo(() => {
+    const raw = metricsQuery.data?.data.groups ?? []
+    const visible = props.visibleGroups
+    if (!visible || visible.length === 0) return raw
+    const allowed = new Set(visible)
+    return raw.filter((g) => allowed.has(g.group))
+  }, [metricsQuery.data, props.visibleGroups])
   const performances = useMemo<PerformanceRow[]>(
     () =>
       groups.map((group) => ({

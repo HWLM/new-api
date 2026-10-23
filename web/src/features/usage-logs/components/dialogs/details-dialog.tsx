@@ -755,27 +755,48 @@ export function DetailsDialog(props: DetailsDialogProps) {
             typeof other.admin_info.fallback_from.channel_id === "number" &&
             other.admin_info.fallback_from.channel_id > 0 &&
             other.admin_info.fallback_from.channel_id !== props.log.channel && (
-              <DetailRow
-                label={t("Fallback from")}
-                value={
-                  <span>
-                    {other.admin_info.fallback_from.channel_id}
-                    {other.admin_info.fallback_from.channel_name && (
-                      <span className="text-muted-foreground">
-                        {" "}
-                        ({other.admin_info.fallback_from.channel_name})
-                      </span>
-                    )}
-                    {other.admin_info.fallback_from.group && (
-                      <span className="text-muted-foreground">
-                        {" · "}
-                        {t("Group")}: {other.admin_info.fallback_from.group}
-                      </span>
-                    )}
-                  </span>
-                }
-                mono
-              />
+              <>
+                <DetailRow
+                  label={t("Fallback from")}
+                  value={
+                    <span>
+                      {other.admin_info.fallback_from.channel_id}
+                      {other.admin_info.fallback_from.channel_name && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          ({other.admin_info.fallback_from.channel_name})
+                        </span>
+                      )}
+                      {other.admin_info.fallback_from.group && (
+                        <span className="text-muted-foreground">
+                          {" · "}
+                          {t("Group")}: {other.admin_info.fallback_from.group}
+                        </span>
+                      )}
+                    </span>
+                  }
+                  mono
+                />
+                {other.admin_info.fallback_from.reason && (
+                  <DetailRow
+                    label={t("Fallback trigger")}
+                    value={(() => {
+                      switch (other.admin_info.fallback_from.reason) {
+                        case "refusal_demote":
+                          return t("Refusal demotion");
+                        case "concurrency_overload":
+                          return t("Concurrency overload");
+                        case "refusal_demote+concurrency":
+                          return t(
+                            "Refusal demotion + concurrency overload"
+                          );
+                        default:
+                          return other.admin_info.fallback_from.reason;
+                      }
+                    })()}
+                  />
+                )}
+              </>
             )}
 
           {channelChain && props.isAdmin && (

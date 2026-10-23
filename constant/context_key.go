@@ -65,6 +65,10 @@ const (
 	ContextKeyRefusalDemoteRatio ContextKey = "refusal_demote_ratio"
 	// ContextKeyRefusalDemoteWindow 命中降级时记录当前滑窗样本总数。
 	ContextKeyRefusalDemoteWindow ContextKey = "refusal_demote_window"
+	// ContextKeyConcurrencyOverloaded 标记本次请求因「用户并发超限」而被
+	// 置为 ContextKeyUserOverloaded；仅用于区分 fallback_from 的触发来源，
+	// 不影响 Distribute 中间件的实际行为。
+	ContextKeyConcurrencyOverloaded ContextKey = "concurrency_overloaded"
 
 	// 兜底渠道重导的审计字段。仅在 Distribute 把请求从原渠道改到渠道的
 	// FallbackChannelId 时写入；消费日志生成阶段读出并落到 other.fallback_from
