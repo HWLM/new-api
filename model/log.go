@@ -1141,18 +1141,68 @@ func userQuotaHistoryQuery(userId int) *gorm.DB {
 		)
 }
 
+// userQuotaHistoryQueryWithType narrows the base quota-history query to a
+// single log type. filterType == 0 means "no filter"; LogTypeManage is also
+// pinned to operation_type = 额度 so unrelated manage logs (e.g. channel
+// updates) are excluded. filterQuotaType, when non-empty, further narrows
+// LogTypeManage rows by quota_type (充值/赠送/授信) — it is ignored for
+// non-manage types.
+func userQuotaHistoryQueryWithType(userId int, filterType int, filterQuotaType string) *gorm.DB {
+	if filterType == 0 && filterQuotaType == "" {
+		return userQuotaHistoryQuery(userId)
+	}
+	q := LOG_DB.Model(&Log{}).Where("user_id = ?", userId)
+	if filterQuotaType != "" {
+		// A quota_type filter implies the manage branch; non-manage types
+		// never carry quota_type, so pin the row shape here regardless of
+		// filterType.
+		return q.Where(
+			"type = ? AND operation_type = ? AND quota_type = ?",
+			LogTypeManage, OperationTypeQuota, filterQuotaType,
+		)
+	}
+	if filterType == LogTypeManage {
+		return q.Where("type = ? AND operation_type = ?", LogTypeManage, OperationTypeQuota)
+	}
+	return q.Where("type = ?", filterType)
+}
+
+// IsUserQuotaHistoryFilterType reports whether t is a type the quota-history
+// endpoint supports as a filter (topup / consume / refund / manage).
+func IsUserQuotaHistoryFilterType(t int) bool {
+	switch t {
+	case LogTypeTopup, LogTypeConsume, LogTypeRefund, LogTypeManage:
+		return true
+	}
+	return false
+}
+
+// IsUserQuotaHistoryFilterQuotaType reports whether q is a quota_type the
+// quota-history endpoint accepts as a sub-filter under LogTypeManage.
+func IsUserQuotaHistoryFilterQuotaType(q string) bool {
+	switch q {
+	case QuotaTypeRecharge, QuotaTypeGift, QuotaTypeCredit:
+		return true
+	}
+	return false
+}
+
 func GetUserQuotaHistory(userId int, startIdx int, num int) (logs []*Log, total int64, err error) {
+	return GetUserQuotaHistoryFiltered(userId, 0, "", startIdx, num)
+}
+
+func GetUserQuotaHistoryFiltered(userId int, filterType int, filterQuotaType string, startIdx int, num int) (logs []*Log, total int64, err error) {
 	if LOG_DB == nil {
 		return nil, 0, errors.New("log database is not initialized")
 	}
 
-	query := userQuotaHistoryQuery(userId)
+	query := userQuotaHistoryQueryWithType(userId, filterType, filterQuotaType)
 	if err = query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	err = query.
-		Select("id, user_id, created_at, type, content, model_name, token_name, quota, before_quota, after_quota, operation_type, quota_type, request_id, recharge_input_amount, recharge_after_ratio_amount").
+		Select("id, user_id, created_at, type, content, model_name, token_name, quota, before_quota, after_quota, operation_type, quota_type, request_id, recharge_input_amount, recharge_after_ratio_amount, other").
 		Order("id DESC").
 		Limit(num).
 		Offset(startIdx).

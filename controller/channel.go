@@ -1230,6 +1230,9 @@ func UpdateChannel(c *gin.Context) {
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
 	}
+	if channel.FallbackChannelId != originChannel.FallbackChannelId {
+		changedFields = append(changedFields, "fallback_channel_id")
+	}
 	recordManageAudit(c, "channel.update", map[string]interface{}{
 		"id":             channel.Id,
 		"name":           channel.Name,

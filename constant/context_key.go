@@ -45,14 +45,37 @@ const (
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"
 
 	/* user related keys */
-	ContextKeyUserId      ContextKey = "id"
-	ContextKeyUserSetting ContextKey = "user_setting"
-	ContextKeyUserQuota   ContextKey = "user_quota"
-	ContextKeyUserStatus  ContextKey = "user_status"
-	ContextKeyUserEmail   ContextKey = "user_email"
-	ContextKeyUserGroup   ContextKey = "user_group"
-	ContextKeyUsingGroup  ContextKey = "group"
-	ContextKeyUserName    ContextKey = "username"
+	ContextKeyUserId         ContextKey = "id"
+	ContextKeyUserSetting    ContextKey = "user_setting"
+	ContextKeyUserQuota      ContextKey = "user_quota"
+	ContextKeyUserStatus     ContextKey = "user_status"
+	ContextKeyUserEmail      ContextKey = "user_email"
+	ContextKeyUserGroup      ContextKey = "user_group"
+	ContextKeyUsingGroup     ContextKey = "group"
+	ContextKeyUserName       ContextKey = "username"
+	ContextKeyUserOverloaded ContextKey = "user_overloaded"
+
+	// ContextKeyRefusalDemoted 标记本次请求因「用户拒答比超限」被降级到兜底渠道。
+	// 由 middleware.UserConcurrencyLimit 在渠道分发前写入；同时也会写
+	// ContextKeyUserOverloaded=true 以复用 Distribute 中间件已有的
+	// FallbackChannelId 重导逻辑。
+	ContextKeyRefusalDemoted ContextKey = "refusal_demoted"
+	// ContextKeyRefusalDemoteRatio 命中降级时记录当前滑窗的拒答比
+	// （0~1 的 float64），仅用于审计日志。
+	ContextKeyRefusalDemoteRatio ContextKey = "refusal_demote_ratio"
+	// ContextKeyRefusalDemoteWindow 命中降级时记录当前滑窗样本总数。
+	ContextKeyRefusalDemoteWindow ContextKey = "refusal_demote_window"
+	// ContextKeyConcurrencyOverloaded 标记本次请求因「用户并发超限」而被
+	// 置为 ContextKeyUserOverloaded；仅用于区分 fallback_from 的触发来源，
+	// 不影响 Distribute 中间件的实际行为。
+	ContextKeyConcurrencyOverloaded ContextKey = "concurrency_overloaded"
+
+	// 兜底渠道重导的审计字段。仅在 Distribute 把请求从原渠道改到渠道的
+	// FallbackChannelId 时写入；消费日志生成阶段读出并落到 other.fallback_from
+	// 顶层字段，供前端日志列表展示「原渠道 → 当前渠道」。
+	ContextKeyFallbackFromChannelId   ContextKey = "fallback_from_channel_id"
+	ContextKeyFallbackFromChannelName ContextKey = "fallback_from_channel_name"
+	ContextKeyFallbackFromGroup       ContextKey = "fallback_from_group"
 
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 

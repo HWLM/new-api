@@ -55,6 +55,11 @@ type Channel struct {
 
 	OtherSettings string `json:"settings" gorm:"column:settings"` // 其他设置，存储azure版本等不需要检索的信息，详见dto.ChannelOtherSettings
 
+	// FallbackChannelId 配置本渠道的"兜底渠道"。当请求使用者当前 in-flight
+	// 请求数超过其并发上限时，Distribute 会把该请求重导到此 ID 对应的渠道，
+	// 而不是直接拒绝。0 表示未配置。
+	FallbackChannelId int `json:"fallback_channel_id" gorm:"type:int;default:0;index;column:fallback_channel_id"`
+
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
 }
@@ -585,6 +590,11 @@ func (channel *Channel) Update() error {
 	var err error
 	err = DB.Model(channel).Updates(channel).Error
 	if err != nil {
+		return err
+	}
+	// fallback_channel_id 是 int 零值欄位，GORM 的 Updates(struct) 會忽略零值，
+	// 導致管理員把兜底渠道從非零改回 0（即「無」）時無法持久化。顯式再寫一次。
+	if err = DB.Model(channel).UpdateColumn("fallback_channel_id", channel.FallbackChannelId).Error; err != nil {
 		return err
 	}
 	DB.Model(channel).First(channel, "id = ?", channel.Id)

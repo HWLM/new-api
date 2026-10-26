@@ -180,6 +180,10 @@ export interface LogOtherData {
     admin_id?: number | string
     admin_role?: number
     auth_method?: 'session' | 'access_token' | string
+    // Admin remark captured when the operator adjusted a user's quota
+    // (type=3 + add_quota). Written by the backend into Other.admin_info.remark
+    // and surfaced only to admins in the log details dialog.
+    remark?: string
     // Quota saturation marker: set when a quota conversion clamped at the
     // int32 bound (overflow/underflow) or hit a NaN fallback while computing
     // this request's charge. Admin-only (nested under admin_info).
@@ -188,6 +192,25 @@ export interface LogOtherData {
       kind: 'overflow' | 'underflow' | 'nan'
       original: number
       clamped: number
+    }
+    // Fallback-channel audit: present when the user hit the concurrency limit
+    // and Distribute re-routed from the originally-selected channel to the
+    // channel's configured FallbackChannelId. Nested under admin_info so
+    // formatUserLogs strips it for non-admin viewers; the details dialog also
+    // guards rendering behind isAdmin.
+    //
+    // reason 字段用于区分触发来源：
+    //   - "refusal_demote"               仅拒答降级触发
+    //   - "concurrency_overload"         仅并发超限触发
+    //   - "refusal_demote+concurrency"   两者同时命中
+    fallback_from?: {
+      channel_id: number
+      channel_name?: string
+      group?: string
+      reason?:
+        | 'refusal_demote'
+        | 'concurrency_overload'
+        | 'refusal_demote+concurrency'
     }
   }
   // Language-independent operation descriptor (audit/login logs).

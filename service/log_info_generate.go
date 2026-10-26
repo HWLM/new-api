@@ -70,6 +70,81 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 	}
 }
 
+// appendFallbackFromInfo 若本次请求因「使用者并发超限」或「拒答比超限」触发了
+// 兜底渠道重导，把重导前的原渠道信息写到 other.admin_info.fallback_from。
+// 嵌到 admin_info 之下是为了让 formatUserLogs 对普通使用者自动剥离——避免
+// 客户在自助日志里看到路由细节与运营配置。前端详情页也额外加了 isAdmin 判断
+// 作为二道闸。
+//
+// reason 字段用于区分触发来源，供运营排查：
+//   - "refusal_demote"            仅拒答降级触发
+//   - "concurrency_overload"      仅并发超限触发
+//   - "refusal_demote+concurrency" 两者同时命中
+func appendFallbackFromInfo(ctx *gin.Context, other map[string]interface{}) {
+	if ctx == nil || other == nil {
+		return
+	}
+	id := common.GetContextKeyInt(ctx, constant.ContextKeyFallbackFromChannelId)
+	if id <= 0 {
+		return
+	}
+	info := map[string]interface{}{
+		"channel_id": id,
+	}
+	if name := common.GetContextKeyString(ctx, constant.ContextKeyFallbackFromChannelName); name != "" {
+		info["channel_name"] = name
+	}
+	if group := common.GetContextKeyString(ctx, constant.ContextKeyFallbackFromGroup); group != "" {
+		info["group"] = group
+	}
+	refusal := common.GetContextKeyBool(ctx, constant.ContextKeyRefusalDemoted)
+	concurrency := common.GetContextKeyBool(ctx, constant.ContextKeyConcurrencyOverloaded)
+	switch {
+	case refusal && concurrency:
+		info["reason"] = "refusal_demote+concurrency"
+	case refusal:
+		info["reason"] = "refusal_demote"
+	case concurrency:
+		info["reason"] = "concurrency_overload"
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		adminInfo = map[string]interface{}{}
+		other["admin_info"] = adminInfo
+	}
+	adminInfo["fallback_from"] = info
+}
+
+// appendRefusalDemoteInfo 若本次请求因「用户拒答比超限」被降级到兜底渠道，
+// 把触发信息写到 other.admin_info.refusal_demote_triggered。嵌到 admin_info
+// 之下，普通用户视图自动剥离——避免终端用户看到风控内部指标。
+func appendRefusalDemoteInfo(ctx *gin.Context, other map[string]interface{}) {
+	if ctx == nil || other == nil {
+		return
+	}
+	if !common.GetContextKeyBool(ctx, constant.ContextKeyRefusalDemoted) {
+		return
+	}
+	info := map[string]interface{}{}
+	if raw, ok := common.GetContextKey(ctx, constant.ContextKeyRefusalDemoteRatio); ok {
+		if ratio, ok := raw.(float64); ok {
+			info["ratio"] = ratio
+		}
+	}
+	if window := common.GetContextKeyInt(ctx, constant.ContextKeyRefusalDemoteWindow); window > 0 {
+		info["window_size"] = window
+	}
+	s := operation_setting.GetRefusalDemoteSetting()
+	info["threshold_pct"] = s.ThresholdPct
+	info["demote_seconds"] = s.DemoteSeconds
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		adminInfo = map[string]interface{}{}
+		other["admin_info"] = adminInfo
+	}
+	adminInfo["refusal_demote_triggered"] = info
+}
+
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) map[string]interface{} {
 	other := make(map[string]interface{})
@@ -113,6 +188,8 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
+	appendFallbackFromInfo(ctx, other)
+	appendRefusalDemoteInfo(ctx, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)

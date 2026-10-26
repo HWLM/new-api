@@ -896,9 +896,22 @@ export type RateLimit = {
   rpd: number
 }
 
-/** Build per-group RPM / TPM / RPD limits for the model. */
-export function buildRateLimits(model: PricingModel): RateLimit[] {
-  const groups = (model.enable_groups ?? []).filter((g) => g && g !== 'auto')
+/**
+ * Build per-group RPM / TPM / RPD limits for the model.
+ *
+ * When `visibleGroups` is provided, limits are only generated for those groups
+ * (intersected with the model's enabled groups). This keeps the rate-limits
+ * table scoped to groups the current user can actually use.
+ */
+export function buildRateLimits(
+  model: PricingModel,
+  visibleGroups?: string[]
+): RateLimit[] {
+  const enabled = (model.enable_groups ?? []).filter((g) => g && g !== 'auto')
+  const groups =
+    visibleGroups && visibleGroups.length > 0
+      ? enabled.filter((g) => visibleGroups.includes(g))
+      : enabled
   const targets = groups.length > 0 ? groups : ['default']
   const cat = apiCategoryOf(model)
   const baseSeed = hashStringToSeed(`${model.model_name}:rl`)

@@ -381,6 +381,14 @@ export type SecuritySettings = {
   ModelRequestRateLimitSuccessCount: number
   ModelRequestRateLimitDurationMinutes: number
   ModelRequestRateLimitGroup: string
+  MaxConcurrentRequestsPerUserEnabled: boolean
+  MaxConcurrentRequestsPerUser: number
+  'refusal_demote_setting.enabled': boolean
+  'refusal_demote_setting.window_size': number
+  'refusal_demote_setting.min_samples': number
+  'refusal_demote_setting.threshold_pct': number
+  'refusal_demote_setting.demote_seconds': number
+  'refusal_demote_setting.window_ttl_seconds': number
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean
   SensitiveWords: string

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { RateLimitSection } from '../request-limits/rate-limit-section'
+import { RefusalDemoteSection } from '../request-limits/refusal-demote-section'
 import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
 import { SSRFSection } from '../request-limits/ssrf-section'
 import { TokenLimitSection } from '../request-limits/token-limit-section'
@@ -37,6 +38,31 @@ const SECURITY_SECTIONS = [
           ModelRequestRateLimitDurationMinutes:
             settings.ModelRequestRateLimitDurationMinutes,
           ModelRequestRateLimitGroup: settings.ModelRequestRateLimitGroup,
+          MaxConcurrentRequestsPerUserEnabled:
+            settings.MaxConcurrentRequestsPerUserEnabled,
+          MaxConcurrentRequestsPerUser: settings.MaxConcurrentRequestsPerUser,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'refusal-demote',
+    titleKey: 'Refusal rate demotion',
+    build: (settings: SecuritySettings) => (
+      <RefusalDemoteSection
+        defaultValues={{
+          'refusal_demote_setting.enabled':
+            settings['refusal_demote_setting.enabled'],
+          'refusal_demote_setting.window_size':
+            settings['refusal_demote_setting.window_size'],
+          'refusal_demote_setting.min_samples':
+            settings['refusal_demote_setting.min_samples'],
+          'refusal_demote_setting.threshold_pct':
+            settings['refusal_demote_setting.threshold_pct'],
+          'refusal_demote_setting.demote_seconds':
+            settings['refusal_demote_setting.demote_seconds'],
+          'refusal_demote_setting.window_ttl_seconds':
+            settings['refusal_demote_setting.window_ttl_seconds'],
         }}
       />
     ),

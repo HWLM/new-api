@@ -38,6 +38,8 @@ export const userFormSchema = z.object({
   role: z.number().optional(),
   quota_dollars: z.number().optional(),
   group: z.string().optional(),
+  max_concurrency: z.number().int().min(-1).optional(),
+  refusal_demote_override: z.number().int().min(-1).max(1).optional(),
   remark: z.string().optional(),
   settlement_currency: z.enum(['CNY', 'USD']).optional(),
   allow_online_topup: z.boolean().optional(),
@@ -60,6 +62,8 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   role: 1, // Default to common user
   quota_dollars: 0,
   group: DEFAULT_GROUP,
+  max_concurrency: 0,
+  refusal_demote_override: 0,
   remark: '',
   settlement_currency: 'CNY',
   allow_online_topup: true,
@@ -105,6 +109,8 @@ export function transformFormDataToPayload(
     // For update: quota is adjusted atomically via /api/user/manage, not sent here
     payload.group = data.group
     payload.remark = data.remark || undefined
+    payload.max_concurrency = data.max_concurrency ?? 0
+    payload.refusal_demote_override = data.refusal_demote_override ?? 0
     payload.id = userId
   }
 
@@ -122,6 +128,8 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     role: user.role,
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,
+    max_concurrency: user.max_concurrency ?? 0,
+    refusal_demote_override: user.refusal_demote_override ?? 0,
     remark: user.remark || '',
     settlement_currency:
       user.settlement_currency === 'USD' ? 'USD' : 'CNY',

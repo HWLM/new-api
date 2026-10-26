@@ -1,4 +1,5 @@
 {
+  "0 uses the system default": "0 uses the system default",
   "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".": "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".",
   "Add at least one dimension with values to see the price cells below.": "Add at least one dimension with values to see the price cells below.",
   "Add custom iframe pages to the top navigation. Each page can be set as visible to regular users or administrators.": "Add custom iframe pages to the top navigation. Each page can be set as visible to regular users or administrators.",
@@ -16,6 +17,7 @@
   "Matrix view generates one tier per (dim × dim × …) combination. Add up to 4 dimensions; each dimension has an enumerated value list. Fill the cell prices below to complete the matrix. Every edit regenerates the underlying v2 expression.": "Matrix view generates one tier per (dim × dim × …) combination. Add up to 4 dimensions; each dimension has an enumerated value list. Fill the cell prices below to complete the matrix. Every edit regenerates the underlying v2 expression.",
   "No custom menus yet. Click \"Add menu item\" to create one.": "No custom menus yet. Click \"Add menu item\" to create one.",
   "No dimensions yet. Add one to build a price matrix.": "No dimensions yet. Add one to build a price matrix.",
+  "Optional note for this adjustment (visible to admins in record details)": "Optional note for this adjustment (visible to admins in record details)",
   "Password expired, please re-enter": "Password expired, please re-enter",
   "Paste the full callback URL (includes code & state)": "Paste the full callback URL (includes code & state)",
   "per call. Charged upfront, then reconciled to actual per-token cost at settle.": "per call. Charged upfront, then reconciled to actual per-token cost at settle.",
@@ -42,5 +44,7 @@
   "Up to {{n}} custom menus can be enabled": "Up to {{n}} custom menus can be enabled",
   "Username or display name": "Username or display name",
   "Video / task pricing: each tier bills a flat $/call plus optional per-second and per-count components. Conditions branch on resolution / seconds / has_video / n. Last unconditioned tier is the fallback. Output expression is prefixed with v2:.": "Video / task pricing: each tier bills a flat $/call plus optional per-second and per-count components. Conditions branch on resolution / seconds / has_video / n. Last unconditioned tier is the fallback. Output expression is prefixed with v2:.",
+  "When this channel's owner exceeds their concurrency limit, requests are routed to the channel with this ID instead. 0 means no fallback.": "When this channel's owner exceeds their concurrency limit, requests are routed to the channel with this ID instead. 0 means no fallback.",
+  "When a user exceeds this limit, new requests are routed to the fallback channel configured on their selected channel.": "When a user exceeds this limit, new requests are routed to the fallback channel configured on their selected channel.",
   "You do not have permission to view this custom page.": "You do not have permission to view this custom page."
 }

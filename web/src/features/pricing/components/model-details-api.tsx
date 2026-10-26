@@ -685,9 +685,15 @@ function ParamRangeCell(props: { param: SupportedParameter }) {
 // Rate-limits table
 // ---------------------------------------------------------------------------
 
-function RateLimitsSection(props: { model: PricingModel }) {
+function RateLimitsSection(props: {
+  model: PricingModel
+  visibleGroups?: string[]
+}) {
   const { t } = useTranslation()
-  const limits = useMemo(() => buildRateLimits(props.model), [props.model])
+  const limits = useMemo(
+    () => buildRateLimits(props.model, props.visibleGroups),
+    [props.model, props.visibleGroups]
+  )
 
   if (limits.length === 0) return null
 
@@ -781,13 +787,17 @@ function AuthSection() {
 export function ModelDetailsApi(props: {
   model: PricingModel
   endpointMap: Record<string, { path?: string; method?: string }>
+  visibleGroups?: string[]
 }) {
   return (
     <div className='space-y-6'>
       <CodeSamplesSection model={props.model} endpointMap={props.endpointMap} />
       <AuthSection />
       <SupportedParametersSection model={props.model} />
-      <RateLimitsSection model={props.model} />
+      <RateLimitsSection
+        model={props.model}
+        visibleGroups={props.visibleGroups}
+      />
     </div>
   )
 }
