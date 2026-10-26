@@ -14,7 +14,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { TablePlaceholderRows } from './table-states'
-import type { CreditSummaryListResp, CreditSummaryRow } from './types'
+import type {
+  CreditSummaryListResp,
+  CreditSummaryRow,
+  CreditSummarySortKey,
+} from './types'
 
 function formatAmount(n: number): string {
   return n.toFixed(2)
@@ -26,6 +30,9 @@ export function DetailsSummaryTable({
   page,
   pageSize,
   onPageChange,
+  sortBy,
+  sortDir,
+  onSort,
   onRepay,
   onViewRecords,
 }: {
@@ -34,6 +41,9 @@ export function DetailsSummaryTable({
   page: number
   pageSize: number
   onPageChange: (next: number) => void
+  sortBy: CreditSummarySortKey | ''
+  sortDir: 'asc' | 'desc'
+  onSort: (key: CreditSummarySortKey) => void
   onRepay: (row: CreditSummaryRow) => void
   onViewRecords: (row: CreditSummaryRow) => void
 }) {
@@ -41,6 +51,11 @@ export function DetailsSummaryTable({
   const rows = data?.rows ?? []
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  const sortIndicator = (key: CreditSummarySortKey) => {
+    if (sortBy !== key) return ''
+    return sortDir === 'desc' ? ' ↓' : ' ↑'
+  }
 
   return (
     <div className='space-y-3'>
@@ -64,6 +79,18 @@ export function DetailsSummaryTable({
             {formatAmount(data?.summary_outstanding ?? 0)}
           </span>
         </span>
+        <span>
+          {t('Total Credit Consumption Amount')}:{' '}
+          <span className='tabular-nums'>
+            {formatAmount(data?.summary_consumption ?? 0)}
+          </span>
+        </span>
+        <span>
+          {t('Receivable Amount')}:{' '}
+          <span className='tabular-nums'>
+            {formatAmount(data?.summary_receivable ?? 0)}
+          </span>
+        </span>
       </div>
 
       <Table>
@@ -73,21 +100,43 @@ export function DetailsSummaryTable({
             <TableHead>{t('Display Name')}</TableHead>
             <TableHead>{t('Business Channel')}</TableHead>
             <TableHead>{t('Sales')}</TableHead>
-            <TableHead className='text-right'>
+            <TableHead
+              className='cursor-pointer text-right select-none'
+              onClick={() => onSort('total_credit')}
+            >
               {t('Total Credit Amount')}
+              {sortIndicator('total_credit')}
             </TableHead>
-            <TableHead className='text-right'>
+            <TableHead
+              className='cursor-pointer text-right select-none'
+              onClick={() => onSort('total_repayment')}
+            >
               {t('Total Repayment Amount')}
+              {sortIndicator('total_repayment')}
+            </TableHead>
+            <TableHead
+              className='cursor-pointer text-right select-none'
+              onClick={() => onSort('outstanding')}
+            >
+              {t('Outstanding Credit Amount')}
+              {sortIndicator('outstanding')}
             </TableHead>
             <TableHead className='text-right'>
-              {t('Outstanding Credit Amount')}
+              {t('Total Credit Consumption Amount')}
+            </TableHead>
+            <TableHead
+              className='cursor-pointer text-right select-none'
+              onClick={() => onSort('receivable')}
+            >
+              {t('Receivable Amount')}
+              {sortIndicator('receivable')}
             </TableHead>
             <TableHead>{t('Actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading || rows.length === 0 ? (
-            <TablePlaceholderRows isLoading={isLoading} colSpan={8} />
+            <TablePlaceholderRows isLoading={isLoading} colSpan={10} />
           ) : (
             rows.map((row) => (
               <TableRow key={row.user_id}>
@@ -103,6 +152,12 @@ export function DetailsSummaryTable({
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
                   {formatAmount(row.outstanding)}
+                </TableCell>
+                <TableCell className='text-right tabular-nums'>
+                  {formatAmount(row.total_consumption)}
+                </TableCell>
+                <TableCell className='text-right tabular-nums'>
+                  {formatAmount(row.receivable)}
                 </TableCell>
                 <TableCell>
                   <div className='flex gap-1'>

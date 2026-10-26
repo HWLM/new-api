@@ -29,7 +29,12 @@ import { RecordsDialog, type RecordsTarget } from './records-dialog'
 import { RepaymentDialog, type RepaymentTarget } from './repayment-dialog'
 import { SummaryCards } from './summary-cards'
 import { TrendChart } from './trend-chart'
-import type { CreditTrendDimension, CreditTrendGranularity } from './types'
+import type {
+  AmountDetailsDimension,
+  CreditSummarySortKey,
+  CreditTrendDimension,
+  CreditTrendGranularity,
+} from './types'
 
 const PAGE_SIZE = 10
 
@@ -55,11 +60,12 @@ export function CreditStats() {
   const queryClient = useQueryClient()
 
   // 卡片明细弹窗的标题用这组维度名，与趋势图下拉的口径保持一致
-  const amountDimensionLabels: Record<CreditTrendDimension, string> = {
+  const amountDimensionLabels: Record<AmountDetailsDimension, string> = {
     recharge: t('Recharge'),
     gift: t('Gift'),
     credit: t('Credit'),
     repayment: t('Repayment'),
+    consumption: t('Credit Consumption Amount'),
   }
 
   const [dateRange, setDateRange] = useState<CreditDateRange>(() =>
@@ -73,6 +79,11 @@ export function CreditStats() {
     buildDefaultDetailsFilter
   )
   const [summaryPage, setSummaryPage] = useState(1)
+  // 汇总表排序：空串表示后端默认顺序（用户 id 倒序）
+  const [summarySort, setSummarySort] = useState<{
+    by: CreditSummarySortKey | ''
+    dir: 'asc' | 'desc'
+  }>({ by: '', dir: 'desc' })
   const [monthlyPage, setMonthlyPage] = useState(1)
 
   const [repaymentTarget, setRepaymentTarget] = useState<RepaymentTarget | null>(
@@ -81,7 +92,7 @@ export function CreditStats() {
   const [recordsTarget, setRecordsTarget] = useState<RecordsTarget | null>(null)
   // 卡片「查看明细」弹窗：非 null 时展开对应维度
   const [amountDetailsDimension, setAmountDetailsDimension] = useState<
-    CreditTrendDimension | null
+    AmountDetailsDimension | null
   >(null)
   // 历史数据补录弹窗
   const [backfillOpen, setBackfillOpen] = useState(false)
@@ -120,6 +131,8 @@ export function CreditStats() {
       detailsFilter.username,
       detailsFilter.channel.join(','),
       detailsFilter.sales.join(','),
+      summarySort.by,
+      summarySort.dir,
       summaryPage,
     ],
     queryFn: () =>
@@ -127,6 +140,8 @@ export function CreditStats() {
         username: detailsFilter.username,
         channel: detailsFilter.channel,
         sales: detailsFilter.sales,
+        sort_by: summarySort.by,
+        sort_dir: summarySort.dir,
         page: summaryPage,
         page_size: PAGE_SIZE,
       }),
@@ -167,6 +182,15 @@ export function CreditStats() {
     queryClient.invalidateQueries({ queryKey: ['credit-details-monthly'] })
     queryClient.invalidateQueries({ queryKey: ['credit-records'] })
     queryClient.invalidateQueries({ queryKey: ['amount-details'] })
+  }
+
+  // 点同一列在 降序 → 升序 之间切换，换列时从降序开始；排序变化回到第一页
+  const toggleSummarySort = (key: CreditSummarySortKey) => {
+    setSummarySort((prev) => ({
+      by: key,
+      dir: prev.by === key && prev.dir === 'desc' ? 'asc' : 'desc',
+    }))
+    setSummaryPage(1)
   }
 
   const applyDetailsFilter = (next: CreditDetailsFilterValue) => {
@@ -237,6 +261,9 @@ export function CreditStats() {
               page={summaryPage}
               pageSize={PAGE_SIZE}
               onPageChange={setSummaryPage}
+              sortBy={summarySort.by}
+              sortDir={summarySort.dir}
+              onSort={toggleSummarySort}
               onRepay={(row) =>
                 setRepaymentTarget({
                   user_id: row.user_id,

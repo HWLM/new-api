@@ -361,3 +361,184 @@ func callCreditSummary(t *testing.T, startDate, endDate string) creditStatsSumma
 	require.True(t, body.Success, w.Body.String())
 	return body.Data
 }
+
+// 授信用户口径 = 有过任何授信或回款记录的用户：授信后全额冲回（净额 0）、
+// 只有回款记录的用户，消耗都要计入剩余应收与消耗授信金额。
+func TestCreditSummaryConsumptionCountsAllRecordUsers(t *testing.T) {
+	db := setupCreditStatsTestDB(t)
+	todayStr := time.Now().Format("2006-01-02")
+	yesterdayStr := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	weekAgoStr := time.Now().AddDate(0, 0, -6).Format("2006-01-02")
+	now := time.Now().Unix()
+
+	originalQuotaPerUnit := common.QuotaPerUnit
+	t.Cleanup(func() { common.QuotaPerUnit = originalQuotaPerUnit })
+	common.QuotaPerUnit = 500_000.0
+
+	// 用户 1：授信 100 后全额冲回，净额 0
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 100, now)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, -100, now)
+	// 用户 2：只有回款记录
+	seedCreditRecord(t, db, 2, model.CreditRecordTypeRepayment, 1, now)
+
+	// 一周前各消耗 1（汇总表），今天用户 1 再消耗 0.5（logs）
+	require.NoError(t, db.Create(&model.VipDailyConsumption{UserId: 1, StatDate: weekAgoStr, Quota: 500_000}).Error)
+	require.NoError(t, db.Create(&model.VipDailyConsumption{UserId: 2, StatDate: weekAgoStr, Quota: 500_000}).Error)
+	seedConsumeLog(t, db, 1, 250_000, now)
+	// 噪声：没有任何授信 / 回款记录的用户
+	require.NoError(t, db.Create(&model.VipDailyConsumption{UserId: 3, StatDate: weekAgoStr, Quota: 9_000_000}).Error)
+	seedConsumeLog(t, db, 3, 9_000_000, now)
+
+	// 剩余应收全时间：(1 + 0.5 + 1) - 回款 1 = 1.5，与时间筛选无关
+	// 消耗授信金额随时间筛选：只选今天 = 0.5；近 7 天 = 2.5；截至昨天 = 2
+	for _, tc := range []struct {
+		start, end      string
+		wantConsumption float64
+	}{
+		{todayStr, todayStr, 0.5},
+		{weekAgoStr, todayStr, 2.5},
+		{weekAgoStr, yesterdayStr, 2},
+	} {
+		resp := callCreditSummary(t, tc.start, tc.end)
+		assert.InDelta(t, tc.wantConsumption, resp.CreditConsumption, 1e-9, "range %s~%s", tc.start, tc.end)
+		assert.InDelta(t, 1.5, resp.Receivable, 1e-9, "range %s~%s", tc.start, tc.end)
+	}
+}
+
+// 汇总表：新增的总授信消耗 / 剩余应收列按用户计算（剩余应收逐用户不为负），
+// 汇总条合计整个筛选范围，排序作用于全部行后再分页。
+func TestCreditDetailsSummaryConsumptionAndSort(t *testing.T) {
+	db := setupCreditStatsTestDB(t)
+	weekAgoStr := time.Now().AddDate(0, 0, -6).Format("2006-01-02")
+	now := time.Now().Unix()
+
+	originalQuotaPerUnit := common.QuotaPerUnit
+	t.Cleanup(func() { common.QuotaPerUnit = originalQuotaPerUnit })
+	common.QuotaPerUnit = 500_000.0
+
+	for _, u := range []model.User{{Id: 1, Username: "u1", AffCode: "a1"}, {Id: 2, Username: "u2", AffCode: "a2"}, {Id: 3, Username: "u3", AffCode: "a3"}} {
+		require.NoError(t, db.Create(&u).Error)
+	}
+	// 用户 1：消耗 3，回款 1 → 剩余应收 2
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 10, now)
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeRepayment, 1, now)
+	require.NoError(t, db.Create(&model.VipDailyConsumption{UserId: 1, StatDate: weekAgoStr, Quota: 1_000_000}).Error)
+	seedConsumeLog(t, db, 1, 500_000, now)
+	// 用户 2：消耗 1，回款 5 → 剩余应收 0（不为负）
+	seedCreditRecord(t, db, 2, model.CreditRecordTypeCredit, 20, now)
+	seedCreditRecord(t, db, 2, model.CreditRecordTypeRepayment, 5, now)
+	require.NoError(t, db.Create(&model.VipDailyConsumption{UserId: 2, StatDate: weekAgoStr, Quota: 500_000}).Error)
+	// 用户 3：消耗 6，无回款 → 剩余应收 6
+	seedCreditRecord(t, db, 3, model.CreditRecordTypeCredit, 5, now)
+	seedConsumeLog(t, db, 3, 3_000_000, now)
+
+	body := callCreditDetailsSummary(t, "sort_by=receivable&sort_dir=desc&page=1&page_size=2")
+	require.Len(t, body.Rows, 2)
+	assert.Equal(t, int64(3), body.Total)
+	assert.Equal(t, []int{3, 1}, []int{body.Rows[0].UserId, body.Rows[1].UserId})
+	assert.InDelta(t, 6, body.Rows[0].TotalConsumption, 1e-9)
+	assert.InDelta(t, 3, body.Rows[1].TotalConsumption, 1e-9)
+	assert.InDelta(t, 2, body.Rows[1].Receivable, 1e-9)
+	// 合计覆盖全部 3 行而不是当前页：消耗 3+1+6，应收 2+0+6
+	assert.InDelta(t, 10, body.SummaryConsumption, 1e-9)
+	assert.InDelta(t, 8, body.SummaryReceivable, 1e-9)
+
+	// 升序第二页拿到的是排在最后的用户 3
+	body = callCreditDetailsSummary(t, "sort_by=receivable&sort_dir=asc&page=2&page_size=2")
+	require.Len(t, body.Rows, 1)
+	assert.Equal(t, 3, body.Rows[0].UserId)
+
+	// 按总授信升序：5(u3) < 10(u1) < 20(u2)
+	body = callCreditDetailsSummary(t, "sort_by=total_credit&sort_dir=asc&page=1&page_size=10")
+	require.Len(t, body.Rows, 3)
+	assert.Equal(t, []int{3, 1, 2}, []int{body.Rows[0].UserId, body.Rows[1].UserId, body.Rows[2].UserId})
+
+	// 非白名单排序列回落到默认 id DESC
+	body = callCreditDetailsSummary(t, "sort_by=username&page=1&page_size=10")
+	require.Len(t, body.Rows, 3)
+	assert.Equal(t, []int{3, 2, 1}, []int{body.Rows[0].UserId, body.Rows[1].UserId, body.Rows[2].UserId})
+}
+
+// 明细表：本月授信消耗按月拆分（历史月走汇总表，本月含今天 logs）；
+// 只有消耗、无授信回款且不欠款的月份也要出现。
+func TestCreditDetailsMonthlyConsumption(t *testing.T) {
+	db := setupCreditStatsTestDB(t)
+	now := time.Now()
+	thisMonth := now.Format("2006-01")
+	lastMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -1, 0)
+	lastMonth := lastMonthStart.Format("2006-01")
+
+	originalQuotaPerUnit := common.QuotaPerUnit
+	t.Cleanup(func() { common.QuotaPerUnit = originalQuotaPerUnit })
+	common.QuotaPerUnit = 500_000.0
+
+	require.NoError(t, db.Create(&model.User{Id: 1, Username: "u1", AffCode: "a1"}).Error)
+	// 上月：授信 10、回款 10（结清）；本月没有任何授信 / 回款流水
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeCredit, 10, lastMonthStart.Unix())
+	seedCreditRecord(t, db, 1, model.CreditRecordTypeRepayment, 10, lastMonthStart.Unix())
+	// 上月消耗 1（汇总表），本月：今天 logs 消耗 0.5
+	require.NoError(t, db.Create(&model.VipDailyConsumption{
+		UserId: 1, StatDate: lastMonthStart.Format("2006-01-02"), Quota: 500_000,
+	}).Error)
+	seedConsumeLog(t, db, 1, 250_000, now.Unix())
+
+	body := callCreditDetailsMonthly(t, lastMonth, thisMonth)
+	got := map[string]float64{}
+	for _, r := range body.Rows {
+		got[r.Month] = r.MonthConsumption
+	}
+	// 本月只有消耗，没有授信回款且月初月末不欠款，也必须保留这一行
+	assert.Equal(t, map[string]float64{lastMonth: 1, thisMonth: 0.5}, got)
+	assert.InDelta(t, 1.5, body.SummaryConsumption, 1e-9)
+}
+
+type creditDetailsSummaryBody struct {
+	Rows               []creditSummaryRow `json:"rows"`
+	Total              int64              `json:"total"`
+	SummaryConsumption float64            `json:"summary_consumption"`
+	SummaryReceivable  float64            `json:"summary_receivable"`
+}
+
+func callCreditDetailsSummary(t *testing.T, query string) creditDetailsSummaryBody {
+	t.Helper()
+	router := gin.New()
+	router.GET("/api/credit_stats/details_summary", GetCreditDetailsSummary)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/credit_stats/details_summary?"+query, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var body struct {
+		Success bool                     `json:"success"`
+		Data    creditDetailsSummaryBody `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &body))
+	require.True(t, body.Success, w.Body.String())
+	return body.Data
+}
+
+type creditDetailsMonthlyBody struct {
+	Rows               []creditMonthlyRow `json:"rows"`
+	SummaryConsumption float64            `json:"summary_consumption"`
+}
+
+func callCreditDetailsMonthly(t *testing.T, startMonth, endMonth string) creditDetailsMonthlyBody {
+	t.Helper()
+	router := gin.New()
+	router.GET("/api/credit_stats/details_monthly", GetCreditDetailsMonthly)
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf(
+		"/api/credit_stats/details_monthly?start_month=%s&end_month=%s&page_size=100", startMonth, endMonth), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var body struct {
+		Success bool                     `json:"success"`
+		Data    creditDetailsMonthlyBody `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &body))
+	require.True(t, body.Success, w.Body.String())
+	return body.Data
+}

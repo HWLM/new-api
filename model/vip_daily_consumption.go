@@ -99,22 +99,6 @@ func GetVipDailyConsumptionInRange(userIds []int, startDate, endDate string) (ma
 	return result, nil
 }
 
-// SumVipDailyQuotaBefore 返回给定用户在 beforeDate（YYYY-MM-DD，不含）之前的历史消耗 quota 合计。
-// 用于「全时间累计消耗」这类不设起点的口径：汇总表只写到昨天，今天那一段由调用方回 logs 实时补。
-// stat_date 是定长字符串，直接用 < 比较即可，三种数据库语义一致。
-func SumVipDailyQuotaBefore(userIds []int, beforeDate string) (int64, error) {
-	if len(userIds) == 0 {
-		return 0, nil
-	}
-	var quota int64
-	err := DB.Model(&VipDailyConsumption{}).
-		Where("user_id IN ?", userIds).
-		Where("stat_date < ?", beforeDate).
-		Select("COALESCE(SUM(quota), 0)").
-		Scan(&quota).Error
-	return quota, err
-}
-
 // SumVipDailyAggregate 给定 userIds + 日期区间，返回 quota / request_count / tokens 三个总和
 func SumVipDailyAggregate(userIds []int, startDate, endDate string) (DailyConsumptionEntry, error) {
 	var sum DailyConsumptionEntry

@@ -58,6 +58,12 @@ export function DetailsMonthlyTable({
             {formatAmount(data?.summary_repayment ?? 0)}
           </span>
         </span>
+        <span>
+          {t('Credit Consumption Amount')}:{' '}
+          <span className='tabular-nums'>
+            {formatAmount(data?.summary_consumption ?? 0)}
+          </span>
+        </span>
       </div>
 
       <Table>
@@ -80,12 +86,15 @@ export function DetailsMonthlyTable({
             <TableHead className='text-right'>
               {t('Ending Outstanding Credit')}
             </TableHead>
+            <TableHead className='text-right'>
+              {t('Credit Consumption This Month')}
+            </TableHead>
             <TableHead>{t('Actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading || rows.length === 0 ? (
-            <TablePlaceholderRows isLoading={isLoading} colSpan={10} />
+            <TablePlaceholderRows isLoading={isLoading} colSpan={11} />
           ) : (
             rows.map((row) => (
               <TableRow key={`${row.month}-${row.user_id}`}>
@@ -105,6 +114,9 @@ export function DetailsMonthlyTable({
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
                   {formatAmount(row.ending_outstanding)}
+                </TableCell>
+                <TableCell className='text-right tabular-nums'>
+                  {formatAmount(row.month_consumption)}
                 </TableCell>
                 <TableCell>
                   <div className='flex gap-1'>

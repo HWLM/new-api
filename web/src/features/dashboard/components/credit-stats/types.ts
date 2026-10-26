@@ -7,12 +7,13 @@ For commercial licensing, please contact support@quantumnous.com
 // 后端 controller/credit_stats.go 的响应类型对应。
 // 所有金额单位都是人民币 ¥（管理员页面录入即是 ¥）。
 
-// 顶部 6 张卡片
+// 顶部 7 张卡片
 export type CreditSummary = {
   recharge_amount: number
   gift_amount: number
   credit_amount: number
   repayment_amount: number
+  credit_consumption: number
   receivable: number
   outstanding_credit: number
 }
@@ -21,6 +22,9 @@ export type CreditSummary = {
 export type CreditTrendGranularity = 'day' | 'month'
 export type CreditTrendDimension = 'recharge' | 'gift' | 'credit' | 'repayment'
 
+// 卡片「查看明细」弹窗的维度：比趋势图多一个「消耗授信金额」
+export type AmountDetailsDimension = CreditTrendDimension | 'consumption'
+
 export type CreditTrendResp = {
   granularity: CreditTrendGranularity
   buckets: string[] // day → "YYYY-MM-DD"；month → "YYYY-MM"
@@ -28,10 +32,19 @@ export type CreditTrendResp = {
 }
 
 // 汇总标签：用户维度
+// 可排序列，与后端 creditSummarySortKeys 白名单一致
+export type CreditSummarySortKey =
+  | 'total_credit'
+  | 'total_repayment'
+  | 'outstanding'
+  | 'receivable'
+
 export type CreditSummaryFilter = {
   username?: string
   channel?: string[]
   sales?: string[]
+  sort_by?: CreditSummarySortKey | ''
+  sort_dir?: 'asc' | 'desc'
   page?: number
   page_size?: number
 }
@@ -45,6 +58,8 @@ export type CreditSummaryRow = {
   total_credit: number
   total_repayment: number
   outstanding: number
+  total_consumption: number // 总授信消耗金额（全时间）
+  receivable: number // 剩余应收金额 = 总授信消耗 - 总回款，不为负
 }
 
 export type CreditSummaryListResp = {
@@ -56,6 +71,8 @@ export type CreditSummaryListResp = {
   summary_credit: number
   summary_repayment: number
   summary_outstanding: number
+  summary_consumption: number
+  summary_receivable: number
 }
 
 // 明细标签：用户 + 月份维度
@@ -80,6 +97,7 @@ export type CreditMonthlyRow = {
   month_credit: number
   month_repayment: number
   ending_outstanding: number
+  month_consumption: number // 本月授信消耗金额
 }
 
 export type CreditMonthlyListResp = {
@@ -90,6 +108,7 @@ export type CreditMonthlyListResp = {
   // 整个筛选范围（未分页）的合计，用于表格上方的橙色汇总条
   summary_credit: number
   summary_repayment: number
+  summary_consumption: number
 }
 
 // 操作记录弹窗：授信记录 / 回款记录两个标签
@@ -141,7 +160,7 @@ export type AmountDetailsResponse = {
 }
 
 export type AmountDetailsFilter = {
-  dimension: CreditTrendDimension
+  dimension: AmountDetailsDimension
   start_date: string // YYYY-MM-DD
   end_date: string // YYYY-MM-DD
   page?: number

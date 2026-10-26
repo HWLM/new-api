@@ -50,17 +50,18 @@ var creditTrendDimensionColumns = map[string]string{
 	"gift":     "gift_amount",
 }
 
-// creditStatsSummaryResp 顶部 6 张卡片
+// creditStatsSummaryResp 顶部 7 张卡片
 type creditStatsSummaryResp struct {
 	RechargeAmount    float64 `json:"recharge_amount"`    // 充值金额（¥）
 	GiftAmount        float64 `json:"gift_amount"`        // 赠送金额（¥）
 	CreditAmount      float64 `json:"credit_amount"`      // 授信金额（¥）
 	RepaymentAmount   float64 `json:"repayment_amount"`   // 回款金额（¥）
+	CreditConsumption float64 `json:"credit_consumption"` // 消耗授信金额 = 授信客户在查询区间内的消耗（quota/QuotaPerUnit）
 	Receivable        float64 `json:"receivable"`         // 剩余应收 = 授信客户总消耗（quota/QuotaPerUnit） - 总回款，不为负
 	OutstandingCredit float64 `json:"outstanding_credit"` // 未回款授信金额（¥）= 授信 - 回款，不为负
 }
 
-// GetCreditStatsSummary 顶部 6 张卡片：按查询时间区间汇总平台总的充值、赠送、授信、回款金额。
+// GetCreditStatsSummary 顶部 7 张卡片：按查询时间区间汇总平台总的充值、赠送、授信、回款、授信消耗金额。
 // GET /api/credit_stats/summary?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 func GetCreditStatsSummary(c *gin.Context) {
 	startDate, endDate, ok := parseCreditDateRange(c)
@@ -94,8 +95,24 @@ func GetCreditStatsSummary(c *gin.Context) {
 		return
 	}
 
+	// 消耗授信金额：授信客户在查询区间内的消耗，随时间筛选变化。
+	creditUserIds, err := model.GetCreditRecordUserIds()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	consumptionMap, err := sumCreditConsumptionByUsers(startDate, endDate, creditUserIds)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var creditConsumption float64
+	for _, amount := range consumptionMap {
+		creditConsumption += amount
+	}
+
 	// 剩余应收 / 未回款授信金额都是「全时间总额」口径，不随上面的时间筛选变化，单独算。
-	receivable, outstanding, err := sumCreditReceivable()
+	receivable, outstanding, err := sumCreditReceivable(creditUserIds)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -108,6 +125,7 @@ func GetCreditStatsSummary(c *gin.Context) {
 			GiftAmount:        total.Gift,
 			CreditAmount:      creditAgg.TotalCredit,
 			RepaymentAmount:   creditAgg.TotalRepayment,
+			CreditConsumption: creditConsumption,
 			Receivable:        receivable,
 			OutstandingCredit: outstanding,
 		},
@@ -237,12 +255,13 @@ type amountDetailRow struct {
 	Amount      float64 `json:"amount"`
 }
 
-// GetCreditAmountDetails 四张卡片（充值/赠送/授信/回款）的「查看明细」弹窗。
-// GET /api/credit_stats/amount_details?dimension=recharge|gift|credit|repayment&start_date=&end_date=&page=&page_size=
+// GetCreditAmountDetails 五张卡片（充值/赠送/授信/回款/消耗授信）的「查看明细」弹窗。
+// GET /api/credit_stats/amount_details?dimension=recharge|gift|credit|repayment|consumption&start_date=&end_date=&page=&page_size=
 // 返回给定时间范围内该维度金额 > 0 的用户，按金额从大到小排序。
 func GetCreditAmountDetails(c *gin.Context) {
 	dimension := c.Query("dimension")
-	if dimension != "recharge" && dimension != "gift" && dimension != "credit" && dimension != "repayment" {
+	if dimension != "recharge" && dimension != "gift" && dimension != "credit" &&
+		dimension != "repayment" && dimension != "consumption" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -252,9 +271,10 @@ func GetCreditAmountDetails(c *gin.Context) {
 	}
 	page, pageSize := parseCreditPagination(c)
 
-	// 按维度分流：授信/回款走新表，充值/赠送走汇总表+logs
+	// 按维度分流：授信/回款走新表，消耗走汇总表 quota + logs，充值/赠送走汇总表金额列 + logs
 	var amountMap map[int]float64
-	if dimension == "credit" || dimension == "repayment" {
+	switch dimension {
+	case "credit", "repayment":
 		startTs, endTs := creditDateRangeUnix(startDate, endDate)
 		recordType := model.CreditRecordTypeCredit
 		if dimension == "repayment" {
@@ -269,7 +289,24 @@ func GetCreditAmountDetails(c *gin.Context) {
 		for _, r := range rows {
 			amountMap[r.UserId] = r.Amount
 		}
-	} else {
+	case "consumption":
+		creditUserIds, err := model.GetCreditRecordUserIds()
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		byUser, err := sumCreditConsumptionByUsers(startDate, endDate, creditUserIds)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		amountMap = make(map[int]float64, len(byUser))
+		for uid, amount := range byUser {
+			if amount > 0 {
+				amountMap[uid] = amount
+			}
+		}
+	default:
 		// recharge / gift
 		col := dimension + "_amount"
 		byUser, err := sumRechargeOrGiftByUserInRange(startDate, endDate, col)
@@ -661,11 +698,8 @@ func (a *creditAmounts) add(other creditAmounts) {
 //	未回款授信金额   = 总授信 - 总回款，不为负
 //
 // 两者都不参与时间筛选，共用同一次 credit_records 的两列聚合。
-//
-// 累计消耗的取数：历史段走 vip_daily_consumptions（WHERE user_id IN (授信用户)，
-// 走 user_id 索引，扫到的行数 = 授信用户数 × 天数，与表总量无关），今天那段回 logs 实时补，
-// 和充值 / 赠送卡片同一套「汇总表 + 今天」切分口径。
-func sumCreditReceivable() (receivable, outstanding float64, err error) {
+// creditUserIds 是有过任何授信 / 回款记录的用户（GetCreditRecordUserIds），与授信表格同一口径。
+func sumCreditReceivable(creditUserIds []int) (receivable, outstanding float64, err error) {
 	totals, err := model.SumCreditTotals()
 	if err != nil {
 		return 0, 0, err
@@ -674,29 +708,99 @@ func sumCreditReceivable() (receivable, outstanding float64, err error) {
 		outstanding = 0
 	}
 
-	creditedIds, err := model.GetCreditedUserIds()
+	consumptionMap, err := sumCreditConsumptionByUsers("", time.Now().Format("2006-01-02"), creditUserIds)
 	if err != nil {
 		return 0, 0, err
 	}
-
-	// 汇总表只写到昨天，今天的消耗还没落库，必须回 logs 实时补。
-	todayStr := time.Now().Format("2006-01-02")
-	histQuota, err := model.SumVipDailyQuotaBefore(creditedIds, todayStr)
-	if err != nil {
-		return 0, 0, err
+	var consumption float64
+	for _, amount := range consumptionMap {
+		consumption += amount
 	}
-	todayStart, todayEnd := todayUnixRange()
-	todayQuota, _, err := sumTodayConsumeRecharge(todayStart, todayEnd, creditedIds)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	// 消耗按 quota / QuotaPerUnit 折算，口径与「新用户统计 -> 明细数据」的
-	// 总消耗额列（quotaToUSD）一致，不再乘支付价格换算成人民币。
-	if receivable = quotaToUSD(histQuota+todayQuota) - totals.TotalRepayment; receivable < 0 {
+	if receivable = consumption - totals.TotalRepayment; receivable < 0 {
 		receivable = 0
 	}
 	return receivable, outstanding, nil
+}
+
+// sumCreditConsumptionByUsers 按用户聚合 [startDate, endDate] 内的净消耗，折算为 quota / QuotaPerUnit
+// （与「新用户统计」总消耗额同口径，不乘支付价格）。startDate 为空表示不设起点（全时间）。
+//
+// 历史段走 vip_daily_consumptions（WHERE user_id IN (授信用户)，走 user_id 索引，
+// 扫到的行数 = 授信用户数 × 天数，与表总量无关），今天那段回 logs 实时补。
+func sumCreditConsumptionByUsers(startDate, endDate string, userIds []int) (map[int]float64, error) {
+	quotaMap := make(map[int]int64)
+	result := make(map[int]float64)
+	if len(userIds) == 0 {
+		return result, nil
+	}
+	today := time.Now().Format("2006-01-02")
+
+	// 汇总表只写到昨天，endDate 落在今天或未来时截断到昨天。
+	histEnd := endDate
+	if histEnd >= today {
+		histEnd = time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	}
+	if startDate <= histEnd {
+		tx := model.DB.Model(&model.VipDailyConsumption{}).
+			Where("user_id IN ?", userIds).
+			Where("stat_date <= ?", histEnd)
+		if startDate != "" {
+			tx = tx.Where("stat_date >= ?", startDate)
+		}
+		type row struct {
+			UserId int
+			Total  int64
+		}
+		var rows []row
+		if err := tx.Select("user_id, COALESCE(SUM(quota), 0) AS total").
+			Group("user_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			quotaMap[r.UserId] += r.Total
+		}
+	}
+
+	if startDate <= today && endDate >= today {
+		todayStart, todayEnd := todayUnixRange()
+		todayMap, err := sumTodayConsumptionByUsers(todayStart, todayEnd, userIds)
+		if err != nil {
+			return nil, err
+		}
+		for uid, quota := range todayMap {
+			quotaMap[uid] += quota
+		}
+	}
+
+	for uid, quota := range quotaMap {
+		result[uid] = quotaToUSD(quota)
+	}
+	return result, nil
+}
+
+// sumTodayConsumptionByUsers 从 logs 实时按用户聚合净消耗 quota（扣除异步任务差额退款），
+// 口径与 cron 落进 vip_daily_consumptions.quota 的一致。
+func sumTodayConsumptionByUsers(startTs, endTs int64, userIds []int) (map[int]int64, error) {
+	type row struct {
+		UserId int
+		Total  int64
+	}
+	var rows []row
+	if err := model.LOG_DB.Model(&model.Log{}).
+		Where("type IN ?", model.NetQuotaSumTypes()).
+		Where("user_id IN ?", userIds).
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
+		Select("user_id, " + model.NetQuotaSumExpr() + " AS total").
+		Group("user_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[int]int64, len(rows))
+	for _, r := range rows {
+		result[r.UserId] = r.Total
+	}
+	return result, nil
 }
 
 // creditAmountByDimension 按趋势图选中的汇总表列名取对应口径的金额，
@@ -888,14 +992,30 @@ type creditSummaryRow struct {
 	TotalCredit        float64 `json:"total_credit"`         // 总授信金额（¥）
 	TotalRepayment     float64 `json:"total_repayment"`      // 总回款金额（¥）
 	Outstanding        float64 `json:"outstanding"`          // 未回款授信金额（¥）
+	TotalConsumption   float64 `json:"total_consumption"`    // 总授信消耗金额（全时间，quota/QuotaPerUnit）
+	Receivable         float64 `json:"receivable"`           // 剩余应收金额 = 总授信消耗 - 总回款，不为负
+}
+
+// creditSummarySortKeys 汇总表可排序的列（前端 sort_by 取值）→ 取值函数。
+// 白名单之外的 sort_by 一律回落到默认的 id DESC。
+var creditSummarySortKeys = map[string]func(r creditSummaryRow) float64{
+	"total_credit":    func(r creditSummaryRow) float64 { return r.TotalCredit },
+	"total_repayment": func(r creditSummaryRow) float64 { return r.TotalRepayment },
+	"outstanding":     func(r creditSummaryRow) float64 { return r.Outstanding },
+	"receivable":      func(r creditSummaryRow) float64 { return r.Receivable },
 }
 
 // GetCreditDetailsSummary 汇总表：按用户维度展示授信与回款汇总（全时间口径）。
-// GET /api/credit_stats/details_summary?username=&channel=&sales=&page=&page_size=
+// GET /api/credit_stats/details_summary?username=&channel=&sales=&sort_by=&sort_dir=asc|desc&page=&page_size=
+//
+// 排序列（剩余应收等）是聚合后才算得出的值，没法下推到 SQL，所以先对整个筛选范围
+// 组装出全部行，内存排序后再分页。候选用户 = 有过授信 / 回款流水的用户，量级只有几十。
 func GetCreditDetailsSummary(c *gin.Context) {
 	username := strings.TrimSpace(c.Query("username"))
 	channels := splitCSV(c.Query("channel"))
 	salesList := splitCSV(c.Query("sales"))
+	sortValue, sortable := creditSummarySortKeys[c.Query("sort_by")]
+	sortAsc := c.Query("sort_dir") == "asc"
 	page, pageSize := parseCreditPagination(c)
 
 	// 1. 候选行 = 有过授信/回款流水的用户，再按用户名与归属筛选。
@@ -917,54 +1037,57 @@ func GetCreditDetailsSummary(c *gin.Context) {
 		writeCreditSummaryEmpty(c, page, pageSize)
 		return
 	}
-	userTx = userTx.Where("id IN ?", recordUserIds)
 
-	var total int64
-	if err := userTx.Count(&total).Error; err != nil {
+	var users []userRow
+	if err := userTx.Where("id IN ?", recordUserIds).
+		Select("id, username, display_name, inviter_id").
+		Order("id DESC").
+		Find(&users).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
-
-	// 2. 汇总条统计整个筛选范围（不是当前页），所以先取全部命中的 user_id 再聚合。
-	var matchedIds []int
-	if err := userTx.Pluck("id", &matchedIds).Error; err != nil {
-		common.ApiError(c, err)
+	if len(users) == 0 {
+		writeCreditSummaryEmpty(c, page, pageSize)
 		return
 	}
+	matchedIds := make([]int, len(users))
+	for i, u := range users {
+		matchedIds[i] = u.Id
+	}
+
+	// 2. 授信 / 回款来自 credit_records，消耗为全时间（汇总表 + 今天 logs）
 	amountMap, err := model.SumCreditByUsers(matchedIds)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	var summaryCredit, summaryRepayment, summaryOutstanding float64
-	for _, amt := range amountMap {
-		summaryCredit += amt.TotalCredit
-		summaryRepayment += amt.TotalRepayment
-		if outstanding := amt.TotalCredit - amt.TotalRepayment; outstanding > 0 {
-			summaryOutstanding += outstanding
-		}
-	}
-
-	// 3. 当前页的用户信息 + inviter 反查
-	var users []userRow
-	if err := userTx.Select("id, username, display_name, inviter_id").
-		Order("id DESC").
-		Offset((page - 1) * pageSize).
-		Limit(pageSize).
-		Find(&users).Error; err != nil {
+	consumptionMap, err := sumCreditConsumptionByUsers("", time.Now().Format("2006-01-02"), matchedIds)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	inviterDisplayMap, inviterChannelMap := lookupInviters(users)
 
-	rows := make([]creditSummaryRow, 0, len(users))
+	// 3. 组装全部行；汇总条统计整个筛选范围（不是当前页）
+	inviterDisplayMap, inviterChannelMap := lookupInviters(users)
+	allRows := make([]creditSummaryRow, 0, len(users))
+	var summaryCredit, summaryRepayment, summaryOutstanding, summaryConsumption, summaryReceivable float64
 	for _, u := range users {
 		amt := amountMap[u.Id]
 		outstanding := amt.TotalCredit - amt.TotalRepayment
 		if outstanding < 0 {
 			outstanding = 0
 		}
-		rows = append(rows, creditSummaryRow{
+		consumption := consumptionMap[u.Id]
+		receivable := consumption - amt.TotalRepayment
+		if receivable < 0 {
+			receivable = 0
+		}
+		summaryCredit += amt.TotalCredit
+		summaryRepayment += amt.TotalRepayment
+		summaryOutstanding += outstanding
+		summaryConsumption += consumption
+		summaryReceivable += receivable
+		allRows = append(allRows, creditSummaryRow{
 			UserId:             u.Id,
 			Username:           u.Username,
 			DisplayName:        u.DisplayName,
@@ -973,19 +1096,43 @@ func GetCreditDetailsSummary(c *gin.Context) {
 			TotalCredit:        amt.TotalCredit,
 			TotalRepayment:     amt.TotalRepayment,
 			Outstanding:        outstanding,
+			TotalConsumption:   consumption,
+			Receivable:         receivable,
 		})
+	}
+
+	// 4. 排序：值相同时保持 id DESC 的原始顺序，翻页时行不会跳动
+	if sortable {
+		sort.SliceStable(allRows, func(i, j int) bool {
+			if sortAsc {
+				return sortValue(allRows[i]) < sortValue(allRows[j])
+			}
+			return sortValue(allRows[i]) > sortValue(allRows[j])
+		})
+	}
+
+	total := int64(len(allRows))
+	start := (page - 1) * pageSize
+	if start > len(allRows) {
+		start = len(allRows)
+	}
+	end := start + pageSize
+	if end > len(allRows) {
+		end = len(allRows)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"rows":                rows,
+			"rows":                allRows[start:end],
 			"total":               total,
 			"page":                page,
 			"page_size":           pageSize,
 			"summary_credit":      summaryCredit,
 			"summary_repayment":   summaryRepayment,
 			"summary_outstanding": summaryOutstanding,
+			"summary_consumption": summaryConsumption,
+			"summary_receivable":  summaryReceivable,
 		},
 	})
 }
@@ -1002,6 +1149,8 @@ func writeCreditSummaryEmpty(c *gin.Context, page, pageSize int) {
 			"summary_credit":      0.0,
 			"summary_repayment":   0.0,
 			"summary_outstanding": 0.0,
+			"summary_consumption": 0.0,
+			"summary_receivable":  0.0,
 		},
 	})
 }
@@ -1053,6 +1202,7 @@ type creditMonthlyRow struct {
 	MonthCredit          float64 `json:"month_credit"`          // 本月授信金额
 	MonthRepayment       float64 `json:"month_repayment"`       // 本月回款金额
 	EndingOutstanding    float64 `json:"ending_outstanding"`    // 月末未回款授信金额
+	MonthConsumption     float64 `json:"month_consumption"`     // 本月授信消耗金额（quota/QuotaPerUnit）
 }
 
 // GetCreditDetailsMonthly 明细表：按用户 + 月份维度展示授信与回款明细。
@@ -1114,17 +1264,20 @@ func GetCreditDetailsMonthly(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	type amountKey struct {
-		month  string
-		userId int
-	}
-	amountMap := make(map[amountKey]model.CreditMonthlyAggregate, len(monthlyRows))
+	amountMap := make(map[creditMonthKey]model.CreditMonthlyAggregate, len(monthlyRows))
 	for _, r := range monthlyRows {
-		amountMap[amountKey{r.Month, r.UserId}] = r
+		amountMap[creditMonthKey{r.Month, r.UserId}] = r
 	}
 
 	// 3. 区间之前的累计，作为第一个月的「月初未回款」基线
 	historyMap, err := model.SumCreditBeforeByUsers(rangeStartTs, userIds)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	// 3b. 区间内按 (用户, 月份) 聚合的消耗
+	consumptionMap, err := sumCreditConsumptionByUserMonth(startMonth, endMonth, userIds)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1140,7 +1293,7 @@ func GetCreditDetailsMonthly(c *gin.Context) {
 		runningRepayment := hist.TotalRepayment
 
 		for _, m := range months {
-			amt := amountMap[amountKey{m, u.Id}]
+			amt := amountMap[creditMonthKey{m, u.Id}]
 			beginningOut := runningCredit - runningRepayment
 			if beginningOut < 0 {
 				beginningOut = 0
@@ -1152,8 +1305,10 @@ func GetCreditDetailsMonthly(c *gin.Context) {
 				endingOut = 0
 			}
 
-			// 本月无授信无回款、且月初月末都没有欠款时，这一行没有信息量，略过
-			if amt.TotalCredit == 0 && amt.TotalRepayment == 0 && beginningOut == 0 && endingOut == 0 {
+			// 本月无授信、无回款、无消耗，且月初月末都没有欠款时，这一行没有信息量，略过
+			consumption := consumptionMap[creditMonthKey{m, u.Id}]
+			if amt.TotalCredit == 0 && amt.TotalRepayment == 0 && consumption == 0 &&
+				beginningOut == 0 && endingOut == 0 {
 				continue
 			}
 
@@ -1168,15 +1323,17 @@ func GetCreditDetailsMonthly(c *gin.Context) {
 				MonthCredit:          amt.TotalCredit,
 				MonthRepayment:       amt.TotalRepayment,
 				EndingOutstanding:    endingOut,
+				MonthConsumption:     consumption,
 			})
 		}
 	}
 
 	// 5. 汇总条统计整个筛选范围（所有行），分页只影响返回的那一页。
-	var summaryCredit, summaryRepayment float64
+	var summaryCredit, summaryRepayment, summaryConsumption float64
 	for _, r := range allRows {
 		summaryCredit += r.MonthCredit
 		summaryRepayment += r.MonthRepayment
+		summaryConsumption += r.MonthConsumption
 	}
 
 	total := int64(len(allRows))
@@ -1193,12 +1350,13 @@ func GetCreditDetailsMonthly(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"rows":              pageRows,
-			"total":             total,
-			"page":              page,
-			"page_size":         pageSize,
-			"summary_credit":    summaryCredit,
-			"summary_repayment": summaryRepayment,
+			"rows":                pageRows,
+			"total":               total,
+			"page":                page,
+			"page_size":           pageSize,
+			"summary_credit":      summaryCredit,
+			"summary_repayment":   summaryRepayment,
+			"summary_consumption": summaryConsumption,
 		},
 	})
 }
@@ -1208,14 +1366,74 @@ func writeCreditMonthlyEmpty(c *gin.Context, page, pageSize int) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"rows":              []creditMonthlyRow{},
-			"total":             int64(0),
-			"page":              page,
-			"page_size":         pageSize,
-			"summary_credit":    0.0,
-			"summary_repayment": 0.0,
+			"rows":                []creditMonthlyRow{},
+			"total":               int64(0),
+			"page":                page,
+			"page_size":           pageSize,
+			"summary_credit":      0.0,
+			"summary_repayment":   0.0,
+			"summary_consumption": 0.0,
 		},
 	})
+}
+
+// creditMonthKey 月度明细表里 (月份, 用户) 维度的聚合键。
+type creditMonthKey struct {
+	month  string // YYYY-MM
+	userId int
+}
+
+// sumCreditConsumptionByUserMonth 按 (月份, 用户) 聚合 [startMonth, endMonth] 内的净消耗，
+// 折算为 quota / QuotaPerUnit。历史走 vip_daily_consumptions，今天（若落在区间内）回 logs 补进当月。
+// SUBSTR(stat_date, 1, 7) 在 SQLite / MySQL / PostgreSQL 上语义一致（stat_date 是定长 YYYY-MM-DD 字符串）。
+func sumCreditConsumptionByUserMonth(startMonth, endMonth string, userIds []int) (map[creditMonthKey]float64, error) {
+	quotaMap := make(map[creditMonthKey]int64)
+	result := make(map[creditMonthKey]float64)
+	if len(userIds) == 0 {
+		return result, nil
+	}
+
+	today := time.Now().Format("2006-01-02")
+	histStart := startMonth + "-01"
+	histEnd := endMonth + "-31" // stat_date 是字符串，-31 作为月末上界对任何月份都成立
+	if histEnd >= today {
+		histEnd = time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	}
+	if histStart <= histEnd {
+		type row struct {
+			Month  string
+			UserId int
+			Total  int64
+		}
+		var rows []row
+		if err := model.DB.Model(&model.VipDailyConsumption{}).
+			Where("user_id IN ?", userIds).
+			Where("stat_date >= ? AND stat_date <= ?", histStart, histEnd).
+			Select("SUBSTR(stat_date, 1, 7) AS month, user_id, COALESCE(SUM(quota), 0) AS total").
+			Group("SUBSTR(stat_date, 1, 7), user_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			quotaMap[creditMonthKey{r.Month, r.UserId}] += r.Total
+		}
+	}
+
+	if currentMonth := today[:7]; currentMonth >= startMonth && currentMonth <= endMonth {
+		todayStart, todayEnd := todayUnixRange()
+		todayMap, err := sumTodayConsumptionByUsers(todayStart, todayEnd, userIds)
+		if err != nil {
+			return nil, err
+		}
+		for uid, quota := range todayMap {
+			quotaMap[creditMonthKey{currentMonth, uid}] += quota
+		}
+	}
+
+	for k, quota := range quotaMap {
+		result[k] = quotaToUSD(quota)
+	}
+	return result, nil
 }
 
 // creditMonthRangeUnix 把 [startMonth, endMonth]（YYYY-MM）换算成闭区间的 unix 秒。

@@ -7,10 +7,10 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { CreditSummary } from './types'
+import type { AmountDetailsDimension, CreditSummary } from './types'
 
 // 骨架卡片用固定 key，避免用数组下标做 key
-const SKELETON_CARD_KEYS = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6']
+const SKELETON_CARD_KEYS = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']
 
 function formatAmount(n: number): string {
   return n.toLocaleString(undefined, {
@@ -24,7 +24,7 @@ type CardItem = {
   value: number
   // 副标题：用于标注该卡片不随上方时间筛选变化
   subtitle?: string
-  // 「查看明细」入口：回款与未回款两张卡暂不提供
+  // 「查看明细」入口：剩余应收与未回款两张卡不提供，明细看下方授信汇总表
   onViewDetails?: () => void
 }
 
@@ -66,15 +66,13 @@ export function SummaryCards({
   data: CreditSummary | undefined
   isLoading: boolean
   // 点卡片上的「查看明细」时回传该卡片对应的金额维度，由父组件决定如何展开
-  onViewDetails?: (
-    dimension: 'recharge' | 'gift' | 'credit' | 'repayment'
-  ) => void
+  onViewDetails?: (dimension: AmountDetailsDimension) => void
 }) {
   const { t } = useTranslation()
 
   if (isLoading || !data) {
     return (
-      <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6'>
+      <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7'>
         {SKELETON_CARD_KEYS.map((key) => (
           <Card key={key} className='gap-1 py-3 sm:py-4'>
             <CardContent className='px-4 sm:px-5'>
@@ -89,25 +87,33 @@ export function SummaryCards({
 
   const items: CardItem[] = [
     {
-      label: t('Recharge Amount (¥)'),
+      label: t('Recharge Amount'),
       value: data.recharge_amount,
       onViewDetails: onViewDetails ? () => onViewDetails('recharge') : undefined,
     },
     {
-      label: t('Gift Amount (¥)'),
+      label: t('Gift Amount'),
       value: data.gift_amount,
       onViewDetails: onViewDetails ? () => onViewDetails('gift') : undefined,
     },
     {
-      label: t('Credit Amount (¥)'),
+      label: t('Credit Amount'),
       value: data.credit_amount,
       onViewDetails: onViewDetails ? () => onViewDetails('credit') : undefined,
     },
     {
-      label: t('Repayment Amount (¥)'),
+      label: t('Repayment Amount'),
       value: data.repayment_amount,
       onViewDetails: onViewDetails
         ? () => onViewDetails('repayment')
+        : undefined,
+    },
+    {
+      // 授信客户在查询区间内的消耗，消耗按 quota/QuotaPerUnit 折算
+      label: t('Credit Consumption Amount'),
+      value: data.credit_consumption,
+      onViewDetails: onViewDetails
+        ? () => onViewDetails('consumption')
         : undefined,
     },
     {
@@ -119,14 +125,14 @@ export function SummaryCards({
     },
     {
       // 全时间总额口径，与上方时间筛选无关，单独标注避免误读
-      label: t('Outstanding Credit (¥)'),
+      label: t('Outstanding Credit'),
       value: data.outstanding_credit,
       subtitle: t('Total credit - total repayment (all time)'),
     },
   ]
 
   return (
-    <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6'>
+    <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7'>
       {items.map((item) => (
         <CardCell key={item.label} item={item} detailsLabel={t('View Details')} />
       ))}

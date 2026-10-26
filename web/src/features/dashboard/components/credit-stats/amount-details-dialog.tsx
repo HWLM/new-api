@@ -30,14 +30,14 @@ import {
 } from '@/components/ui/pagination'
 import { fetchAmountDetails } from './api'
 import { TablePlaceholderRows } from './table-states'
-import type { CreditTrendDimension } from './types'
+import type { AmountDetailsDimension } from './types'
 
 const PAGE_SIZE = 20
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  dimension: CreditTrendDimension
+  dimension: AmountDetailsDimension
   dimensionLabel: string
   startDate: string
   endDate: string

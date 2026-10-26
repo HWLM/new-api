@@ -80,6 +80,10 @@ export async function fetchCreditDetailsSummary(
   const params: Record<string, string> = {}
   appendMultiSelect(params, filter)
   appendPagination(params, filter)
+  if (filter.sort_by) {
+    params.sort_by = filter.sort_by
+    params.sort_dir = filter.sort_dir ?? 'desc'
+  }
   const res = await api.get<ApiResp<CreditSummaryListResp>>(
     '/api/credit_stats/details_summary',
     { params }
