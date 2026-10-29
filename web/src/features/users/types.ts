@@ -234,6 +234,14 @@ export interface ManageUserQuotaPayload {
 export interface TgNotifySettings {
   bot_token: string
   chat_id: string
+  /**
+   * 过载类告警（并发超限 / 拒答降级）专用接收群。空串则回落到 chat_id。
+   */
+  overload_chat_id?: string
+  /** 独立开关：并发超限触发时发 TG */
+  notify_concurrency_enabled?: boolean
+  /** 独立开关：拒答降级首次命中时发 TG */
+  notify_refusal_demote_enabled?: boolean
 }
 
 // ============================================================================

@@ -141,6 +141,7 @@ type usageLogExportWorkbook struct {
 	rowIndex  int
 	totals    usageLogExportTotals
 	styles    usageLogExportStyles
+	loc       *time.Location
 }
 
 func StartUsageLogExportTask(payload UsageLogExportTaskPayload) (*model.SystemTask, bool, error) {
@@ -235,6 +236,7 @@ func RunUsageLogExportTask(ctx context.Context, task *model.SystemTask, runnerID
 			fallbackDay,
 			fallbackDay.AddDate(0, 0, 1),
 			locLabel,
+			loc,
 			1,
 			[]usageLogExportRow{},
 		)
@@ -374,6 +376,7 @@ func buildUsageLogExportFilesForDay(
 					payload,
 					dayRange.dayStart,
 					locLabel,
+					loc,
 				)
 				if err != nil {
 					return nil, totalRows, err
@@ -488,7 +491,7 @@ func fetchUsageLogExportRows(tx *gorm.DB, cursor usageLogExportCursor, limit int
 	return rows, nil
 }
 
-func newUsageLogExportWorkbook(payload UsageLogExportTaskPayload, dayStart time.Time, locLabel string) (*usageLogExportWorkbook, error) {
+func newUsageLogExportWorkbook(payload UsageLogExportTaskPayload, dayStart time.Time, locLabel string, loc *time.Location) (*usageLogExportWorkbook, error) {
 	file := excelize.NewFile()
 	sheetName := dayStart.Format("2006-01-02")
 	defaultSheet := file.GetSheetName(0)
@@ -509,6 +512,7 @@ func newUsageLogExportWorkbook(payload UsageLogExportTaskPayload, dayStart time.
 		partName:  dayStart.Format("2006-01-02"),
 		rowIndex:  7,
 		styles:    styles,
+		loc:       loc,
 	}
 	if err := builder.initSheet(); err != nil {
 		_ = file.Close()
@@ -585,10 +589,10 @@ func (b *usageLogExportWorkbook) initSheet() error {
 	if err := b.file.SetCellValue(b.sheetName, titleCell, b.title); err != nil {
 		return err
 	}
-	if err := b.file.MergeCell(b.sheetName, "A1", "T1"); err != nil {
+	if err := b.file.MergeCell(b.sheetName, "A1", "U1"); err != nil {
 		return err
 	}
-	if err := b.file.SetCellStyle(b.sheetName, "A1", "T1", b.styles.title); err != nil {
+	if err := b.file.SetCellStyle(b.sheetName, "A1", "U1", b.styles.title); err != nil {
 		return err
 	}
 
@@ -599,7 +603,7 @@ func (b *usageLogExportWorkbook) initSheet() error {
 		{"I2", "K2"},
 		{"L2", "N2"},
 		{"O2", "Q2"},
-		{"R2", "T2"},
+		{"R2", "U2"},
 	}
 	summaryTitles := []string{"请求数", "总 Token", "输入 Token", "输出 Token", "缓存读取 Token", "缓存写入 Token", "总费用 (USD)"}
 	for i, group := range summaryGroups {
@@ -621,7 +625,7 @@ func (b *usageLogExportWorkbook) initSheet() error {
 		{"I3", "K3"},
 		{"L3", "N3"},
 		{"O3", "Q3"},
-		{"R3", "T3"},
+		{"R3", "U3"},
 	}
 	for _, group := range summaryValueGroups {
 		if err := b.file.MergeCell(b.sheetName, group[0], group[1]); err != nil {
@@ -638,14 +642,14 @@ func (b *usageLogExportWorkbook) initSheet() error {
 		end   string
 		text  string
 	}{
-		{"A5", "G5", "请求与计费"},
-		{"H5", "I5", "输入"},
-		{"J5", "K5", "输出"},
-		{"L5", "M5", "缓存读取"},
-		{"N5", "O5", "缓存写入（通用）"},
-		{"P5", "Q5", "缓存写入（5 分钟）"},
-		{"R5", "S5", "缓存写入（1 小时）"},
-		{"T5", "T5", "汇总"},
+		{"A5", "H5", "请求与计费"},
+		{"I5", "J5", "输入"},
+		{"K5", "L5", "输出"},
+		{"M5", "N5", "缓存读取"},
+		{"O5", "P5", "缓存写入（通用）"},
+		{"Q5", "R5", "缓存写入（5 分钟）"},
+		{"S5", "T5", "缓存写入（1 小时）"},
+		{"U5", "U5", "汇总"},
 	}
 	for _, item := range groupMergeRanges {
 		if item.start != item.end {
@@ -663,6 +667,7 @@ func (b *usageLogExportWorkbook) initSheet() error {
 	_ = groupRow
 
 	headers := []string{
+		"时间",
 		"请求 ID",
 		"类型",
 		"令牌",
@@ -695,26 +700,27 @@ func (b *usageLogExportWorkbook) initSheet() error {
 	}
 
 	widths := map[string]float64{
-		"A": 34,
-		"B": 10,
-		"C": 16,
-		"D": 18,
-		"E": 16,
-		"F": 14,
-		"G": 10,
-		"H": 14,
-		"I": 16,
-		"J": 14,
-		"K": 16,
-		"L": 14,
-		"M": 16,
+		"A": 20,
+		"B": 34,
+		"C": 10,
+		"D": 16,
+		"E": 18,
+		"F": 16,
+		"G": 14,
+		"H": 10,
+		"I": 14,
+		"J": 16,
+		"K": 14,
+		"L": 16,
+		"M": 14,
 		"N": 16,
-		"O": 18,
-		"P": 16,
-		"Q": 18,
-		"R": 16,
-		"S": 18,
-		"T": 16,
+		"O": 16,
+		"P": 18,
+		"Q": 16,
+		"R": 18,
+		"S": 16,
+		"T": 18,
+		"U": 16,
 	}
 	for col, width := range widths {
 		if err := b.file.SetColWidth(b.sheetName, col, col, width); err != nil {
@@ -769,6 +775,7 @@ func (b *usageLogExportWorkbook) addRow(row usageLogExportRow) error {
 	}
 
 	values := []any{
+		formatExportTimestamp(row.CreatedAt, b.loc),
 		trimExportText(row.RequestID),
 		displayType,
 		trimExportText(row.TokenName),
@@ -835,7 +842,7 @@ func (b *usageLogExportWorkbook) finish() ([]byte, error) {
 
 	lastRow := b.rowIndex - 1
 	if lastRow >= 7 {
-		tableRange := fmt.Sprintf("A6:T%d", lastRow)
+		tableRange := fmt.Sprintf("A6:U%d", lastRow)
 		tableName := sanitizeUsageLogExportTableName(b.partName)
 		showRowStripes := true
 		if err := b.file.AddTable(b.sheetName, &excelize.Table{
@@ -871,12 +878,13 @@ func buildUsageLogExportWorkbookFile(
 	dayStart time.Time,
 	dayEnd time.Time,
 	locLabel string,
+	loc *time.Location,
 	partIndex int,
 	rows []usageLogExportRow,
 ) (usageLogExportArchiveFile, error) {
 	_ = dayEnd
 	_ = partIndex
-	workbook, err := newUsageLogExportWorkbook(payload, dayStart, locLabel)
+	workbook, err := newUsageLogExportWorkbook(payload, dayStart, locLabel, loc)
 	if err != nil {
 		return usageLogExportArchiveFile{}, err
 	}
@@ -1118,6 +1126,16 @@ func formatExportFloat(v float64) string {
 		return "0"
 	}
 	return s
+}
+
+func formatExportTimestamp(ts int64, loc *time.Location) string {
+	if ts <= 0 {
+		return ""
+	}
+	if loc == nil {
+		loc = time.Local
+	}
+	return time.Unix(ts, 0).In(loc).Format("2006-01-02 15:04:05")
 }
 
 func trimExportText(v string) string {

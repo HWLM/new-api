@@ -30,13 +30,22 @@ import (
 type TgNotifySettings struct {
 	BotToken string `json:"bot_token"`
 	ChatId   string `json:"chat_id"`
+	// 过载类告警（并发超限 / 拒答降级）专用接收群，空串表示回落到 ChatId。
+	OverloadChatId string `json:"overload_chat_id"`
+	// 独立开关：并发超限告警
+	NotifyConcurrencyEnabled bool `json:"notify_concurrency_enabled"`
+	// 独立开关：拒答降级告警
+	NotifyRefusalDemoteEnabled bool `json:"notify_refusal_demote_enabled"`
 }
 
 // GetTgNotifySettings 返回当前 TG 通知群配置（仅管理员可调用）
 func GetTgNotifySettings(c *gin.Context) {
 	common.ApiSuccess(c, TgNotifySettings{
-		BotToken: model.GetOptionString(service.OptionKeyTgBotToken),
-		ChatId:   model.GetOptionString(service.OptionKeyTgChatId),
+		BotToken:                   model.GetOptionString(service.OptionKeyTgBotToken),
+		ChatId:                     model.GetOptionString(service.OptionKeyTgChatId),
+		OverloadChatId:             model.GetOptionString(service.OptionKeyTgOverloadChatId),
+		NotifyConcurrencyEnabled:   tgBoolOption(service.OptionKeyTgNotifyConcurrencyEnabled),
+		NotifyRefusalDemoteEnabled: tgBoolOption(service.OptionKeyTgNotifyRefusalDemoteEnabled),
 	})
 }
 
@@ -55,7 +64,34 @@ func UpdateTgNotifySettings(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.UpdateOption(service.OptionKeyTgOverloadChatId, req.OverloadChatId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.UpdateOption(service.OptionKeyTgNotifyConcurrencyEnabled, boolOptionString(req.NotifyConcurrencyEnabled)); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.UpdateOption(service.OptionKeyTgNotifyRefusalDemoteEnabled, boolOptionString(req.NotifyRefusalDemoteEnabled)); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	common.ApiSuccess(c, nil)
+}
+
+func tgBoolOption(key string) bool {
+	switch model.GetOptionString(key) {
+	case "true", "1", "yes", "on":
+		return true
+	}
+	return false
+}
+
+func boolOptionString(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
 }
 
 // TriggerTgNotifyManually 手动触发一次 TG 播报（用于测试，仅管理员可调用）。

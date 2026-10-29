@@ -98,7 +98,7 @@ func filterGroupsByCurrentUser(c *gin.Context, groups []perfmetrics.GroupResult)
 		})
 	}
 
-	usableGroups := service.GetUserUsableGroups(userGroup, userRole)
+	usableGroups := service.GetUserUsableGroupsForDisplay(userGroup, userRole)
 	return lo.Filter(groups, func(g perfmetrics.GroupResult, _ int) bool {
 		if g.Group == "auto" {
 			return true

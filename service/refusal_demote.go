@@ -180,27 +180,32 @@ func triggerDemotion(ctx context.Context, userID, total, refusedCount, threshold
 	}
 	logger.LogWarn(ctx, fmt.Sprintf("refusal_demote: user=%d ratio=%.2f (%d/%d) threshold=%d%% duration=%ds",
 		userID, ratio, refusedCount, total, thresholdPct, demoteSeconds))
+	// TG 告警不在此处发：这里对应的是「阈值刚被跨过」的那次请求，它本身并不会被
+	// 重导（上游 relay 已经返回了拒答）。真正走兜底/429 的是下一次命中 IsUserDemoted
+	// 的请求，Distribute 中间件在那里决定「重导到渠道 X」或「无兜底 → 429」后再发，
+	// 以便消息里能带上实际结果。SETNX 节流窗口 = demoteSeconds，一次降级生命周期内
+	// 不管在哪里尝试发都只会生成一条。
 }
 
 // IsUserDemoted 在渠道分发前检查用户是否处于拒答降级态。
-// 返回 (demoted, ratio, windowCount)：ratio 仅在当前窗口可读时非零，
-// 便于审计日志展示；无法读到窗口时 ratio=0, windowCount=0。
-func IsUserDemoted(c *gin.Context, userID int) (demoted bool, ratio float64, windowCount int) {
+// 返回 (demoted, ratio, windowCount, refusedCount)：ratio/refusedCount 仅在当前
+// 窗口可读时非零，便于审计日志与 TG 文案展示；无法读到窗口时返回 0。
+func IsUserDemoted(c *gin.Context, userID int) (demoted bool, ratio float64, windowCount, refusedCount int) {
 	if userID <= 0 {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
 	if !isRefusalDemoteEffectiveForUser(userID) {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
 	demoted = isDemotedBackend(c, userID)
 	if !demoted {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
-	total, refusedCount := snapshotWindow(c, userID)
+	total, refused := snapshotWindow(c, userID)
 	if total > 0 {
-		ratio = float64(refusedCount) / float64(total)
+		ratio = float64(refused) / float64(total)
 	}
-	return true, ratio, total
+	return true, ratio, total, refused
 }
 
 func isDemotedBackend(ctx context.Context, userID int) bool {

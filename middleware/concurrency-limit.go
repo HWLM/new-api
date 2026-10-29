@@ -57,11 +57,12 @@ func UserConcurrencyLimit() func(c *gin.Context) {
 
 		// 拒答降级判定：独立于并发开关。只要用户当前处于降级态，就置 Overloaded
 		// 标记，让 Distribute 中间件把请求重导到渠道的 FallbackChannelId。
-		if demoted, ratio, windowCount := service.IsUserDemoted(c, userID); demoted {
+		if demoted, ratio, windowCount, refusedCount := service.IsUserDemoted(c, userID); demoted {
 			common.SetContextKey(c, constant.ContextKeyUserOverloaded, true)
 			common.SetContextKey(c, constant.ContextKeyRefusalDemoted, true)
 			common.SetContextKey(c, constant.ContextKeyRefusalDemoteRatio, ratio)
 			common.SetContextKey(c, constant.ContextKeyRefusalDemoteWindow, windowCount)
+			common.SetContextKey(c, constant.ContextKeyRefusalRefusedCount, refusedCount)
 			common.SysLog(fmt.Sprintf("[concurrency] user=%d refusal demoted ratio=%.2f window=%d, routing to fallback",
 				userID, ratio, windowCount))
 			// 不 return：继续走并发计数，若并发开关也开启就正常累加槽位
@@ -129,6 +130,10 @@ func UserConcurrencyLimit() func(c *gin.Context) {
 		if over {
 			common.SetContextKey(c, constant.ContextKeyUserOverloaded, true)
 			common.SetContextKey(c, constant.ContextKeyConcurrencyOverloaded, true)
+			// 把计数/上限落到 context，Distribute 中间件在决定「重导兜底 or 429」后
+			// 再异步发 TG，这样消息里能带上兜底结果而不是只报超限。
+			common.SetContextKey(c, constant.ContextKeyConcurrencyCount, count)
+			common.SetContextKey(c, constant.ContextKeyConcurrencyLimit, limit)
 		}
 		c.Next()
 	}

@@ -40,6 +40,13 @@ const (
 	OptionKeyTgRetryCountDate   = "tg_notify_retry_date"       // 形如 "2026-06-09|2"，记录当天重试次数
 	OptionKeyTgFrontendBaseUrl  = "tg_notify_frontend_base_url" // 形如 "https://aiyunrouter.com/"，用于消耗明细链接
 	VipStatsDetailPathFromBase  = "vip-stats"                   // 与前端公开路由 /vip-stats 对应
+
+	// 过载类告警（并发超限 / 拒答降级）独立的接收群，为空则回落到 OptionKeyTgChatId。
+	OptionKeyTgOverloadChatId = "tg_notify_overload_chat_id"
+	// 开关：并发超限触发时是否发 TG。
+	OptionKeyTgNotifyConcurrencyEnabled = "tg_notify_concurrency_enabled"
+	// 开关：拒答降级首次命中时是否发 TG。
+	OptionKeyTgNotifyRefusalDemoteEnabled = "tg_notify_refusal_demote_enabled"
 )
 
 const (

@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -172,6 +173,7 @@ func Distribute() func(c *gin.Context) {
 						c.GetInt("id"), modelRequest.Model, channel.Id, channel.FallbackChannelId, overloaded))
 				}
 				if overloaded && channel != nil {
+					originalChannelID := channel.Id
 					if fb := redirectToFallbackChannel(c, channel, modelRequest.Model, selectGroup); fb != nil {
 						// 记录重导前的原渠道信息，供消费日志审计
 						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, channel.Id)
@@ -181,12 +183,15 @@ func Distribute() func(c *gin.Context) {
 						selectGroup = fb.group
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, selectGroup)
 						common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
+						notifyOverloadTg(c, originalChannelID, fb.channel.Id, service.OverloadFallbackRedirected)
 					} else {
 						// 兜底不可用（未配置 / 自环 / 已禁用 / 不支持模型等）→ 429
+						// 按触发来源区分返回文案：并发超限直说，拒答降级只给中性
+						// 「风控降级」口径，不透露内部指标。
 						common.SysLog(fmt.Sprintf("[distribute] user=%d rejected: overloaded without usable fallback (channel=%d fallback_channel_id=%d)",
 							c.GetInt("id"), channel.Id, channel.FallbackChannelId))
-						abortWithOpenAiMessage(c, http.StatusTooManyRequests,
-							"Too many pending requests, please retry later")
+						notifyOverloadTg(c, originalChannelID, 0, service.OverloadFallbackUnavailable)
+						abortWithOpenAiMessage(c, http.StatusTooManyRequests, overloadRejectionMessage(c))
 						return
 					}
 				}
@@ -293,6 +298,45 @@ func pickFallbackChannelGroup(channel *model.Channel, preferred string) string {
 		return ""
 	}
 	return groups[0]
+}
+
+// notifyOverloadTg 在 Distribute 决定「重导兜底 or 429」后，按本次请求命中的告警类型
+// 异步发送 TG。并发超限与拒答降级可能同时命中（例如用户同时触发两套限流），
+// 此时按独立开关分别发送，各自走各自的节流窗口。
+func notifyOverloadTg(c *gin.Context, originalChannelID, fallbackChannelID int, outcome service.OverloadFallbackOutcome) {
+	userID := c.GetInt("id")
+	if userID <= 0 {
+		return
+	}
+	if common.GetContextKeyBool(c, constant.ContextKeyConcurrencyOverloaded) {
+		count := common.GetContextKeyInt(c, constant.ContextKeyConcurrencyCount)
+		limit := common.GetContextKeyInt(c, constant.ContextKeyConcurrencyLimit)
+		service.NotifyConcurrencyOverload(userID, count, limit, originalChannelID, fallbackChannelID, outcome)
+	}
+	if common.GetContextKeyBool(c, constant.ContextKeyRefusalDemoted) {
+		refusedCount := common.GetContextKeyInt(c, constant.ContextKeyRefusalRefusedCount)
+		windowCount := common.GetContextKeyInt(c, constant.ContextKeyRefusalDemoteWindow)
+		s := operation_setting.GetRefusalDemoteSetting()
+		service.NotifyRefusalDemoteTriggered(userID, refusedCount, windowCount, s.ThresholdPct, s.DemoteSeconds,
+			originalChannelID, fallbackChannelID, outcome)
+	}
+}
+
+// overloadRejectionMessage 组装 429 返回给客户端的中文提示。
+// 并发超限：直说超限（这是用户自己的行为，提示有助于自纠）。
+// 仅拒答降级：只给「风控降级」中性口径，不透露内部拒答比指标。
+// 两者同时命中：合并一句。
+func overloadRejectionMessage(c *gin.Context) string {
+	concurrency := common.GetContextKeyBool(c, constant.ContextKeyConcurrencyOverloaded)
+	refusal := common.GetContextKeyBool(c, constant.ContextKeyRefusalDemoted)
+	switch {
+	case concurrency && refusal:
+		return "您账号当前并发请求数已超限，且处于风控降级状态，请联系管理员"
+	case refusal:
+		return "您账号当前处于风控降级状态，请联系管理员"
+	default:
+		return "您账号并发请求数已超限，请联系管理员"
+	}
 }
 
 // getModelFromRequest 从请求中读取模型信息

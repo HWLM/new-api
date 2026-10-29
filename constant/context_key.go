@@ -69,6 +69,14 @@ const (
 	// 置为 ContextKeyUserOverloaded；仅用于区分 fallback_from 的触发来源，
 	// 不影响 Distribute 中间件的实际行为。
 	ContextKeyConcurrencyOverloaded ContextKey = "concurrency_overloaded"
+	// ContextKeyConcurrencyCount / ContextKeyConcurrencyLimit 记录并发超限命中
+	// 时的 in-flight 计数和上限，供 Distribute 中间件在决定「重导兜底/429」后
+	// 异步发 TG 时拼消息用。
+	ContextKeyConcurrencyCount ContextKey = "concurrency_count"
+	ContextKeyConcurrencyLimit ContextKey = "concurrency_limit"
+	// ContextKeyRefusalRefusedCount 命中降级时记录当前滑窗内「拒答」样本数，
+	// 配合 ContextKeyRefusalDemoteWindow 还原 refused/total 用于 TG 文案。
+	ContextKeyRefusalRefusedCount ContextKey = "refusal_demote_refused_count"
 
 	// 兜底渠道重导的审计字段。仅在 Distribute 把请求从原渠道改到渠道的
 	// FallbackChannelId 时写入；消费日志生成阶段读出并落到 other.fallback_from
