@@ -20,8 +20,8 @@ package model
 
 import (
 	"fmt"
-
-	"github.com/QuantumNous/new-api/common"
+	"sort"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -126,40 +126,72 @@ func SumCreditInRange(startTs, endTs int64) (CreditAggregate, error) {
 	return row, err
 }
 
+// creditRecordRow 是授信 / 回款流水的原始行，供按时间分桶的聚合在 Go 侧使用。
+type creditRecordRow struct {
+	UserId    int
+	Type      int
+	Amount    float64
+	CreatedAt int64
+}
+
+// loadCreditRecordRows 取出 [startTs, endTs] 内的原始流水行。
+// userIds 语义同 SumCreditByUsers：nil 表示不限用户，长度 0 表示明确无匹配用户。
+//
+// 按天 / 按月分桶刻意放在 Go 侧（而不是交给 SQL 的 to_char/FROM_UNIXTIME）：
+// 这些 SQL 时间函数按数据库会话时区换算，而 vip_daily_consumptions.stat_date
+// 是按应用进程时区（TZ）算的。数据库时区与应用时区不一致时（例如 postgres 容器
+// 默认 UTC、应用为 Asia/Shanghai），北京时间 00:00-07:59 的流水会被归到前一天 /
+// 上个月，与消耗口径错开一天。这张表只有管理员操作级别的小数据量，内存分组无成本。
+func loadCreditRecordRows(startTs, endTs int64, userIds []int) ([]creditRecordRow, error) {
+	if userIds != nil && len(userIds) == 0 {
+		return nil, nil
+	}
+	tx := DB.Model(&CreditRecord{}).
+		Where("created_at >= ? AND created_at <= ?", startTs, endTs)
+	if userIds != nil {
+		tx = tx.Where("user_id IN ?", userIds)
+	}
+	var rows []creditRecordRow
+	err := tx.Select("user_id, type, amount, created_at").Scan(&rows).Error
+	return rows, err
+}
+
+// creditPeriodKey 把 unix 秒转成应用本地时区下的 YYYY-MM-DD（layout 传 "2006-01-02"）
+// 或 YYYY-MM（layout 传 "2006-01"）。
+func creditPeriodKey(createdAt int64, layout string) string {
+	return time.Unix(createdAt, 0).In(time.Local).Format(layout)
+}
+
 // CreditTrendBucket 趋势图的一个时间桶。
 type CreditTrendBucket struct {
 	Bucket string  `json:"bucket"` // 按天为 YYYY-MM-DD，按月为 YYYY-MM
 	Amount float64 `json:"amount"`
 }
 
-// creditDayExpr 返回把 created_at（unix 秒）转成 'YYYY-MM-DD' 的 SQL 表达式，方言同 creditMonthExpr。
-func creditDayExpr() string {
-	switch {
-	case common.UsingMainDatabase(common.DatabaseTypePostgreSQL):
-		return "to_char(to_timestamp(created_at), 'YYYY-MM-DD')"
-	case common.UsingMainDatabase(common.DatabaseTypeMySQL):
-		return "DATE_FORMAT(FROM_UNIXTIME(created_at), '%Y-%m-%d')"
-	default:
-		return "strftime('%Y-%m-%d', created_at, 'unixepoch', 'localtime')"
-	}
-}
-
 // SumCreditTrendBuckets 按天或按月聚合单一口径（授信或回款）的金额，供趋势图使用。
 // byMonth = true 时桶为 YYYY-MM，否则为 YYYY-MM-DD；结果按桶升序。
 func SumCreditTrendBuckets(recordType int, startTs, endTs int64, byMonth bool) ([]CreditTrendBucket, error) {
-	bucketExpr := creditDayExpr()
-	if byMonth {
-		bucketExpr = creditMonthExpr()
+	rows, err := loadCreditRecordRows(startTs, endTs, nil)
+	if err != nil {
+		return nil, err
 	}
-	var rows []CreditTrendBucket
-	err := DB.Model(&CreditRecord{}).
-		Where("type = ?", recordType).
-		Where("created_at >= ? AND created_at <= ?", startTs, endTs).
-		Select(bucketExpr+" AS bucket, COALESCE(SUM(amount), 0) AS amount").
-		Group(bucketExpr).
-		Order("bucket").
-		Scan(&rows).Error
-	return rows, err
+	layout := "2006-01-02"
+	if byMonth {
+		layout = "2006-01"
+	}
+	totals := make(map[string]float64)
+	for _, r := range rows {
+		if r.Type != recordType {
+			continue
+		}
+		totals[creditPeriodKey(r.CreatedAt, layout)] += r.Amount
+	}
+	buckets := make([]CreditTrendBucket, 0, len(totals))
+	for bucket, amount := range totals {
+		buckets = append(buckets, CreditTrendBucket{Bucket: bucket, Amount: amount})
+	}
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i].Bucket < buckets[j].Bucket })
+	return buckets, nil
 }
 
 // SumCreditByUsers 按用户聚合授信 / 回款总额（全时间）。
@@ -218,24 +250,39 @@ type CreditDailyAggregate struct {
 // SumCreditByUserDay 按 (用户, 天) 聚合 [startTs, endTs] 内的授信 / 回款，
 // 供「按天统计」明细按日期维度取授信金额。userIds 语义同 SumCreditByUsers。
 func SumCreditByUserDay(startTs, endTs int64, userIds []int) ([]CreditDailyAggregate, error) {
-	if userIds != nil && len(userIds) == 0 {
-		return nil, nil
-	}
-	dayExpr := creditDayExpr()
-	selectExpr, args := creditSumSelect(true)
-	tx := DB.Model(&CreditRecord{}).
-		Where("created_at >= ? AND created_at <= ?", startTs, endTs)
-	if userIds != nil {
-		tx = tx.Where("user_id IN ?", userIds)
-	}
-	var rows []CreditDailyAggregate
-	if err := tx.
-		Select(dayExpr+" AS day, "+selectExpr, args...).
-		Group(dayExpr + ", user_id").
-		Scan(&rows).Error; err != nil {
+	rows, err := loadCreditRecordRows(startTs, endTs, userIds)
+	if err != nil {
 		return nil, err
 	}
-	return rows, nil
+	type key struct {
+		day    string
+		userId int
+	}
+	totals := make(map[key]CreditDailyAggregate)
+	for _, r := range rows {
+		k := key{day: creditPeriodKey(r.CreatedAt, "2006-01-02"), userId: r.UserId}
+		agg := totals[k]
+		agg.Day = k.day
+		agg.UserId = r.UserId
+		switch r.Type {
+		case CreditRecordTypeCredit:
+			agg.TotalCredit += r.Amount
+		case CreditRecordTypeRepayment:
+			agg.TotalRepayment += r.Amount
+		}
+		totals[k] = agg
+	}
+	result := make([]CreditDailyAggregate, 0, len(totals))
+	for _, agg := range totals {
+		result = append(result, agg)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Day != result[j].Day {
+			return result[i].Day < result[j].Day
+		}
+		return result[i].UserId < result[j].UserId
+	})
+	return result, nil
 }
 
 // CreditMonthlyAggregate 某用户在某个月份的授信 / 回款聚合。
@@ -246,45 +293,43 @@ type CreditMonthlyAggregate struct {
 	TotalRepayment float64 `json:"total_repayment"`
 }
 
-// creditMonthExpr 返回把 created_at（unix 秒）转成 'YYYY-MM' 的 SQL 表达式。
-// 三种数据库的时间函数不通用，必须按方言分支：
-//   - SQLite：strftime + unixepoch 修饰符
-//   - MySQL：FROM_UNIXTIME + DATE_FORMAT
-//   - PostgreSQL：to_timestamp + to_char
-//
-// 统一按数据库服务器的本地时区换算，与 vip_daily_consumptions 的 stat_date 口径一致。
-func creditMonthExpr() string {
-	switch {
-	case common.UsingMainDatabase(common.DatabaseTypePostgreSQL):
-		return "to_char(to_timestamp(created_at), 'YYYY-MM')"
-	case common.UsingMainDatabase(common.DatabaseTypeMySQL):
-		return "DATE_FORMAT(FROM_UNIXTIME(created_at), '%Y-%m')"
-	default:
-		return "strftime('%Y-%m', created_at, 'unixepoch', 'localtime')"
-	}
-}
-
 // SumCreditByUserMonth 按 (用户, 月份) 聚合授信 / 回款，用于月度明细表。
 // startTs / endTs 为闭区间的 unix 秒；userIds 语义同 SumCreditByUsers。
+// 分桶同样在 Go 侧按应用本地时区完成，理由见 loadCreditRecordRows。
 func SumCreditByUserMonth(startTs, endTs int64, userIds []int) ([]CreditMonthlyAggregate, error) {
-	if userIds != nil && len(userIds) == 0 {
-		return nil, nil
-	}
-	monthExpr := creditMonthExpr()
-	selectExpr, args := creditSumSelect(true)
-	tx := DB.Model(&CreditRecord{}).
-		Where("created_at >= ? AND created_at <= ?", startTs, endTs)
-	if userIds != nil {
-		tx = tx.Where("user_id IN ?", userIds)
-	}
-	var rows []CreditMonthlyAggregate
-	if err := tx.
-		Select(monthExpr+" AS month, "+selectExpr, args...).
-		Group(monthExpr + ", user_id").
-		Scan(&rows).Error; err != nil {
+	rows, err := loadCreditRecordRows(startTs, endTs, userIds)
+	if err != nil {
 		return nil, err
 	}
-	return rows, nil
+	type key struct {
+		month  string
+		userId int
+	}
+	totals := make(map[key]CreditMonthlyAggregate)
+	for _, r := range rows {
+		k := key{month: creditPeriodKey(r.CreatedAt, "2006-01"), userId: r.UserId}
+		agg := totals[k]
+		agg.Month = k.month
+		agg.UserId = r.UserId
+		switch r.Type {
+		case CreditRecordTypeCredit:
+			agg.TotalCredit += r.Amount
+		case CreditRecordTypeRepayment:
+			agg.TotalRepayment += r.Amount
+		}
+		totals[k] = agg
+	}
+	result := make([]CreditMonthlyAggregate, 0, len(totals))
+	for _, agg := range totals {
+		result = append(result, agg)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Month != result[j].Month {
+			return result[i].Month < result[j].Month
+		}
+		return result[i].UserId < result[j].UserId
+	})
+	return result, nil
 }
 
 // SumCreditBeforeByUsers 聚合给定时间点之前的授信 / 回款总额，用于推算「月初未回款授信金额」。

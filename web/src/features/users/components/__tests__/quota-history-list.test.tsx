@@ -74,6 +74,7 @@ await i18n.use(initReactI18next).init({
         'Quota adjustment': 'Quota adjustment',
         'Quota change history': 'Quota change history',
         Refund: 'Refund',
+        Remark: 'Remark',
         Retry: 'Retry',
         Time: 'Time',
         'Top-up': 'Top-up',
@@ -253,6 +254,46 @@ describe('user quota history list', () => {
     assert.equal(tableHeader.classList.contains('top-0'), true)
 
     await unmountList(rendered)
+  })
+
+  test('hides admin remark and details columns when showDetails is false', async () => {
+    const items = [
+      {
+        id: 1,
+        created_at: 1785722940,
+        type: 1,
+        delta_quota: 500000,
+        before_quota: 1000000,
+        after_quota: 1500000,
+      },
+    ]
+    const listProps = {
+      currentQuota: 1500000,
+      items,
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      onRetry: () => {},
+    }
+
+    const selfView = await renderList({ ...listProps, showDetails: false })
+    const selfHeader = normalizedText(
+      selfView.container.querySelector('[data-slot="table-header"]')
+        ?.textContent ?? null
+    )
+    assert.equal(selfHeader.includes('Remark'), false)
+    assert.equal(selfHeader.includes('Details'), false)
+    assert.equal(selfHeader.includes('Afterchange'), true)
+    await unmountList(selfView)
+
+    const adminView = await renderList(listProps)
+    const adminHeader = normalizedText(
+      adminView.container.querySelector('[data-slot="table-header"]')
+        ?.textContent ?? null
+    )
+    assert.equal(adminHeader.includes('Remark'), true)
+    assert.equal(adminHeader.includes('Details'), true)
+    await unmountList(adminView)
   })
 
   test('offers a working retry action when loading fails', async () => {

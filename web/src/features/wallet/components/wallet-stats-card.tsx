@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, WalletCards } from 'lucide-react'
+import { Activity, BarChart3, History, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota } from '@/lib/format'
@@ -28,6 +29,7 @@ import type { UserWalletData } from '../types'
 interface WalletStatsCardProps {
   user: UserWalletData | null
   loading?: boolean
+  onViewQuotaHistory?: () => void
 }
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
@@ -52,6 +54,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     description: string
     icon: typeof WalletCards
     tone: IconBadgeTone
+    onAction?: () => void
   }[] = [
     {
       label: t('Current Balance'),
@@ -59,6 +62,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
       description: t('Remaining quota'),
       icon: WalletCards,
       tone: 'success',
+      onAction: props.onViewQuotaHistory,
     },
     {
       label: t('Total Usage'),
@@ -87,6 +91,19 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             <div className='text-muted-foreground truncate text-[11px] font-medium tracking-wider uppercase sm:text-xs'>
               {item.label}
             </div>
+            {item.onAction ? (
+              <Button
+                variant='ghost'
+                size='xs'
+                className='text-muted-foreground ml-auto shrink-0'
+                aria-label={t('Change history')}
+                title={t('Change history')}
+                onClick={item.onAction}
+              >
+                <History />
+                <span className='hidden sm:inline'>{t('Change history')}</span>
+              </Button>
+            ) : null}
           </div>
 
           <div className='text-foreground mt-1.5 font-mono text-sm font-bold tracking-tight break-all tabular-nums sm:mt-2.5 sm:text-2xl'>

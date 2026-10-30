@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { AlertCircle, History } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { StaticDataTable } from "@/components/data-table";
+import {
+  StaticDataTable,
+  type StaticDataTableColumn,
+} from "@/components/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,14 +51,30 @@ const LOG_TYPE_REFUND = 6;
 
 interface UserQuotaHistoryListProps {
   currentQuota: number;
-  items: UserQuotaHistoryItem[];
+  items: UserQuotaHistoryListItem[];
   isLoading: boolean;
   isError: boolean;
   isFetching: boolean;
   onRetry: () => void;
+  /** Show admin-only remark/details columns. Defaults to true. */
+  showDetails?: boolean;
 }
 
-function QuotaHistoryTypeBadge(props: { item: UserQuotaHistoryItem }) {
+// Self-service rows (wallet) carry only the balance fields; remark/details
+// are admin-only and absent there.
+type UserQuotaHistoryListItem = Pick<
+  UserQuotaHistoryItem,
+  | "id"
+  | "created_at"
+  | "type"
+  | "delta_quota"
+  | "before_quota"
+  | "after_quota"
+  | "quota_type"
+> &
+  Partial<UserQuotaHistoryItem>;
+
+function QuotaHistoryTypeBadge(props: { item: UserQuotaHistoryListItem }) {
   const { t } = useTranslation();
   let label = t("Change");
   let variant: "success" | "danger" | "neutral" = "neutral";
@@ -85,6 +104,7 @@ function QuotaHistoryTypeBadge(props: { item: UserQuotaHistoryItem }) {
 
 function UserQuotaHistoryContent(props: UserQuotaHistoryListProps) {
   const { t } = useTranslation();
+  const showDetails = props.showDetails ?? true;
 
   if (props.isLoading) {
     return (
@@ -128,146 +148,155 @@ function UserQuotaHistoryContent(props: UserQuotaHistoryListProps) {
     );
   }
 
-  return (
-    <StaticDataTable
-      data={props.items}
-      getRowKey={(item) => item.id}
-      tableClassName="min-w-[1180px]"
-      tableContainerClassName="h-full overflow-auto"
-      headerClassName="bg-background sticky top-0 z-10"
-      className={cn("h-full", props.isFetching && "opacity-70")}
-      columns={[
-        {
-          id: "time",
-          header: t("Time"),
-          className: "w-[168px]",
-          cell: (item) => formatTimestamp(item.created_at),
-        },
-        {
-          id: "type",
-          header: t("Type"),
-          className: "w-[80px]",
-          cell: (item) => <QuotaHistoryTypeBadge item={item} />,
-        },
-        {
-          id: "change",
-          header: t("Change"),
-          className: "w-[120px] text-center",
-          cellClassName: "text-center",
-          cell: (item) => {
-            if (item.delta_quota == null) return "-";
-            const sign = item.delta_quota > 0 ? "+" : "-";
-            return (
-              <span
-                className={cn(
-                  "font-medium tabular-nums",
-                  item.delta_quota > 0 && "text-success",
-                  item.delta_quota < 0 && "text-destructive",
-                )}
-              >
-                {sign}
-                {formatQuota(Math.abs(item.delta_quota))}
-              </span>
-            );
-          },
-        },
-        {
-          id: "before",
-          header: t("Before change"),
-          className: "w-[120px] text-center",
-          cellClassName: "tabular-nums text-center",
-          cell: (item) =>
-            item.before_quota == null ? "-" : formatQuota(item.before_quota),
-        },
-        {
-          id: "after",
-          header: t("After change"),
-          className: "w-[120px]",
-          cellClassName: " tabular-nums",
-          cell: (item) =>
-            item.after_quota == null ? "-" : formatQuota(item.after_quota),
-        },
-        {
-          id: "remark",
-          header: t("Remark"),
-          className: "w-[200px]",
-          cell: (item) => {
-            const remark = item.remark?.trim();
-            if (!remark) {
-              return <span className="text-muted-foreground">-</span>;
-            }
-            return (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <div
-                      tabIndex={0}
-                      className="focus-visible:ring-ring w-full max-w-50 cursor-help rounded-sm focus-visible:ring-2 focus-visible:outline-none"
-                    />
-                  }
-                >
-                  <p className="truncate text-sm">{remark}</p>
-                </TooltipTrigger>
-                <TooltipContent
-                  side="top"
-                  className="max-w-sm items-start text-left whitespace-normal"
-                >
-                  <p className="break-words whitespace-pre-wrap">{remark}</p>
-                </TooltipContent>
-              </Tooltip>
-            );
-          },
-        },
-        {
-          id: "details",
-          header: t("Details"),
-          cell: (item) => (
+  const columns: StaticDataTableColumn<UserQuotaHistoryListItem>[] = [
+    {
+      id: "time",
+      header: t("Time"),
+      className: "w-[168px]",
+      cell: (item) => formatTimestamp(item.created_at),
+    },
+    {
+      id: "type",
+      header: t("Type"),
+      className: "w-[80px]",
+      cell: (item) => (
+        <QuotaHistoryTypeBadge item={item} />
+      ),
+    },
+    {
+      id: "change",
+      header: t("Change"),
+      className: "w-[120px] text-center",
+      cellClassName: "text-center",
+      cell: (item) => {
+        if (item.delta_quota == null) return "-";
+        const sign = item.delta_quota > 0 ? "+" : "-";
+        return (
+          <span
+            className={cn(
+              "font-medium tabular-nums",
+              item.delta_quota > 0 && "text-success",
+              item.delta_quota < 0 && "text-destructive",
+            )}
+          >
+            {sign}
+            {formatQuota(Math.abs(item.delta_quota))}
+          </span>
+        );
+      },
+    },
+    {
+      id: "before",
+      header: t("Before change"),
+      className: "w-[120px] text-center",
+      cellClassName: "tabular-nums text-center",
+      cell: (item) =>
+        item.before_quota == null ? "-" : formatQuota(item.before_quota),
+    },
+    {
+      id: "after",
+      header: t("After change"),
+      className: "w-[120px]",
+      cellClassName: " tabular-nums",
+      cell: (item) =>
+        item.after_quota == null ? "-" : formatQuota(item.after_quota),
+    },
+  ];
+
+  if (showDetails) {
+    columns.push(
+      {
+        id: "remark",
+        header: t("Remark"),
+        className: "w-[200px]",
+        cell: (item) => {
+          const remark = item.remark?.trim();
+          if (!remark) {
+            return <span className="text-muted-foreground">-</span>;
+          }
+          return (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <div
-                    data-slot="quota-history-details-trigger"
                     tabIndex={0}
-                    className="focus-visible:ring-ring w-full max-w-[480px] cursor-help rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+                    className="focus-visible:ring-ring w-full max-w-50 cursor-help rounded-sm focus-visible:ring-2 focus-visible:outline-none"
                   />
                 }
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm">{item.content || "-"}</p>
-                  {item.model_name ? (
-                    <p className="text-muted-foreground truncate text-xs">
-                      {t("Model")}: {item.model_name}
-                    </p>
-                  ) : null}
-                  {item.request_id ? (
-                    <p className="text-muted-foreground truncate font-mono text-xs">
-                      {item.request_id}
-                    </p>
-                  ) : null}
-                </div>
+                <p className="truncate text-sm">{remark}</p>
               </TooltipTrigger>
               <TooltipContent
                 side="top"
                 className="max-w-sm items-start text-left whitespace-normal"
               >
-                <div className="flex min-w-0 flex-col items-start gap-1">
-                  <p className="break-words whitespace-pre-wrap">
-                    {item.content || "-"}
-                  </p>
-                  {item.model_name ? (
-                    <p className="break-all">
-                      {t("Model")}: {item.model_name}
-                    </p>
-                  ) : null}
-                  {item.request_id ? (
-                    <p className="font-mono break-all">{item.request_id}</p>
-                  ) : null}
-                </div>
+                <p className="break-words whitespace-pre-wrap">{remark}</p>
               </TooltipContent>
             </Tooltip>
-          ),
+          );
         },
-      ]}
+      },
+      {
+        id: "details",
+        header: t("Details"),
+        cell: (item) => (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div
+                  data-slot="quota-history-details-trigger"
+                  tabIndex={0}
+                  className="focus-visible:ring-ring w-full max-w-[480px] cursor-help rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+                />
+              }
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm">{item.content || "-"}</p>
+                {item.model_name ? (
+                  <p className="text-muted-foreground truncate text-xs">
+                    {t("Model")}: {item.model_name}
+                  </p>
+                ) : null}
+                {item.request_id ? (
+                  <p className="text-muted-foreground truncate font-mono text-xs">
+                    {item.request_id}
+                  </p>
+                ) : null}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              className="max-w-sm items-start text-left whitespace-normal"
+            >
+              <div className="flex min-w-0 flex-col items-start gap-1">
+                <p className="break-words whitespace-pre-wrap">
+                  {item.content || "-"}
+                </p>
+                {item.model_name ? (
+                  <p className="break-all">
+                    {t("Model")}: {item.model_name}
+                  </p>
+                ) : null}
+                {item.request_id ? (
+                  <p className="font-mono break-all">{item.request_id}</p>
+                ) : null}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        ),
+      },
+    );
+  }
+
+  return (
+    <StaticDataTable
+      data={props.items}
+      getRowKey={(item) => item.id}
+      tableClassName={showDetails ? "min-w-[1180px]" : "min-w-[640px]"}
+      tableContainerClassName="h-full overflow-auto"
+      headerClassName="bg-background sticky top-0 z-10"
+      className={cn("h-full", props.isFetching && "opacity-70")}
+      columns={columns}
     />
   );
 }

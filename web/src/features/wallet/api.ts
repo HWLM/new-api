@@ -39,6 +39,7 @@ import type {
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
+  SelfQuotaHistoryResponse,
 } from './types'
 
 // ============================================================================
@@ -215,6 +216,26 @@ export async function getUserBillingHistory(
     params.append('keyword', keyword)
   }
   const res = await api.get(`/api/user/topup/self?${params.toString()}`)
+  return res.data
+}
+
+/**
+ * Get top-up / quota adjustment history for current user.
+ * type: 1 = top-up, 3 = quota adjustment (optionally narrowed by quotaType).
+ */
+export async function getSelfQuotaHistory(
+  page: number,
+  pageSize: number,
+  type: number,
+  quotaType?: string
+): Promise<SelfQuotaHistoryResponse> {
+  const params: Record<string, number | string> = {
+    p: page,
+    page_size: pageSize,
+    type,
+  }
+  if (quotaType) params.quota_type = quotaType
+  const res = await api.get('/api/user/self/quota-history', { params })
   return res.data
 }
 

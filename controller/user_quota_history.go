@@ -33,6 +33,18 @@ type userQuotaHistoryItem struct {
 	Remark string `json:"remark,omitempty"`
 }
 
+// selfQuotaHistoryItem is the user-facing projection of a quota change: it
+// deliberately omits remark/content/model/request details, which are admin-only.
+type selfQuotaHistoryItem struct {
+	Id          int     `json:"id"`
+	CreatedAt   int64   `json:"created_at"`
+	Type        int     `json:"type"`
+	DeltaQuota  *int64  `json:"delta_quota"`
+	BeforeQuota *int64  `json:"before_quota"`
+	AfterQuota  *int64  `json:"after_quota"`
+	QuotaType   *string `json:"quota_type,omitempty"`
+}
+
 // quotaAdjustRemarkSuffixRe matches the "，备注：xxx" suffix that the
 // add_quota handler appends to the log content; stripped from the content
 // field so remark isn't shown twice when it already has its own column.
@@ -186,6 +198,74 @@ func GetUserQuotaHistory(c *gin.Context) {
 		}
 	}
 	items := buildUserQuotaHistoryItems(logs, user.Quota, newerDelta, hasUnknownNewer)
+
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(items)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": struct {
+			*common.PageInfo
+			CurrentQuota int `json:"current_quota"`
+		}{
+			PageInfo:     pageInfo,
+			CurrentQuota: user.Quota,
+		},
+	})
+}
+
+// GetSelfQuotaHistory lists the logged-in user's own top-up and quota
+// adjustment records. Unlike the admin endpoint it always requires a type
+// (default quota adjustment): consume/refund and the unfiltered view are rejected.
+func GetSelfQuotaHistory(c *gin.Context) {
+	userId := c.GetInt("id")
+
+	filterType := model.LogTypeManage
+	if raw := c.Query("type"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || (parsed != model.LogTypeTopup && parsed != model.LogTypeManage) {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		filterType = parsed
+	}
+
+	var filterQuotaType string
+	if raw := c.Query("quota_type"); raw != "" {
+		if filterType != model.LogTypeManage || !model.IsUserQuotaHistoryFilterQuotaType(raw) {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		filterQuotaType = raw
+	}
+
+	user, err := model.GetUserById(userId, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	pageInfo := common.GetPageQuery(c)
+	logs, total, err := model.GetUserQuotaHistoryFiltered(userId, filterType, filterQuotaType, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	// Always filtered, so balances come only from stored snapshots.
+	fullItems := buildUserQuotaHistoryItems(logs, user.Quota, 0, true)
+	items := make([]selfQuotaHistoryItem, 0, len(fullItems))
+	for _, item := range fullItems {
+		items = append(items, selfQuotaHistoryItem{
+			Id:          item.Id,
+			CreatedAt:   item.CreatedAt,
+			Type:        item.Type,
+			DeltaQuota:  item.DeltaQuota,
+			BeforeQuota: item.BeforeQuota,
+			AfterQuota:  item.AfterQuota,
+			QuotaType:   item.QuotaType,
+		})
+	}
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(items)

@@ -289,3 +289,28 @@ export interface BillingHistoryResponse {
 export interface CompleteOrderRequest {
   trade_no: string
 }
+
+/**
+ * Quota change record visible to the logged-in user (no admin remark/details)
+ */
+export interface SelfQuotaHistoryItem {
+  id: number
+  created_at: number
+  type: number
+  delta_quota: number | null
+  before_quota: number | null
+  after_quota: number | null
+  quota_type?: string
+}
+
+export interface SelfQuotaHistoryResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: SelfQuotaHistoryItem[]
+    total: number
+    page: number
+    page_size: number
+    current_quota: number
+  }
+}
