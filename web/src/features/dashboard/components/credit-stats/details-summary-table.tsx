@@ -35,6 +35,7 @@ export function DetailsSummaryTable({
   onSort,
   onRepay,
   onViewRecords,
+  canRepay,
 }: {
   data: CreditSummaryListResp | undefined
   isLoading: boolean
@@ -46,6 +47,7 @@ export function DetailsSummaryTable({
   onSort: (key: CreditSummarySortKey) => void
   onRepay: (row: CreditSummaryRow) => void
   onViewRecords: (row: CreditSummaryRow) => void
+  canRepay: boolean
 }) {
   const { t } = useTranslation()
   const rows = data?.rows ?? []
@@ -161,14 +163,16 @@ export function DetailsSummaryTable({
                 </TableCell>
                 <TableCell>
                   <div className='flex gap-1'>
-                    <Button
-                      variant='link'
-                      size='sm'
-                      className='h-auto p-0'
-                      onClick={() => onRepay(row)}
-                    >
-                      {t('Repayment')}
-                    </Button>
+                    {canRepay && (
+                      <Button
+                        variant='link'
+                        size='sm'
+                        className='h-auto p-0'
+                        onClick={() => onRepay(row)}
+                      >
+                        {t('Repayment')}
+                      </Button>
+                    )}
                     <Button
                       variant='link'
                       size='sm'

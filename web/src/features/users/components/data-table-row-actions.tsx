@@ -52,6 +52,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import {
+  ADMIN_PERMISSION_ACTIONS,
+  ADMIN_PERMISSION_RESOURCES,
+  hasPermission,
+} from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   manageUser,
@@ -84,6 +90,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const user = row.original
   const { setOpen, setCurrentRow, triggerRefresh, openAgentApikey } =
     useUsers()
+  const currentUser = useAuthStore((s) => s.auth.user)
+  const canEditUser = hasPermission(
+    currentUser,
+    ADMIN_PERMISSION_RESOURCES.USER,
+    ADMIN_PERMISSION_ACTIONS.WRITE
+  )
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
@@ -245,14 +257,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           <span className='sr-only'>{t('Open menu')}</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-[180px]'>
-          <DropdownMenuItem onClick={handleEdit}>
-            {t('Edit')}
-            <DropdownMenuShortcut>
-              <Pencil size={16} />
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
+          {canEditUser && (
+            <>
+              <DropdownMenuItem onClick={handleEdit}>
+                {t('Edit')}
+                <DropdownMenuShortcut>
+                  <Pencil size={16} />
+                </DropdownMenuShortcut>
+              </DropdownMenuItem>
 
-          <DropdownMenuSeparator />
+              <DropdownMenuSeparator />
+            </>
+          )}
 
           {isDisabled ? (
             <DropdownMenuItem onClick={() => handleManage('enable')}>

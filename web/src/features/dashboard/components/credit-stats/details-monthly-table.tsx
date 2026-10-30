@@ -28,6 +28,7 @@ export function DetailsMonthlyTable({
   onPageChange,
   onRepay,
   onViewRecords,
+  canRepay,
 }: {
   data: CreditMonthlyListResp | undefined
   isLoading: boolean
@@ -36,6 +37,7 @@ export function DetailsMonthlyTable({
   onPageChange: (next: number) => void
   onRepay: (row: CreditMonthlyRow) => void
   onViewRecords: (row: CreditMonthlyRow) => void
+  canRepay: boolean
 }) {
   const { t } = useTranslation()
   const rows = data?.rows ?? []
@@ -120,14 +122,16 @@ export function DetailsMonthlyTable({
                 </TableCell>
                 <TableCell>
                   <div className='flex gap-1'>
-                    <Button
-                      variant='link'
-                      size='sm'
-                      className='h-auto p-0'
-                      onClick={() => onRepay(row)}
-                    >
-                      {t('Repayment')}
-                    </Button>
+                    {canRepay && (
+                      <Button
+                        variant='link'
+                        size='sm'
+                        className='h-auto p-0'
+                        onClick={() => onRepay(row)}
+                      >
+                        {t('Repayment')}
+                      </Button>
+                    )}
                     <Button
                       variant='link'
                       size='sm'
