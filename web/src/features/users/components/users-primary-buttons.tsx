@@ -21,6 +21,12 @@ import { BarChart3, MessageCircle, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import {
+  ADMIN_PERMISSION_ACTIONS,
+  ADMIN_PERMISSION_RESOURCES,
+  hasPermission,
+} from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useUsers } from './users-provider'
 
@@ -28,6 +34,12 @@ export function UsersPrimaryButtons() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { setOpen, setCurrentRow } = useUsers()
+  const currentUser = useAuthStore((s) => s.auth.user)
+  const canAddUser = hasPermission(
+    currentUser,
+    ADMIN_PERMISSION_RESOURCES.USER,
+    ADMIN_PERMISSION_ACTIONS.ADD
+  )
 
   const handleCreate = () => {
     setCurrentRow(null)
@@ -52,10 +64,12 @@ export function UsersPrimaryButtons() {
         <MessageCircle className='h-4 w-4' />
         {t('TG Notification Group Settings')}
       </Button>
-      <Button size='sm' onClick={handleCreate}>
-        <Plus className='h-4 w-4' />
-        {t('Add User')}
-      </Button>
+      {canAddUser && (
+        <Button size='sm' onClick={handleCreate}>
+          <Plus className='h-4 w-4' />
+          {t('Add User')}
+        </Button>
+      )}
     </div>
   )
 }

@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/service/authz"
 
 	// Import oauth package to register providers via init()
 	_ "github.com/QuantumNous/new-api/oauth"
@@ -208,7 +209,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
 				adminRoute.DELETE("/:id/bindings/:binding_type", controller.AdminClearUserBinding)
 				adminRoute.GET("/:id", controller.GetUser)
-				adminRoute.POST("/", controller.CreateUser)
+				adminRoute.POST("/", middleware.RequirePermission(authz.UserAdd), controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
 				adminRoute.POST("/batch_vip", controller.BatchMarkVipCustomer)
 				adminRoute.POST("/batch_online_topup", controller.BatchSetAllowOnlineTopup)
@@ -222,7 +223,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.POST("/tg_notify/low_balance_trigger", controller.TriggerVipLowBalanceManually)
 				adminRoute.POST("/vip_stats/backfill", controller.BackfillVipDailyStats)
 				adminRoute.POST("/vip_stats/backfill_hourly", controller.BackfillVipHourlyStats)
-				adminRoute.PUT("/", controller.UpdateUser)
+				adminRoute.PUT("/", middleware.RequirePermission(authz.UserWrite), controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.DELETE("/:id/reset_passkey", controller.AdminResetPasskey)
 
@@ -426,8 +427,8 @@ func SetApiRouter(router *gin.Engine) {
 			creditStatsRoute.GET("/details_monthly", controller.GetCreditDetailsMonthly)
 			creditStatsRoute.GET("/records", controller.GetCreditRepaymentRecords)
 			creditStatsRoute.GET("/amount_details", controller.GetCreditAmountDetails)
-			creditStatsRoute.POST("/repayment", controller.CreateCreditRepayment)
-			creditStatsRoute.POST("/backfill", controller.CreateCreditBackfill)
+			creditStatsRoute.POST("/repayment", middleware.RequirePermission(authz.CreditStatsRepaymentEdit), controller.CreateCreditRepayment)
+			creditStatsRoute.POST("/backfill", middleware.RequirePermission(authz.CreditStatsRepaymentEdit), controller.CreateCreditBackfill)
 		}
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)

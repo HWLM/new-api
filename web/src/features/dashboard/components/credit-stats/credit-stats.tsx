@@ -8,6 +8,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  ADMIN_PERMISSION_ACTIONS,
+  ADMIN_PERMISSION_RESOURCES,
+  hasPermission,
+} from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 import { fetchUserStatsFilterOptions } from '../new-user-stats/api'
 import { AmountDetailsDialog } from './amount-details-dialog'
 import {
@@ -58,6 +64,12 @@ function buildDefaultDetailsFilter(): CreditDetailsFilterValue {
 export function CreditStats() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const currentUser = useAuthStore((s) => s.auth.user)
+  const canEditRepayment = hasPermission(
+    currentUser,
+    ADMIN_PERMISSION_RESOURCES.CREDIT_STATS,
+    ADMIN_PERMISSION_ACTIONS.REPAYMENT_EDIT
+  )
 
   // 卡片明细弹窗的标题用这组维度名，与趋势图下拉的口径保持一致
   const amountDimensionLabels: Record<AmountDetailsDimension, string> = {
@@ -222,14 +234,18 @@ export function CreditStats() {
         <CardHeader className='flex flex-row items-center justify-between space-y-0'>
           <CardTitle className='text-base'>{t('Credit')}</CardTitle>
           <div className='flex items-center gap-1'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => setBackfillOpen(true)}
-            >
-              {t('Add Historical Record')}
-            </Button>
-            <div className='bg-border mx-1 h-5 w-px' />
+            {canEditRepayment && (
+              <>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setBackfillOpen(true)}
+                >
+                  {t('Add Historical Record')}
+                </Button>
+                <div className='bg-border mx-1 h-5 w-px' />
+              </>
+            )}
             <Button
               variant={detailsTab === 'summary' ? 'default' : 'outline'}
               size='sm'
@@ -264,6 +280,7 @@ export function CreditStats() {
               sortBy={summarySort.by}
               sortDir={summarySort.dir}
               onSort={toggleSummarySort}
+              canRepay={canEditRepayment}
               onRepay={(row) =>
                 setRepaymentTarget({
                   user_id: row.user_id,
@@ -286,6 +303,7 @@ export function CreditStats() {
               page={monthlyPage}
               pageSize={PAGE_SIZE}
               onPageChange={setMonthlyPage}
+              canRepay={canEditRepayment}
               onRepay={(row) =>
                 setRepaymentTarget({
                   user_id: row.user_id,

@@ -6,6 +6,7 @@ const (
 	ActionRead           = "read"
 	ActionOperate        = "operate"
 	ActionWrite          = "write"
+	ActionAdd            = "add"
 	ActionSensitiveWrite = "sensitive_write"
 	ActionSecretView     = "secret_view"
 )
