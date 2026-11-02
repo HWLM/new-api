@@ -121,6 +121,10 @@ type ClaudeMessageSource struct {
 type ClaudeMessage struct {
 	Role    string `json:"role"`
 	Content any    `json:"content"`
+	// OutputConfig 透传消息级 output_config（如 {"effort":"low"}）。
+	// 协议上该字段通常位于请求顶层，但部分上游（如智象未来等变种）会在消息级携带，
+	// 若此处未保留，经由非透传路径的 Unmarshal→Marshal 会被静默丢弃。
+	OutputConfig json.RawMessage `json:"output_config,omitempty"`
 }
 
 func (c *ClaudeMessage) IsStringContent() bool {
