@@ -953,15 +953,15 @@ func getUsageLogExportUploader() (objectstore.Uploader, string, error) {
 	settings := getImageResultObjectStoreConfig()
 	provider := strings.ToLower(strings.TrimSpace(settings.Provider))
 	if provider == "" {
-		provider = "s3"
+		provider = "oss"
 	}
 	var (
 		uploader objectstore.Uploader
 		err      error
 	)
 	switch provider {
-	case "", "s3", "aws_s3":
-		uploader, err = getImageResultS3Uploader(settings)
+	case "oss", "aliyun_oss", "aliyun-oss":
+		uploader, err = getImageResultOSSUploader(settings)
 	default:
 		err = fmt.Errorf("unsupported usage log export object store provider: %s", provider)
 	}

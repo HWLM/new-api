@@ -78,10 +78,12 @@ const chatToResponsesPolicyAllChannelsExample = JSON.stringify(
 
 const imageResultObjectStoreExample = JSON.stringify(
   {
+    provider: "oss",
     accessKey: "",
     secretKey: "",
     bucketName: "",
     region: "",
+    endpoint: "",
     publicUrl: "",
   },
   null,
@@ -284,7 +286,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
               </h3>
               <p className="text-muted-foreground text-sm">
                 {t(
-                  "Configure AWS S3 upload for image results that must be returned as URLs.",
+                  "Configure Aliyun OSS upload for image results that must be returned as URLs.",
                 )}
               </p>
             </div> */}
