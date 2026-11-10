@@ -21,16 +21,17 @@ const imageResultDefaultPrefix = "ai-images"
 const imageResultSupportedModel = "gpt-image-2"
 
 type imageResultObjectStoreConfig struct {
-	Provider       string `json:"provider,omitempty"`
-	AccessKey      string `json:"accessKey,omitempty"`
-	SecretKey      string `json:"secretKey,omitempty"`
-	BucketName     string `json:"bucketName,omitempty"`
-	Region         string `json:"region,omitempty"`
-	PublicURL      string `json:"publicUrl,omitempty"`
-	Endpoint       string `json:"endpoint,omitempty"`
-	Prefix         string `json:"prefix,omitempty"`
-	SessionToken   string `json:"sessionToken,omitempty"`
-	ForcePathStyle bool   `json:"forcePathStyle,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	AccessKey     string `json:"accessKey,omitempty"`
+	SecretKey     string `json:"secretKey,omitempty"`
+	BucketName    string `json:"bucketName,omitempty"`
+	Region        string `json:"region,omitempty"`
+	PublicURL     string `json:"publicUrl,omitempty"`
+	Endpoint      string `json:"endpoint,omitempty"`
+	Prefix        string `json:"prefix,omitempty"`
+	SecurityToken string `json:"securityToken,omitempty"`
+	UseCName      bool   `json:"useCname,omitempty"`
+	UsePathStyle  bool   `json:"usePathStyle,omitempty"`
 }
 
 // EnsureImageResponseBodyURLs rewrites OpenAI image response data entries from
@@ -207,15 +208,15 @@ func getImageResultUploader() (objectstore.Uploader, string, error) {
 	settings := getImageResultObjectStoreConfig()
 	provider := strings.ToLower(strings.TrimSpace(settings.Provider))
 	if provider == "" {
-		provider = "s3"
+		provider = "oss"
 	}
 	var (
 		uploader objectstore.Uploader
 		err      error
 	)
 	switch provider {
-	case "", "s3", "aws_s3":
-		uploader, err = getImageResultS3Uploader(settings)
+	case "oss", "aliyun_oss", "aliyun-oss":
+		uploader, err = getImageResultOSSUploader(settings)
 	default:
 		err = fmt.Errorf("unsupported image result object store provider: %s", provider)
 	}
@@ -229,44 +230,46 @@ func getImageResultUploader() (objectstore.Uploader, string, error) {
 	return uploader, prefix, nil
 }
 
-func getImageResultS3Uploader(settings imageResultObjectStoreConfig) (objectstore.Uploader, error) {
-	cfg := objectstore.S3Config{
+func getImageResultOSSUploader(settings imageResultObjectStoreConfig) (objectstore.Uploader, error) {
+	cfg := objectstore.OSSConfig{
 		Bucket:          strings.TrimSpace(settings.BucketName),
 		Region:          strings.TrimSpace(settings.Region),
 		AccessKeyID:     strings.TrimSpace(settings.AccessKey),
-		SecretAccessKey: strings.TrimSpace(settings.SecretKey),
-		SessionToken:    strings.TrimSpace(settings.SessionToken),
+		AccessKeySecret: strings.TrimSpace(settings.SecretKey),
+		SecurityToken:   strings.TrimSpace(settings.SecurityToken),
 		Endpoint:        strings.TrimSpace(settings.Endpoint),
 		PublicBaseURL:   strings.TrimSpace(settings.PublicURL),
-		ForcePathStyle:  settings.ForcePathStyle,
+		UseCName:        settings.UseCName,
+		UsePathStyle:    settings.UsePathStyle,
 	}
 	if cfg.AccessKeyID == "" {
-		cfg.AccessKeyID = strings.TrimSpace(common.GetEnvOrDefaultString("AWS_ACCESS_KEY_ID", ""))
+		cfg.AccessKeyID = strings.TrimSpace(common.GetEnvOrDefaultString("OSS_ACCESS_KEY_ID", ""))
 	}
-	if cfg.SecretAccessKey == "" {
-		cfg.SecretAccessKey = strings.TrimSpace(common.GetEnvOrDefaultString("AWS_SECRET_ACCESS_KEY", ""))
+	if cfg.AccessKeySecret == "" {
+		cfg.AccessKeySecret = strings.TrimSpace(common.GetEnvOrDefaultString("OSS_ACCESS_KEY_SECRET", ""))
 	}
-	if cfg.SessionToken == "" {
-		cfg.SessionToken = strings.TrimSpace(common.GetEnvOrDefaultString("AWS_SESSION_TOKEN", ""))
+	if cfg.SecurityToken == "" {
+		cfg.SecurityToken = strings.TrimSpace(common.GetEnvOrDefaultString("OSS_SECURITY_TOKEN", ""))
 	}
-	if cfg.Bucket == "" || cfg.Region == "" || cfg.AccessKeyID == "" || cfg.SecretAccessKey == "" {
-		return nil, fmt.Errorf("image result url fallback requires IMAGE_RESULT_AWS_S3_BUCKET, IMAGE_RESULT_AWS_S3_REGION, IMAGE_RESULT_AWS_S3_ACCESS_KEY_ID, and IMAGE_RESULT_AWS_S3_SECRET_ACCESS_KEY")
+	if cfg.Bucket == "" || (cfg.Region == "" && cfg.Endpoint == "") || cfg.AccessKeyID == "" || cfg.AccessKeySecret == "" {
+		return nil, fmt.Errorf("image result url fallback requires IMAGE_RESULT_OSS_BUCKET, IMAGE_RESULT_OSS_REGION (or IMAGE_RESULT_OSS_ENDPOINT), IMAGE_RESULT_OSS_ACCESS_KEY_ID, and IMAGE_RESULT_OSS_ACCESS_KEY_SECRET")
 	}
-	return objectstore.NewS3Uploader(cfg, nil)
+	return objectstore.NewOSSUploader(cfg)
 }
 
 func getImageResultObjectStoreConfig() imageResultObjectStoreConfig {
 	cfg := imageResultObjectStoreConfig{
-		Provider:       firstNonEmptyOption("ImageResultObjectStore.provider", "image_result.object_store.provider"),
-		AccessKey:      firstNonEmptyOption("ImageResultObjectStore.accessKey", "image_result.object_store.accessKey"),
-		SecretKey:      firstNonEmptyOption("ImageResultObjectStore.secretKey", "image_result.object_store.secretKey"),
-		BucketName:     firstNonEmptyOption("ImageResultObjectStore.bucketName", "image_result.object_store.bucketName"),
-		Region:         firstNonEmptyOption("ImageResultObjectStore.region", "image_result.object_store.region"),
-		PublicURL:      firstNonEmptyOption("ImageResultObjectStore.publicUrl", "image_result.object_store.publicUrl"),
-		Endpoint:       firstNonEmptyOption("ImageResultObjectStore.endpoint", "image_result.object_store.endpoint"),
-		Prefix:         firstNonEmptyOption("ImageResultObjectStore.prefix", "image_result.object_store.prefix"),
-		SessionToken:   firstNonEmptyOption("ImageResultObjectStore.sessionToken", "image_result.object_store.sessionToken"),
-		ForcePathStyle: firstNonEmptyOption("ImageResultObjectStore.forcePathStyle", "image_result.object_store.forcePathStyle") == "true",
+		Provider:      firstNonEmptyOption("ImageResultObjectStore.provider", "image_result.object_store.provider"),
+		AccessKey:     firstNonEmptyOption("ImageResultObjectStore.accessKey", "image_result.object_store.accessKey"),
+		SecretKey:     firstNonEmptyOption("ImageResultObjectStore.secretKey", "image_result.object_store.secretKey"),
+		BucketName:    firstNonEmptyOption("ImageResultObjectStore.bucketName", "image_result.object_store.bucketName"),
+		Region:        firstNonEmptyOption("ImageResultObjectStore.region", "image_result.object_store.region"),
+		PublicURL:     firstNonEmptyOption("ImageResultObjectStore.publicUrl", "image_result.object_store.publicUrl"),
+		Endpoint:      firstNonEmptyOption("ImageResultObjectStore.endpoint", "image_result.object_store.endpoint"),
+		Prefix:        firstNonEmptyOption("ImageResultObjectStore.prefix", "image_result.object_store.prefix"),
+		SecurityToken: firstNonEmptyOption("ImageResultObjectStore.securityToken", "image_result.object_store.securityToken"),
+		UseCName:      firstNonEmptyOption("ImageResultObjectStore.useCname", "image_result.object_store.useCname") == "true",
+		UsePathStyle:  firstNonEmptyOption("ImageResultObjectStore.usePathStyle", "image_result.object_store.usePathStyle") == "true",
 	}
 
 	if raw := firstNonEmptyOption("ImageResultObjectStore", "image_result.object_store"); strings.TrimSpace(raw) != "" {
@@ -277,16 +280,17 @@ func getImageResultObjectStoreConfig() imageResultObjectStoreConfig {
 	}
 
 	mergeImageResultObjectStoreConfig(&cfg, imageResultObjectStoreConfig{
-		Provider:       common.GetEnvOrDefaultString("IMAGE_RESULT_OBJECT_STORE_PROVIDER", ""),
-		AccessKey:      common.GetEnvOrDefaultString("IMAGE_RESULT_AWS_S3_ACCESS_KEY_ID", ""),
-		SecretKey:      common.GetEnvOrDefaultString("IMAGE_RESULT_AWS_S3_SECRET_ACCESS_KEY", ""),
-		BucketName:     common.GetEnvOrDefaultString("IMAGE_RESULT_AWS_S3_BUCKET", ""),
-		Region:         common.GetEnvOrDefaultString("IMAGE_RESULT_AWS_S3_REGION", ""),
-		PublicURL:      common.GetEnvOrDefaultString("IMAGE_RESULT_AWS_S3_PUBLIC_BASE_URL", ""),
-		Endpoint:       common.GetEnvOrDefaultString("IMAGE_RESULT_AWS_S3_ENDPOINT", ""),
-		Prefix:         firstNonEmptyEnv("IMAGE_RESULT_OBJECT_PREFIX", "IMAGE_RESULT_AWS_S3_PREFIX"),
-		SessionToken:   common.GetEnvOrDefaultString("IMAGE_RESULT_AWS_S3_SESSION_TOKEN", ""),
-		ForcePathStyle: common.GetEnvOrDefaultBool("IMAGE_RESULT_AWS_S3_FORCE_PATH_STYLE", false),
+		Provider:      common.GetEnvOrDefaultString("IMAGE_RESULT_OBJECT_STORE_PROVIDER", ""),
+		AccessKey:     common.GetEnvOrDefaultString("IMAGE_RESULT_OSS_ACCESS_KEY_ID", ""),
+		SecretKey:     common.GetEnvOrDefaultString("IMAGE_RESULT_OSS_ACCESS_KEY_SECRET", ""),
+		BucketName:    common.GetEnvOrDefaultString("IMAGE_RESULT_OSS_BUCKET", ""),
+		Region:        common.GetEnvOrDefaultString("IMAGE_RESULT_OSS_REGION", ""),
+		PublicURL:     common.GetEnvOrDefaultString("IMAGE_RESULT_OSS_PUBLIC_BASE_URL", ""),
+		Endpoint:      common.GetEnvOrDefaultString("IMAGE_RESULT_OSS_ENDPOINT", ""),
+		Prefix:        firstNonEmptyEnv("IMAGE_RESULT_OBJECT_PREFIX", "IMAGE_RESULT_OSS_PREFIX"),
+		SecurityToken: common.GetEnvOrDefaultString("IMAGE_RESULT_OSS_SECURITY_TOKEN", ""),
+		UseCName:      common.GetEnvOrDefaultBool("IMAGE_RESULT_OSS_USE_CNAME", false),
+		UsePathStyle:  common.GetEnvOrDefaultBool("IMAGE_RESULT_OSS_USE_PATH_STYLE", false),
 	})
 
 	return cfg
@@ -317,10 +321,11 @@ func mergeImageResultObjectStoreConfig(dst *imageResultObjectStoreConfig, src im
 	if strings.TrimSpace(dst.Prefix) == "" {
 		dst.Prefix = src.Prefix
 	}
-	if strings.TrimSpace(dst.SessionToken) == "" {
-		dst.SessionToken = src.SessionToken
+	if strings.TrimSpace(dst.SecurityToken) == "" {
+		dst.SecurityToken = src.SecurityToken
 	}
-	dst.ForcePathStyle = dst.ForcePathStyle || src.ForcePathStyle
+	dst.UseCName = dst.UseCName || src.UseCName
+	dst.UsePathStyle = dst.UsePathStyle || src.UsePathStyle
 }
 
 func firstNonEmptyOption(keys ...string) string {

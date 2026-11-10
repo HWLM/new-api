@@ -58,9 +58,9 @@ func TestShouldUploadImageResultSkipsWhenObjectStoreDisabled(t *testing.T) {
 func TestEnsureImageResponseURLsKeepsOriginalWhenUploaderUnavailable(t *testing.T) {
 	restore := setImageResultObjectStoreEnabledForTest("true")
 	defer restore()
-	t.Setenv("AWS_ACCESS_KEY_ID", "")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "")
-	t.Setenv("AWS_SESSION_TOKEN", "")
+	t.Setenv("OSS_ACCESS_KEY_ID", "")
+	t.Setenv("OSS_ACCESS_KEY_SECRET", "")
+	t.Setenv("OSS_SECURITY_TOKEN", "")
 
 	response := &dto.ImageResponse{
 		Data: []dto.ImageData{
