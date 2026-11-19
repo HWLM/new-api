@@ -48,6 +48,7 @@ type DistillSettingView struct {
 	QuestionDistillTarget bool    `json:"question_distill_target"`
 	AlertTelegram         bool    `json:"alert_telegram"`
 	AlertWeCom            bool    `json:"alert_wecom"`
+	AlertThrottleSeconds  int     `json:"alert_throttle_seconds"`
 	WeComWebhookUrl       string  `json:"wecom_webhook_url"`
 	FallbackChannelId     int     `json:"fallback_channel_id"`
 	DedupSeconds          int     `json:"dedup_seconds"`
@@ -79,6 +80,7 @@ func GetDistillDetectSetting(c *gin.Context) {
 			QuestionDistillTarget: s.QuestionDistillTarget,
 			AlertTelegram:         s.AlertTelegram,
 			AlertWeCom:            s.AlertWeCom,
+			AlertThrottleSeconds:  s.AlertThrottleSeconds,
 			WeComWebhookUrl:       s.WeComWebhookUrl,
 			FallbackChannelId:     s.FallbackChannelId,
 			DedupSeconds:          s.DedupSeconds,
@@ -109,6 +111,7 @@ type DistillSettingUpdateRequest struct {
 	QuestionDistillTarget *bool    `json:"question_distill_target"`
 	AlertTelegram         *bool    `json:"alert_telegram"`
 	AlertWeCom            *bool    `json:"alert_wecom"`
+	AlertThrottleSeconds  *int     `json:"alert_throttle_seconds"`
 	WeComWebhookUrl       *string  `json:"wecom_webhook_url"`
 	FallbackChannelId     *int     `json:"fallback_channel_id"`
 	DedupSeconds          *int     `json:"dedup_seconds"`
@@ -212,6 +215,12 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 			return
 		}
 	}
+	if req.AlertThrottleSeconds != nil {
+		if *req.AlertThrottleSeconds < 0 || *req.AlertThrottleSeconds > 86400 {
+			common.ApiErrorMsg(c, "告警节流窗口必须在 0 ~ 86400 秒之间（0 表示不节流）")
+			return
+		}
+	}
 
 	// 只覆盖提交了的字段。
 	if req.Enabled != nil {
@@ -280,6 +289,9 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 	}
 	if req.AlertWeCom != nil {
 		s.AlertWeCom = *req.AlertWeCom
+	}
+	if req.AlertThrottleSeconds != nil {
+		s.AlertThrottleSeconds = *req.AlertThrottleSeconds
 	}
 	if req.WeComWebhookUrl != nil {
 		s.WeComWebhookUrl = strings.TrimSpace(*req.WeComWebhookUrl)

@@ -253,24 +253,48 @@ func markDistillDemoted(ctx context.Context, userID int, seconds int) {
 	distillMemoryRPM.markDemoted(userID, time.Now().Add(time.Duration(seconds)*time.Second))
 }
 
-// distillDedupSeen 返回 true 表示这份正文在窗口内已经判过，可以跳过。
-// 只在拿到分值之后写，避免判定失败把同一个正文永久拉黑。
-func distillDedupSeen(userID int, doc string, ttlSeconds int) bool {
-	if ttlSeconds <= 0 {
-		return false
-	}
+// distillDedupKey 拼一份正文档的去重键。
+func distillDedupKey(userID int, doc string) string {
 	sum := sha256.Sum256([]byte(doc))
-	key := fmt.Sprintf("%s{user:%d}:%s", distillDedupKeyPrefix, userID, hex.EncodeToString(sum[:12]))
+	return fmt.Sprintf("%s{user:%d}:%s", distillDedupKeyPrefix, userID, hex.EncodeToString(sum[:12]))
+}
+
+// distillDedupSeen 返回 true 表示这份正文在窗口内**已经判定成功过**，可以跳过。
+//
+// ⛔ 只读不写。写键由 distillDedupMark 在拿到分值之后单独做 —— 早期版本在这里
+// 直接 SetNX 写键，等于「一开始判就算判过」：Jev 抖一下（超时 / 5xx），同一份
+// 正文在 DedupSeconds（默认 600s）内再也不会被重判，故障恢复后整整十分钟的
+// 召回都是哑的。判分失败不该产生任何副作用。
+func distillDedupSeen(userID int, doc string) bool {
+	key := distillDedupKey(userID, doc)
 	if common.RedisEnabled && common.RDB != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), distillRedisTimeoutMs*time.Millisecond)
 		defer cancel()
-		// SET NX：抢到就是第一次，没抢到说明窗口内已判过。
-		ok, err := common.RDB.SetNX(ctx, key, "1", time.Duration(ttlSeconds)*time.Second).Result()
+		n, err := common.RDB.Exists(ctx, key).Result()
 		if err == nil {
-			return !ok
+			return n > 0
 		}
 	}
-	return distillMemoryRPM.dedupSeen(key, ttlSeconds)
+	return distillMemoryRPM.dedupAlive(key)
+}
+
+// distillDedupMark 记下「这份正文刚判定成功」，窗口内不再重复打分。
+//
+// ⛔ 只在 JudgeDistill 返回了真实分值之后调用（命中与未命中都算判定成功）；
+// Skipped 非空意味着压根没判成，绝不能写。
+func distillDedupMark(userID int, doc string, ttlSeconds int) {
+	if ttlSeconds <= 0 {
+		return
+	}
+	key := distillDedupKey(userID, doc)
+	if common.RedisEnabled && common.RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), distillRedisTimeoutMs*time.Millisecond)
+		defer cancel()
+		if err := common.RDB.Set(ctx, key, "1", time.Duration(ttlSeconds)*time.Second).Err(); err == nil {
+			return
+		}
+	}
+	distillMemoryRPM.dedupMark(key, ttlSeconds)
 }
 
 // ParseDistillAnswers 从上游响应里取每题分数，返回最高分与逐题 JSON。
@@ -480,7 +504,7 @@ func UpdateDistillHitRouting(hit *model.DistillDetectHit, channelID, fallbackID 
 }
 
 // EvaluateDistill 是请求路径上的入口：决定要不要判、判、然后记账。
-
+//
 // 返回命中信息（未命中返回 nil）。**观察模式下不写降级标记**，因此不会影响路由。
 // 所有耗时的部分（判定、落库、告警）都在调用方的 goroutine 里跑，这里只做
 // 廉价的判断。
@@ -512,12 +536,19 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 	if strings.TrimSpace(doc) == "" {
 		return nil
 	}
-	if distillDedupSeen(userID, doc, s.DedupSeconds) {
+	// ⛔ 这里只读。写 dedup 键必须等到判定真的返回了分值 —— 见 distillDedupMark。
+	if distillDedupSeen(userID, doc) {
 		return nil
 	}
 
 	verdict := JudgeDistill(ctx, doc)
-	if verdict.Skipped != "" || !verdict.Hit {
+	if verdict.Skipped != "" {
+		// 判定没跑成（超时 / 5xx / 响应不合协议）：一个字都不记，下一轮同正文
+		// 还要能重判。这是 dedup 时序反了会造成的最严重的后果。
+		return nil
+	}
+	distillDedupMark(userID, doc, s.DedupSeconds)
+	if !verdict.Hit {
 		return nil
 	}
 
@@ -621,15 +652,31 @@ func (t *distillMemoryTracker) markDemoted(userID int, until time.Time) {
 	}
 }
 
-func (t *distillMemoryTracker) dedupSeen(key string, ttlSeconds int) bool {
+// dedupAlive 报告这份正文在窗口内是否判定成功过（只读）。
+func (t *distillMemoryTracker) dedupAlive(key string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	until, ok := t.dedup[key]
+	return ok && time.Now().Before(until)
+}
+
+// dedupMark 记录一次判定成功。
+//
+// ⛔ 顺手做过期清理：这张表只在 Redis 长期不可用时长出来，键是
+// (user, 正文哈希)，每个新正文一条，不清理就是无界增长。清理成本 O(n)，
+// 但只在写入时做、且 n 是十分钟窗口内的正文数，可以接受。
+func (t *distillMemoryTracker) dedupMark(key string, ttlSeconds int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := time.Now()
-	if until, ok := t.dedup[key]; ok && now.Before(until) {
-		return true
+	if len(t.dedup) > 0 {
+		for k, until := range t.dedup {
+			if !now.Before(until) {
+				delete(t.dedup, k)
+			}
+		}
 	}
 	t.dedup[key] = now.Add(time.Duration(ttlSeconds) * time.Second)
-	return false
 }
 
 // takeBucket 是 Redis SETNX 的进程内等价物：同一时间槽只有第一个调用返回 true。

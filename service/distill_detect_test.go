@@ -271,3 +271,97 @@ func TestDistillQuestionsPayloadRespectsPerQuestionSwitches(t *testing.T) {
 		}
 	}
 }
+
+// ── dedup 时序（Reviewer 首轮审查的必修项）──────────────────────────────
+
+// ⭐ 这是本轮修掉的真实缺陷：早期版本在判分**之前**就用 SETNX 写「已判」键，
+// 于是 Jev 超时 / 5xx 一次，同一份正文在 DedupSeconds（默认 600s）内再也不会
+// 被重判 —— 故障恢复后整整十分钟的召回是哑的。
+//
+// 现在的分工：distillDedupSeen 只读，distillDedupMark 才写，且只在
+// JudgeDistill 返回了真实分值之后调用。
+func TestDistillDedupIsOnlyWrittenAfterASuccessfulVerdict(t *testing.T) {
+	const uid = 9101
+	distillMemoryRPM.dedup = map[string]time.Time{}
+	doc := "batch corpus payload #1"
+
+	if distillDedupSeen(uid, doc) {
+		t.Fatal("a body never judged must not be reported as already judged")
+	}
+	// 判定失败：不写键。再问一次必须仍然是「没判过」。
+	if distillDedupSeen(uid, doc) {
+		t.Fatal("a failed verdict must not poison the dedup window")
+	}
+
+	distillDedupMark(uid, doc, 600)
+	if !distillDedupSeen(uid, doc) {
+		t.Fatal("after a successful verdict the body must be deduplicated")
+	}
+}
+
+// dedup 按用户隔离：两个用户发同样的正文，各自都要判。
+func TestDistillDedupIsPerUser(t *testing.T) {
+	distillMemoryRPM.dedup = map[string]time.Time{}
+	doc := "identical corpus payload"
+	distillDedupMark(9201, doc, 600)
+	if distillDedupSeen(9202, doc) {
+		t.Fatal("dedup must not leak across users")
+	}
+}
+
+// dedupMark 顺手清理过期条目：Redis 长期不可用时长出来的表是无界的，
+// 键是 (user, 正文哈希)，每个新正文一条。
+func TestDistillMemoryDedupEvictsExpiredEntries(t *testing.T) {
+	distillMemoryRPM.dedup = map[string]time.Time{}
+	now := time.Now()
+	// 塞两条已过期的陈旧记录。
+	distillMemoryRPM.dedup["stale-a"] = now.Add(-time.Minute)
+	distillMemoryRPM.dedup["stale-b"] = now.Add(-time.Hour)
+
+	distillMemoryRPM.dedupMark("fresh", 600)
+
+	if _, ok := distillMemoryRPM.dedup["stale-a"]; ok {
+		t.Fatal("expired dedup entries must be evicted on write")
+	}
+	if _, ok := distillMemoryRPM.dedup["stale-b"]; ok {
+		t.Fatal("expired dedup entries must be evicted on write")
+	}
+	if _, ok := distillMemoryRPM.dedup["fresh"]; !ok {
+		t.Fatal("the entry being written must survive the sweep")
+	}
+}
+
+// ── 告警节流 ────────────────────────────────────────────────────────
+
+// ⭐ 观察模式下没有「一轮降级只判一次」的抑制：30 秒桶 ≈ 2 判/分/人，
+// 命中率 0.9 时不节流就是 ~1.8 条告警/分。默认 600 秒窗口内每人最多一条。
+func TestDistillAlertThrottleAllowsOnePerWindow(t *testing.T) {
+	distillAlertThrottleMu.Lock()
+	distillAlertThrottle = map[int]time.Time{}
+	distillAlertThrottleMu.Unlock()
+
+	const uid = 9301
+	if !distillAlertTakeThrottle(uid, 600) {
+		t.Fatal("the first hit must be allowed through")
+	}
+	for i := 0; i < 5; i++ {
+		if distillAlertTakeThrottle(uid, 600) {
+			t.Fatal("subsequent hits inside the throttle window must be suppressed")
+		}
+	}
+	// 另一个用户不受影响。
+	if !distillAlertTakeThrottle(9302, 600) {
+		t.Fatal("throttling must be per user")
+	}
+}
+
+// 节流窗口过期后可以再次告警：一次降级生命周期结束后还要能喊人。
+func TestDistillAlertThrottleReopensAfterTheWindow(t *testing.T) {
+	distillAlertThrottleMu.Lock()
+	distillAlertThrottle = map[int]time.Time{9401: time.Now().Add(-time.Second)}
+	distillAlertThrottleMu.Unlock()
+
+	if !distillAlertTakeThrottle(9401, 600) {
+		t.Fatal("an expired throttle window must let the next alert through")
+	}
+}

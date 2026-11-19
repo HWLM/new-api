@@ -72,6 +72,14 @@ type DistillDetectSetting struct {
 	// AlertTelegram / AlertWeCom 告警通道开关。
 	AlertTelegram bool `json:"alert_telegram"`
 	AlertWeCom    bool `json:"alert_wecom"`
+	// AlertThrottleSeconds 同一用户的告警节流窗口：窗口内最多 1 条。
+	// 0 = 不节流（每次命中都发）。
+	//
+	// ⚠️ 默认 600 秒。观察模式下没有「一轮降级只判一次」的抑制，30 秒桶
+	// 意味着单用户约 2 判/分，按命中率 0.9 就是 ~1.8 条告警/分 —— 不节流
+	// 一旦打开 TG/企微就是刷屏。命中流水本身不节流，运营要的完整名单在
+	// 管理页的 hits 列表里。
+	AlertThrottleSeconds int `json:"alert_throttle_seconds"`
 	// WeComWebhookUrl 蒸馏告警专用的企微群机器人地址；为空则该通道不发送。
 	// ⚠️ 不复用 log_alert 的规则表：那套是按错误日志过滤的规则引擎，语义与
 	// 「蒸馏命中」无关，硬塞进去会让运营在两处维护同一份 webhook。
@@ -105,6 +113,7 @@ var distillDetectSetting = DistillDetectSetting{
 	QuestionDistillTarget: true,
 	AlertTelegram:         false,
 	AlertWeCom:            false,
+	AlertThrottleSeconds:  600,
 	WeComWebhookUrl:       "",
 	FallbackChannelId:     0,
 	DedupSeconds:          600,

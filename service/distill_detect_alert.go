@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -27,11 +28,19 @@ import (
 
 // NotifyDistillHit 按开关发告警。返回的错误仅用于日志；
 // hit.AlertSent 在任一通道发送成功时置 true。
+//
+// ⛔ 节流按「用户」做，窗口 AlertThrottleSeconds（默认 600 秒，0 = 不节流）：
+// 观察模式下没有「一轮降级只判一次」的抑制，30 秒桶 ≈ 2 判/分/人，
+// 命中率 0.9 时不节流就是每分钟近两条 —— 一旦打开 TG/企微直接刷屏。
+// 被节流掉的命中**照常写 hits**，完整名单在管理页，告警只负责喊人。
 func NotifyDistillHit(hit *model.DistillDetectHit) error {
 	if hit == nil {
 		return nil
 	}
 	s := operation_setting.GetDistillDetectSetting()
+	if s.AlertThrottleSeconds > 0 && !distillAlertTakeThrottle(hit.UserId, s.AlertThrottleSeconds) {
+		return nil
+	}
 	text := buildDistillAlertText(hit, s)
 	var firstErr error
 	sent := false
@@ -69,6 +78,43 @@ func NotifyDistillHit(hit *model.DistillDetectHit) error {
 		hit.AlertSent = true
 	}
 	return firstErr
+}
+
+// distillAlertThrottleKeyPrefix 告警节流键前缀。
+const distillAlertThrottleKeyPrefix = "distill:alert:"
+
+var (
+	distillAlertThrottleMu sync.Mutex
+	distillAlertThrottle   = map[int]time.Time{}
+)
+
+// distillAlertTakeThrottle 抢占该用户在本轮节流窗口里的第一条告警名额。
+// 抢到返回 true（应当发送），窗口内已有记录返回 false。
+//
+// ⛔ 用 SETNX 而不是「读时间戳再写」：并发命中时后者会让多条同时判为「可以发」。
+// Redis 不可用时退化为进程内记录，多实例下各发一条，仍好过完全刷屏。
+func distillAlertTakeThrottle(userID, windowSeconds int) bool {
+	if userID <= 0 {
+		return false
+	}
+	key := fmt.Sprintf("%s{user:%d}", distillAlertThrottleKeyPrefix, userID)
+	if common.RedisEnabled && common.RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), distillRedisTimeoutMs*time.Millisecond)
+		defer cancel()
+		ok, err := common.RDB.SetNX(ctx, key, "1", time.Duration(windowSeconds)*time.Second).Result()
+		if err == nil {
+			return ok
+		}
+		common.SysLog(fmt.Sprintf("distill_detect: alert throttle setnx failed user=%d err=%v, falling back to memory", userID, err))
+	}
+	distillAlertThrottleMu.Lock()
+	defer distillAlertThrottleMu.Unlock()
+	now := time.Now()
+	if until, ok := distillAlertThrottle[userID]; ok && now.Before(until) {
+		return false
+	}
+	distillAlertThrottle[userID] = now.Add(time.Duration(windowSeconds) * time.Second)
+	return true
 }
 
 // buildDistillAlertText 组装告警正文（规格 §7 的格式）。
