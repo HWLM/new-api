@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/go-redis/redis/v8"
 	"github.com/tidwall/gjson"
 )
 
@@ -25,20 +27,25 @@ import (
 //
 // 作用域与成本：
 //   - 只判「文本类」relay（复用 IsTextClassRelayFormat）；
-//   - 只有该用户**当前分钟内的请求数**达到 ActivateRPM 才开始抽样；
-//   - 激活后按 SampleEvery 抽样，窗口内第一条必判；
+//   - 只有该用户**当前分钟内的请求数**达到 ActivateRPM 才开始判定；
+//   - 判定按**时间桶**抽样：同一用户每 JudgeIntervalSeconds 只判首条
+//     （默认 30s ⇒ 每分钟最多 2 次）。⛔ 不是「每 N 条请求抽 1」—— 实测
+//     线上 157 万请求/日，那条路最省也要 3.2 万次调用，成本压不住；
 //   - 一轮降级期间不再判定（一轮只花一次 Jev）；
-//   - 同一用户同一正文哈希在 DedupSeconds 内不重复打分。
+//   - 同一用户同一正文哈希在 DedupSeconds 内不重复打分；
+//   - 命中要**连续确认**：ConfirmWindowSeconds 滑动窗口内累计 ConfirmHits 次
+//     才真正降级，未达到的命中只写 hits。
 //
 // 观察模式（ObserveOnly=true）下：只写 hits + 告警，不动路由。
 // 这是规格 §9 的灰度要求：先量误伤，再决定是否打开重导。
 
 const (
-	distillRPMKeyPrefix   = "distill:rpm:"
-	distillSampledPrefix  = "distill:sampled:"
-	distillDemoteKeyPre   = "distill:demote:"
-	distillDedupKeyPrefix = "distill:dedup:"
-	distillRedisTimeoutMs = 100
+	distillRPMKeyPrefix     = "distill:rpm:"
+	distillBucketKeyPrefix  = "distill:bucket:"
+	distillConfirmKeyPrefix = "distill:confirm:"
+	distillDemoteKeyPre     = "distill:demote:"
+	distillDedupKeyPrefix   = "distill:dedup:"
+	distillRedisTimeoutMs   = 100
 )
 
 // 四道题，文本与 hw_gateway 的 train 题库逐字一致（docs/decision_model_train_bank_seed.sql）。
@@ -141,24 +148,76 @@ func DistillRPM(userID int) int {
 	return distillMemoryRPM.bump(userID, now.Unix()/60)
 }
 
-// distillShouldSample 决定这一条要不要送判定。
+// distillTakeBucket 抢占该用户在当前判定窗口的「首条」名额。
 //
-// 规则：从激活的第 ActivateRPM 条起，每 SampleEvery 条判一次（激活那条必判）。
-// ⛔ 用独立计数而不是复用 RPM 计数：RPM 的门槛是「多少才算活跃」，抽样是
-// 「活跃之后每几条判一次」，两者语义不同，混用会让改一个参数影响另一件事。
-func distillShouldSample(rpm, activateRPM, every int) bool {
-	if every <= 0 {
-		every = 1
-	}
-	if activateRPM < 1 {
-		activateRPM = 1
-	}
-	// 还没激活。
-	if rpm < activateRPM {
+// 返回 true 表示这条请求是它所在时间桶里的第一条，应当送判定。
+//
+// ⛔ 抽样单位是**时间桶**，不是请求条数。早期的「每 N 条请求抽 1」被实测否掉了：
+// 线上 24h 有 157 万请求，最省一档也要 3.2 万次/日。按时间桶后，一个持续高
+// 负载的用户每分钟最多判 60/interval 次（默认 30s ⇒ 2 次），成本与请求量脱钩。
+//
+// 桶键带桶序号，所以窗口是「自然对齐」的：同一条 30 秒里只有一个请求能抢到。
+// TTL 跟间隔走，避免桶键常驻。
+func distillTakeBucket(userID, intervalSeconds int) bool {
+	if userID <= 0 {
 		return false
 	}
-	// 激活那条必判，之后按间隔轮转。
-	return (rpm-activateRPM)%every == 0
+	if intervalSeconds <= 0 {
+		intervalSeconds = 30
+	}
+	now := time.Now()
+	slot := now.Unix() / int64(intervalSeconds)
+	key := fmt.Sprintf("%s%d:%d", distillBucketKeyPrefix, userID, slot)
+	// TTL 至少留一个完整窗口，再放一点余量给时钟抖动。
+	ttl := time.Duration(intervalSeconds) * time.Second
+	ttl += ttl / 2
+
+	if common.RedisEnabled && common.RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), distillRedisTimeoutMs*time.Millisecond)
+		defer cancel()
+		ok, err := common.RDB.SetNX(ctx, key, "1", ttl).Result()
+		if err == nil {
+			return ok
+		}
+		common.SysLog(fmt.Sprintf("distill_detect: bucket setnx failed user=%d err=%v, falling back to memory", userID, err))
+	}
+	return distillMemoryRPM.takeBucket(userID, slot)
+}
+
+// distillRecordConfirmedHit 把一个命中记进确认窗口，返回窗口内累计命中数。
+//
+// ⛔ 滑动计数、不清零：用 ZSET（score=毫秒时间戳，member=唯一命中 id），每次
+// 先剔掉窗口外的成员再计数。固定窗口在单次命中率掉到 0.5 以下时会漏掉一大半
+// 真阳性 —— 因为窗口一翻转就从头开始数。
+func distillRecordConfirmedHit(userID, windowSeconds int) int {
+	if userID <= 0 {
+		return 0
+	}
+	if windowSeconds <= 0 {
+		windowSeconds = 300
+	}
+	now := time.Now()
+	cutoff := now.Add(-time.Duration(windowSeconds) * time.Second).UnixMilli()
+	member := fmt.Sprintf("%d-%d", now.UnixNano(), now.UnixMicro()%1000)
+
+	key := fmt.Sprintf("%s{user:%d}", distillConfirmKeyPrefix, userID)
+	if common.RedisEnabled && common.RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), distillRedisTimeoutMs*time.Millisecond)
+		defer cancel()
+		pipe := common.RDB.TxPipeline()
+		pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(cutoff, 10))
+		pipe.ZAdd(ctx, key, &redis.Z{Score: float64(now.UnixMilli()), Member: member})
+		pipe.ZCard(ctx, key)
+		pipe.Expire(ctx, key, time.Duration(windowSeconds)*time.Second)
+		cmds, err := pipe.Exec(ctx)
+		if err == nil && len(cmds) == 4 {
+			if n, err := cmds[2].(*redis.IntCmd).Result(); err == nil {
+				return int(n)
+			}
+		}
+		common.SysLog(fmt.Sprintf("distill_detect: confirm zset failed user=%d err=%v, falling back to memory", userID, err))
+	}
+	return distillMemoryRPM.recordConfirm(userID, now, windowSeconds)
 }
 
 // IsUserDistillDemoted 查询该用户是否处于蒸馏降级态（观察模式下恒为 false，
@@ -399,7 +458,8 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 	if s.ActivateRPM > 0 && rpm < s.ActivateRPM {
 		return nil
 	}
-	if !distillShouldSample(rpm, s.ActivateRPM, s.SampleEvery) {
+	// 时间桶：同一用户在一个判定间隔内只有首条会走到判定。
+	if !distillTakeBucket(userID, s.JudgeIntervalSeconds) {
 		return nil
 	}
 
@@ -416,6 +476,13 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 		return nil
 	}
 
+	// 命中不等于确认：先记进滑动窗口，累计到 ConfirmHits 次才真正降级。
+	confirmed := distillRecordConfirmedHit(userID, s.ConfirmWindowSeconds)
+	threshold := s.ConfirmHits
+	if threshold <= 0 {
+		threshold = 1
+	}
+
 	hit := &model.DistillDetectHit{
 		UserId:     userID,
 		RequestId:  requestID,
@@ -426,7 +493,9 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 		DocChars:   verdict.DocChars,
 		SampledAt:  time.Now(),
 	}
-	if !s.ObserveOnly {
+	// ⛔ 只记录「这一条命中是否让确认数达到阈值」，不记录累计值 —— 累计是
+	// 滑动窗口的中间态，落库只会变成一份难对账的流水。
+	if !s.ObserveOnly && confirmed >= threshold {
 		deadline := time.Now().Add(time.Duration(s.DemoteSeconds) * time.Second)
 		hit.DemoteUntil = &deadline
 		markDistillDemoted(ctx, userID, s.DemoteSeconds)
@@ -462,6 +531,10 @@ type distillMemoryTracker struct {
 	}
 	demoteUntil map[int]time.Time
 	dedup       map[string]time.Time
+	// buckets 记录每个用户在哪个时间槽已经判过（Redis SETNX 的等价物）。
+	buckets map[int]int64
+	// confirms 是确认窗口内每次命中的时刻，滑动计数用。
+	confirms map[int][]time.Time
 }
 
 var distillMemoryRPM = &distillMemoryTracker{
@@ -471,6 +544,8 @@ var distillMemoryRPM = &distillMemoryTracker{
 	}),
 	demoteUntil: make(map[int]time.Time),
 	dedup:       make(map[string]time.Time),
+	buckets:     make(map[int]int64),
+	confirms:    make(map[int][]time.Time),
 }
 
 func (t *distillMemoryTracker) bump(userID int, minute int64) int {
@@ -510,6 +585,33 @@ func (t *distillMemoryTracker) dedupSeen(key string, ttlSeconds int) bool {
 	}
 	t.dedup[key] = now.Add(time.Duration(ttlSeconds) * time.Second)
 	return false
+}
+
+// takeBucket 是 Redis SETNX 的进程内等价物：同一时间槽只有第一个调用返回 true。
+func (t *distillMemoryTracker) takeBucket(userID int, slot int64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if cur, ok := t.buckets[userID]; ok && cur == slot {
+		return false
+	}
+	t.buckets[userID] = slot
+	return true
+}
+
+// recordConfirm 滑动计数：先剔除窗口外的命中，再记这一次，返回窗口内总数。
+func (t *distillMemoryTracker) recordConfirm(userID int, now time.Time, windowSeconds int) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cutoff := now.Add(-time.Duration(windowSeconds) * time.Second)
+	kept := t.confirms[userID][:0]
+	for _, at := range t.confirms[userID] {
+		if at.After(cutoff) {
+			kept = append(kept, at)
+		}
+	}
+	kept = append(kept, now)
+	t.confirms[userID] = kept
+	return len(kept)
 }
 
 // DistillSetting 便捷读，供 controller 校验与前端契约使用。

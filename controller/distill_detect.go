@@ -31,7 +31,9 @@ import (
 type DistillSettingView struct {
 	Enabled               bool    `json:"enabled"`
 	ActivateRPM           int     `json:"activate_rpm"`
-	SampleEvery           int     `json:"sample_every"`
+	JudgeIntervalSeconds  int     `json:"judge_interval_seconds"`
+	ConfirmHits           int     `json:"confirm_hits"`
+	ConfirmWindowSeconds  int     `json:"confirm_window_seconds"`
 	Threshold             float64 `json:"threshold"`
 	DemoteSeconds         int     `json:"demote_seconds"`
 	ObserveOnly           bool    `json:"observe_only"`
@@ -60,7 +62,9 @@ func GetDistillDetectSetting(c *gin.Context) {
 		"data": DistillSettingView{
 			Enabled:               s.Enabled,
 			ActivateRPM:           s.ActivateRPM,
-			SampleEvery:           s.SampleEvery,
+			JudgeIntervalSeconds:  s.JudgeIntervalSeconds,
+			ConfirmHits:           s.ConfirmHits,
+			ConfirmWindowSeconds:  s.ConfirmWindowSeconds,
 			Threshold:             s.Threshold,
 			DemoteSeconds:         s.DemoteSeconds,
 			ObserveOnly:           s.ObserveOnly,
@@ -88,7 +92,9 @@ func GetDistillDetectSetting(c *gin.Context) {
 type DistillSettingUpdateRequest struct {
 	Enabled               *bool    `json:"enabled"`
 	ActivateRPM           *int     `json:"activate_rpm"`
-	SampleEvery           *int     `json:"sample_every"`
+	JudgeIntervalSeconds  *int     `json:"judge_interval_seconds"`
+	ConfirmHits           *int     `json:"confirm_hits"`
+	ConfirmWindowSeconds  *int     `json:"confirm_window_seconds"`
 	Threshold             *float64 `json:"threshold"`
 	DemoteSeconds         *int     `json:"demote_seconds"`
 	ObserveOnly           *bool    `json:"observe_only"`
@@ -126,9 +132,21 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 			return
 		}
 	}
-	if req.SampleEvery != nil {
-		if *req.SampleEvery < 1 || *req.SampleEvery > 10000 {
-			common.ApiErrorMsg(c, "抽样间隔必须在 1~10000 之间")
+	if req.JudgeIntervalSeconds != nil {
+		if *req.JudgeIntervalSeconds < 1 || *req.JudgeIntervalSeconds > 3600 {
+			common.ApiErrorMsg(c, "判定间隔必须在 1~3600 秒之间")
+			return
+		}
+	}
+	if req.ConfirmHits != nil {
+		if *req.ConfirmHits < 1 || *req.ConfirmHits > 100 {
+			common.ApiErrorMsg(c, "命中确认次数必须在 1~100 之间")
+			return
+		}
+	}
+	if req.ConfirmWindowSeconds != nil {
+		if *req.ConfirmWindowSeconds < 30 || *req.ConfirmWindowSeconds > 86400 {
+			common.ApiErrorMsg(c, "确认窗口必须在 30 秒 ~ 24 小时之间")
 			return
 		}
 	}
@@ -202,8 +220,14 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 	if req.ActivateRPM != nil {
 		s.ActivateRPM = *req.ActivateRPM
 	}
-	if req.SampleEvery != nil {
-		s.SampleEvery = *req.SampleEvery
+	if req.JudgeIntervalSeconds != nil {
+		s.JudgeIntervalSeconds = *req.JudgeIntervalSeconds
+	}
+	if req.ConfirmHits != nil {
+		s.ConfirmHits = *req.ConfirmHits
+	}
+	if req.ConfirmWindowSeconds != nil {
+		s.ConfirmWindowSeconds = *req.ConfirmWindowSeconds
 	}
 	if req.Threshold != nil {
 		s.Threshold = *req.Threshold

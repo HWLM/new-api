@@ -18,12 +18,26 @@ type DistillDetectSetting struct {
 	// Enabled 全局总开关；关闭时不抽样、不判定、不告警。
 	Enabled bool `json:"enabled"`
 
-	// ActivateRPM 每分钟请求量激活阈值：该用户当前分钟内的请求数达到该值才开始抽样判定。
+	// ActivateRPM 每分钟请求量激活阈值：该用户当前分钟内的请求数达到该值才开始判定。
 	// 0 或负数表示「不设门槛」（任何请求都可能被判定），一般不这么配。
 	ActivateRPM int `json:"activate_rpm"`
 
-	// SampleEvery 抽样间隔 N：激活后每 N 条请求抽 1 条判定；窗口内第一条必判。
-	SampleEvery int `json:"sample_every"`
+	// JudgeIntervalSeconds 判定间隔：同一用户在该窗口内最多判 1 次。
+	// 默认 30 秒 ⇒ 每分钟上限 2 次。桶键 `distill:bucket:<user>:<floor(now/interval)>`
+	// 用 SET NX 抢首条，TTL 跟着本值走。
+	//
+	// ⛔ 取代了早期的「每 N 条请求抽 1」：实测线上 24h 有 157 万请求，那条路
+	// 最省一档也要 3.2 万次/日，成本压不住。按时间桶才可控 —— 见规格 §11。
+	JudgeIntervalSeconds int `json:"judge_interval_seconds"`
+
+	// ConfirmHits 命中确认次数：确认窗口内累计命中达到该次数才真正降级。
+	// ⛔ 前几次命中只写 hits、不降级 —— 这是「不因单条误判就把整段流量切走」
+	// 的保证。真蒸馏用户命中率高（回放实测 9/10），2–3 分钟就能凑够。
+	ConfirmHits int `json:"confirm_hits"`
+
+	// ConfirmWindowSeconds 命中确认窗口：滑动计数、不清零，超出窗口的命中过期。
+	// ⛔ 不用固定窗口：单次命中率一旦掉到 0.5 以下，固定窗口会漏掉一大半。
+	ConfirmWindowSeconds int `json:"confirm_window_seconds"`
 
 	// Threshold 判定阈值：4 题最高分 >= 该值即命中。与 hw_gateway 现网一致为 0.6。
 	Threshold float64 `json:"threshold"`
@@ -73,8 +87,10 @@ type DistillDetectSetting struct {
 
 var distillDetectSetting = DistillDetectSetting{
 	Enabled:               true,
-	ActivateRPM:           20, // 占位：等 Hermes 用线上数据校准后只改默认值
-	SampleEvery:           10, // 占位：同上
+	ActivateRPM:           20,
+	JudgeIntervalSeconds:  30,
+	ConfirmHits:           4,
+	ConfirmWindowSeconds:  300,
 	Threshold:             0.60,
 	DemoteSeconds:         3600,
 	ObserveOnly:           true, // 灰度：先只记录 + 告警

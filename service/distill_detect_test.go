@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // 蒸馏检测的单元测试（docs/distill-detection-plan.md）。
@@ -148,40 +149,90 @@ func TestParseDistillAnswersRejectsPayloadsWithoutScores(t *testing.T) {
 	}
 }
 
-func TestDistillShouldSampleStartsAtTheActivationThresholdThenEveryN(t *testing.T) {
-	// 激活阈值 20、抽样间隔 10：第 20 条必判，之后 30、40…
-	got := make(map[int]bool)
-	for rpm := 1; rpm <= 45; rpm++ {
-		got[rpm] = distillShouldSample(rpm, 20, 10)
-	}
-	for _, must := range []int{20, 30, 40} {
-		if !got[must] {
-			t.Fatalf("request #%d must be sampled", must)
+// ── 时间桶抽样 ────────────────────────────────────────────────────────
+
+// ⭐ 抽样单位是时间桶：同一用户在一个判定间隔内只有首条被判定。
+// 这是在替掉「每 N 条请求抽 1」之后的核心行为，测的是分支本身。
+func TestDistillBucketOnlyTheFirstRequestInASlotIsJudged(t *testing.T) {
+	const uid = 9001
+	distillMemoryRPM.buckets = map[int]int64{}
+
+	// 模拟同一个 30 秒槽里的 5 条请求：只有第一条能拿到名额。
+	taken := 0
+	for i := 0; i < 5; i++ {
+		if distillMemoryRPM.takeBucket(uid, 1000) {
+			taken++
 		}
 	}
-	for _, mustNot := range []int{1, 19, 21, 25, 29, 31, 39, 44} {
-		if got[mustNot] {
-			t.Fatalf("request #%d must not be sampled", mustNot)
+	if taken != 1 {
+		t.Fatalf("exactly one request per slot may be judged, got %d", taken)
+	}
+	// 下一个槽重新开始。
+	if !distillMemoryRPM.takeBucket(uid, 1001) {
+		t.Fatal("a new slot must allow a new judgement")
+	}
+}
+
+func TestDistillBucketIsPerUser(t *testing.T) {
+	distillMemoryRPM.buckets = map[int]int64{}
+	if !distillMemoryRPM.takeBucket(100, 500) {
+		t.Fatal("user A takes its own slot")
+	}
+	if !distillMemoryRPM.takeBucket(101, 500) {
+		t.Fatal("user B must not be blocked by user A")
+	}
+}
+
+// ── 命中确认（滑动计数）──────────────────────────────────────────────
+
+// ⭐ 5 分钟内累计 4 次命中才确认：前 3 次只写 hits，第 4 次才降级。
+func TestDistillConfirmRequiresFourHitsInTheWindow(t *testing.T) {
+	const uid = 9002
+	distillMemoryRPM.confirms = map[int][]time.Time{}
+	now := time.Now()
+
+	for i := 1; i <= 4; i++ {
+		n := distillMemoryRPM.recordConfirm(uid, now.Add(time.Duration(i)*30*time.Second), 300)
+		if n != i {
+			t.Fatalf("hit #%d must count to %d, got %d", i, i, n)
+		}
+		if i < 4 && n >= 4 {
+			t.Fatalf("must not confirm before the 4th hit")
 		}
 	}
 }
 
-func TestDistillShouldSampleTreatsZeroEveryAsEveryRequest(t *testing.T) {
-	// every=0 视为每条都判，起点仍然是激活阈值。
-	if distillShouldSample(19, 20, 0) {
-		t.Fatal("below the activation threshold nothing is sampled")
+// ⛔ 滑动计数：超出窗口的命中会过期，不会被永久累加。
+func TestDistillConfirmSlidesAndExpiresOldHits(t *testing.T) {
+	const uid = 9003
+	distillMemoryRPM.confirms = map[int][]time.Time{}
+	base := time.Now()
+
+	// 三次命中，然后就停了。
+	for i := 0; i < 3; i++ {
+		distillMemoryRPM.recordConfirm(uid, base.Add(time.Duration(i)*10*time.Second), 300)
 	}
-	for rpm := 20; rpm <= 24; rpm++ {
-		if !distillShouldSample(rpm, 20, 0) {
-			t.Fatalf("#%d must be sampled when every=0 (treated as 1)", rpm)
-		}
+	// 过了窗口再来一次：前面三次都已过期，计数归 1 而不是 4。
+	n := distillMemoryRPM.recordConfirm(uid, base.Add(600*time.Second), 300)
+	if n != 1 {
+		t.Fatalf("hits older than the window must expire, expected 1 got %d", n)
 	}
 }
 
-func TestDistillShouldSampleWithZeroActivationSamplesFromTheFirst(t *testing.T) {
-	// ActivateRPM=0 表示不设门槛：第 1 条就判。
-	if !distillShouldSample(1, 0, 10) {
-		t.Fatal("with no activation threshold the first request is sampled")
+// 窗口内的命中不会因为「跨了一个桶」就被清零 —— 这正是滑动计数相对固定窗口
+// 的意义：单次命中率掉下来时不会漏掉真阳性。
+func TestDistillConfirmKeepsHitsAcrossSlots(t *testing.T) {
+	const uid = 9004
+	distillMemoryRPM.confirms = map[int][]time.Time{}
+	base := time.Now()
+
+	// 每 30 秒一次，跨了多个判定槽但都在 5 分钟窗口内。
+	n := 0
+	for i := 0; i < 4; i++ {
+		n = distillMemoryRPM.recordConfirm(uid, base.Add(time.Duration(i)*30*time.Second), 300)
+	}
+	if n != 4 {
+		t.Fatalf("hits within the window must accumulate across slots, got %d", n)
 	}
 }
 
