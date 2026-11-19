@@ -31,6 +31,7 @@ import {
   Network,
   ServerCog,
   Settings,
+  ShieldAlert,
   Ticket,
   User,
   Users,
@@ -147,6 +148,11 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('Distillation hits'),
+            url: '/distill-hits',
+            icon: ShieldAlert,
           },
           {
             title: t('Redemption Codes'),
