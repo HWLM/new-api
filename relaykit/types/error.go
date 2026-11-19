@@ -82,6 +82,12 @@ const (
 	ErrorCodeAwsInvokeError      ErrorCode = "aws_invoke_error"
 	ErrorCodeModelNotFound       ErrorCode = "model_not_found"
 	ErrorCodePromptBlocked       ErrorCode = "prompt_blocked"
+	// ErrorCodeDistillFallbackUnavailable 蒸馏检测命中后需要走兜底渠道，但兜底不可用
+	// （未配置 / 自环 / 已禁用 / 不支持当前模型或路径 / 无可用分组）。
+	//
+	// ⛔ 与拒答降级的 429 共用状态码但不共用文案：运营必须能一眼分清这次是蒸馏兜底
+	// 还是风控降级，所以这里是独立 code + 独立 message。
+	ErrorCodeDistillFallbackUnavailable ErrorCode = "distill_fallback_unavailable"
 
 	// sql error
 	ErrorCodeQueryDataError  ErrorCode = "query_data_error"

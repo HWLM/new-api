@@ -434,8 +434,53 @@ func JudgeDistill(ctx context.Context, doc string) DistillVerdict {
 	}
 }
 
-// EvaluateDistill 是请求路径上的入口：决定要不要判、判、然后记账。
+// PersistDistillHitSync 同步落库一条命中（含告警）。
 //
+// ⛔ 重导模式必须用这个而不是 RecordDistillHit 的后台版：那次请求本身就要被切到
+// 兜底渠道，运营随后可能立刻拿 request_id 来查，记录晚到就会查不到。
+func PersistDistillHitSync(hit *model.DistillDetectHit) {
+	if hit == nil {
+		return
+	}
+	if err := model.DB.Create(hit).Error; err != nil {
+		common.SysError(fmt.Sprintf("distill_detect: 写入命中记录失败 user=%d req=%s err=%v",
+			hit.UserId, hit.RequestId, err))
+		return
+	}
+	gopool.Go(func() {
+		if err := NotifyDistillHit(hit); err == nil && hit.AlertSent {
+			model.DB.Model(&model.DistillDetectHit{}).Where("id = ?", hit.Id).Update("alert_sent", true)
+		}
+	})
+}
+
+// UpdateDistillHitRouting 回填这条命中「最后实际走了哪个渠道」。
+//
+// 观察模式下 fallbackID 恒为 0；重导模式下：
+//   - 重导成功 → fallbackID = 兜底渠道，channelId 保留原渠道；
+//   - 兜底不可用 → 两者都是原渠道、fallbackID=0，运营据此看到「应该重导但没成」。
+//
+// 只在请求结束后调用一次；失败仅记日志，不影响用户请求。
+func UpdateDistillHitRouting(hit *model.DistillDetectHit, channelID, fallbackID int) {
+	if hit == nil || hit.Id <= 0 {
+		return
+	}
+	// channelID<=0：请求在选渠道之前就被拒了（例如兜底不可用直接 429），
+	// 此时保留原记录里的渠道，只清掉「已重导」的痕迹。
+	var updates map[string]any
+	if channelID > 0 {
+		updates = map[string]any{"channel_id": channelID, "fallback_id": fallbackID}
+	} else {
+		updates = map[string]any{"fallback_id": 0}
+	}
+	if err := model.DB.Model(&model.DistillDetectHit{}).Where("id = ?", hit.Id).
+		Updates(updates).Error; err != nil {
+		common.SysLog(fmt.Sprintf("distill_detect: 回填渠道信息失败 id=%d err=%v", hit.Id, err))
+	}
+}
+
+// EvaluateDistill 是请求路径上的入口：决定要不要判、判、然后记账。
+
 // 返回命中信息（未命中返回 nil）。**观察模式下不写降级标记**，因此不会影响路由。
 // 所有耗时的部分（判定、落库、告警）都在调用方的 goroutine 里跑，这里只做
 // 廉价的判断。

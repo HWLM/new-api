@@ -12,6 +12,7 @@ import (
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // distillBodyReadLimit 判定最多读这么多字节的请求正文。
@@ -47,18 +48,19 @@ func isDistillTextClassPath(path string) bool {
 
 // DistillDetect 在分发前对请求做一次「蒸馏用途」抽样判定。
 //
-// ⚠️ 观察模式（本轮实现）：判定在**后台 goroutine** 里跑，命中只写 hits 与告警，
-// 既不阻塞用户请求，也不改变路由。等观察期数据回来确认误伤后，再打开重导 ——
-// 那时需要把判定挪到分发之前同步执行（规格 §12 第 3 步），因为「命中的这一次
-// 请求就要走兜底」。
+// 两种模式，边界很清楚：
 //
-// ⛔ 不判的情形全部短路，一次外部调用都不发：
-//   - 全局关闭 / 该用户被豁免；
-//   - 非文本类 relay；
-//   - 该用户当前分钟请求量未达激活阈值；
-//   - 本轮未抽中（抽样间隔）；
-//   - 已处于一轮降级中（一轮只花一次）；
-//   - 同一正文在去重窗口内已判过。
+//   - 观察模式（ObserveOnly=true，默认）：判定在**后台 goroutine** 里跑，
+//     不阻塞用户请求、不改路由，只写 hits 与告警。
+//   - 重导模式（ObserveOnly=false）：判定必须在 Distribute **之前同步**跑完，
+//     因为「凑够确认次数的那一次请求」本身就要立刻走兜底 —— 若放到
+//     c.Next() 之后，这一条已经走原渠道回完了，等于漏掉。
+//
+// ⛔ 重导模式下判定只花在「可能真的命中」的请求上：先看该用户是否已在降级态
+// （直接标记，不再调 Jev），再看阈值/抽样/去重，与观察模式同一套口径。
+//
+// ⛔ 不判的情形全部短路，一次外部调用都不发（含：全局关闭、用户豁免、非文本类
+// relay、未达激活阈值、本轮未抽中、已在降级中、正文去重命中）。
 func DistillDetect() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		s := operation_setting.GetDistillDetectSetting()
@@ -90,24 +92,74 @@ func DistillDetect() gin.HandlerFunc {
 			return
 		}
 
-		// 这些值必须在 c 还活着的时候取出来：gin.Context 在请求结束后会被复用，
-		// 后台 goroutine 不能再回读它。
 		requestID := c.GetString(common.RequestIdKey)
-		modelName := c.GetString("original_model")
-		if modelName == "" {
-			modelName = c.GetString("model")
+		modelName := distillModelNameFromBody(body)
+
+		if s.ObserveOnly {
+			// 这些值必须在 c 还活着的时候取出来：gin.Context 在请求结束后会被复用，
+			// 后台 goroutine 不能再回读它。
+			if modelName == "" {
+				modelName = c.GetString("original_model")
+				if modelName == "" {
+					modelName = c.GetString("model")
+				}
+			}
+			c.Next()
+			gopool.Go(func() {
+				hit := service.EvaluateDistill(userID, requestID, modelName, body)
+				service.RecordDistillHit(hit)
+			})
+			return
 		}
 
+		// ── 重导模式 ────────────────────────────────────────────────
+		// 已在降级态：不再判定（一轮只花一次 Jev），直接标记本次请求走兜底。
+		if service.IsUserDistillDemoted(c.Request.Context(), userID) {
+			common.SetContextKey(c, constant.ContextKeyDistillDemoted, true)
+			c.Next()
+			return
+		}
+
+		hit := service.EvaluateDistill(userID, requestID, modelName, body)
+		if hit == nil {
+			c.Next()
+			return
+		}
+		// 命中记录先落库：运营要靠 request_id 去追这次请求，不能等响应结束。
+		service.PersistDistillHitSync(hit)
+		if hit.DemoteUntil != nil {
+			// 本条的命中让确认次数达标 ⇒ 降级从**这一条**开始生效。
+			common.SetContextKey(c, constant.ContextKeyDistillDemoted, true)
+			common.SetContextKey(c, constant.ContextKeyDistillDemotedScore, hit.Score)
+		}
 		c.Next()
 
-		gopool.Go(func() {
-			hit := service.EvaluateDistill(userID, requestID, modelName, body)
-			service.RecordDistillHit(hit)
-		})
+		// 路由结果此时才确定：回填「原渠道 → 兜底渠道」，供运营对账。
+		served := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+		fallbackServed := common.GetContextKeyInt(c, constant.ContextKeyDistillFallbackChannelId)
+		original := served
+		fallbackID := 0
+		if fallbackServed > 0 {
+			original = common.GetContextKeyInt(c, constant.ContextKeyFallbackFromChannelId)
+			fallbackID = fallbackServed
+		}
+		service.UpdateDistillHitRouting(hit, original, fallbackID)
 	}
 }
 
-// readBodyForDistill 复制一份请求正文供后台判定使用。
+// distillModelNameFromBody 从请求正文里取模型名。
+//
+// ⛔ 不能只靠 c.GetString("original_model")：那个键由 Distribute 里的
+// SetupContextForSelectedChannel 写入，而这个中间件运行在 Distribute 之前，
+// 那时它还是空的（观察模式早期就是这样导致 hits.model 一直为空）。
+func distillModelNameFromBody(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(gjson.GetBytes(body, "model").String())
+}
+
+// readBodyForDistill 复制一份请求正文供判定使用。
 //
 // ⛔ 必须复制：请求结束后 `BodyStorageCleanup` 会释放存储，后台 goroutine
 // 再读就是空内容（甚至读到已关闭的临时文件）。

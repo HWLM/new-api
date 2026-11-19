@@ -69,6 +69,19 @@ const (
 	// 置为 ContextKeyUserOverloaded；仅用于区分 fallback_from 的触发来源，
 	// 不影响 Distribute 中间件的实际行为。
 	ContextKeyConcurrencyOverloaded ContextKey = "concurrency_overloaded"
+
+	// ContextKeyDistillDemoted 标记本次请求因「用户命中蒸馏检测」被重导到
+	// **蒸馏兜底渠道**（DistillDetectSetting.FallbackChannelId，全局一个），
+	// 与各渠道自配的 FallbackChannelId、以及拒答降级的兜底都不是同一条链路。
+	//
+	// ⛔ 不能被拒答降级的 ContextKeyUserOverloaded 覆盖：两者同时命中时，
+	// 蒸馏优先 —— 蒸馏是用户在批量薅模型输出，比拒答更该被切走。
+	ContextKeyDistillDemoted ContextKey = "distill_demoted"
+	// ContextKeyDistillDemotedScore 命中蒸馏时这次判定的最高分，仅供审计日志。
+	ContextKeyDistillDemotedScore ContextKey = "distill_demoted_score"
+	// ContextKeyDistillFallbackChannelId 本次请求「实际被蒸馏兜底切到了哪个渠道」。
+	// 重导成功才写；兜底不可用（走了 429）时不写，据此区分两种结局。
+	ContextKeyDistillFallbackChannelId ContextKey = "distill_fallback_channel_id"
 	// ContextKeyConcurrencyCount / ContextKeyConcurrencyLimit 记录并发超限命中
 	// 时的 in-flight 计数和上限，供 Distribute 中间件在决定「重导兜底/429」后
 	// 异步发 TG 时拼消息用。
