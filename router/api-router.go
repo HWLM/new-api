@@ -286,6 +286,17 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.GET("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
 		}
 
+		// 蒸馏检测（docs/distill-detection-plan.md）。管理员配置 + 命中记录查询。
+		// Use AdminAuth() 而非 RootAuth()：运营也要能查 request_id 通知客户。
+		distillRoute := apiRouter.Group("/distill_detect")
+		distillRoute.Use(middleware.AdminAuth())
+		{
+			distillRoute.GET("/setting", controller.GetDistillDetectSetting)
+			distillRoute.PUT("/setting", controller.UpdateDistillDetectSetting)
+			distillRoute.GET("/hits", controller.ListDistillHits)
+			distillRoute.POST("/test", controller.TestDistill)
+		}
+
 		// Custom OAuth provider management (root only)
 		customOAuthRoute := apiRouter.Group("/custom-oauth-provider")
 		customOAuthRoute.Use(middleware.RootAuth())

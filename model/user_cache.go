@@ -24,6 +24,7 @@ type UserBase struct {
 	Setting               string `json:"setting"`
 	MaxConcurrency        int    `json:"max_concurrency"`
 	RefusalDemoteOverride int    `json:"refusal_demote_override"`
+	DistillDetectOverride int    `json:"distill_detect_override"`
 	AuthVersion           int64  `json:"-"`
 	CacheSchema           int    `json:"-"`
 }

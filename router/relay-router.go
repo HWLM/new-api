@@ -72,6 +72,10 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.TokenAuth())
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	relayV1Router.Use(middleware.UserConcurrencyLimit())
+	// 蒸馏检测（观察模式）：挂在 Distribute 之前，读请求正文抽样送判定。
+	// ⛔ 顺序有意义：它要求 UserConcurrencyLimit 已经跑过（用户降级态已判定），
+	// 且必须在 Distribute 之前 —— 将来打开重导时，命中要影响本次请求的选渠道。
+	relayV1Router.Use(middleware.DistillDetect())
 	relayV1Router.POST("/messages/count_tokens", controller.ClaudeCountTokens)
 	{
 		// WebSocket 路由（统一到 Relay）
