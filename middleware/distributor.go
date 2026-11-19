@@ -170,7 +170,7 @@ func Distribute() func(c *gin.Context) {
 				// 拒答降级的「风控降级」明确区分，运营一眼能认出是蒸馏兜底。
 				if channel != nil && common.GetContextKeyBool(c, constant.ContextKeyDistillDemoted) {
 					originalChannelID := channel.Id
-					if fb := distillFallbackChannel(c, modelRequest.Model, selectGroup); fb != nil {
+					if fb := distillFallbackChannel(c, channel.Id, modelRequest.Model, selectGroup); fb != nil {
 						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, channel.Id)
 						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelName, channel.Name)
 						common.SetContextKey(c, constant.ContextKeyFallbackFromGroup, selectGroup)
@@ -317,13 +317,15 @@ func redirectToFallbackChannel(c *gin.Context, original *model.Channel, modelNam
 //
 // 任何真正不可用的情况（未配置、渠道不存在、已禁用、不支持模型/路径、无分组）
 // 返回 nil，由调用方回 429 distill_fallback_unavailable。
-func distillFallbackChannel(c *gin.Context, modelName, origGroup string) *fallbackResolution {
+func distillFallbackChannel(c *gin.Context, currentChannelID int, modelName, origGroup string) *fallbackResolution {
 	s := operation_setting.GetDistillDetectSetting()
 	if s == nil || s.FallbackChannelId <= 0 {
 		return nil
 	}
 	// 当前渠道就是兜底渠道：原地不动即可，视为已重导。
-	if cur := common.GetContextKeyInt(c, constant.ContextKeyChannelId); cur == s.FallbackChannelId {
+	// ⛔ 必须用调用方传进来的 currentChannelID：本函数在 SetupContextForSelectedChannel
+	// 之前执行，那时 ContextKeyChannelId 还没写入，读它恒为 0（自环判断永远不成立）。
+	if currentChannelID > 0 && currentChannelID == s.FallbackChannelId {
 		if ch, err := model.CacheGetChannel(s.FallbackChannelId); err == nil && ch != nil {
 			return &fallbackResolution{channel: ch, group: origGroup}
 		}

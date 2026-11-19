@@ -76,13 +76,13 @@ func TestDistillFallbackIsNilWhenNotConfigured(t *testing.T) {
 
 	s.FallbackChannelId = 0
 	c, _ := newDistillTestContext(http.MethodPost, "/v1/chat/completions", `{"model":"claude-3-5-sonnet"}`)
-	if fb := distillFallbackChannel(c, "claude-3-5-sonnet", "default"); fb != nil {
+	if fb := distillFallbackChannel(c, 0, "claude-3-5-sonnet", "default"); fb != nil {
 		t.Fatalf("an unconfigured fallback must resolve to nil, got channel %d", fb.channel.Id)
 	}
 
 	// 负数同理：非法配置不能被当成「已配置」。
 	s.FallbackChannelId = -1
-	if fb := distillFallbackChannel(c, "claude-3-5-sonnet", "default"); fb != nil {
+	if fb := distillFallbackChannel(c, 0, "claude-3-5-sonnet", "default"); fb != nil {
 		t.Fatalf("a negative fallback id must resolve to nil")
 	}
 }
