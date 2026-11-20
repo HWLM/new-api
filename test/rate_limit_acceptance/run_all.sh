@@ -10,7 +10,10 @@ cd "$(dirname "$0")"
 BASE="${1:-http://127.0.0.1:3102}"
 DB="${2:-C:/Users/xiang/.dsh/bot/workspace/new-api-verify/rl3102/data/rl.db}"
 OUT="${3:-C:/Users/xiang/.dsh/bot/workspace/new-api-verify/rl3102/env_rl.json}"
-HERE="$(pwd)"
+HERE="$(pwd -W 2>/dev/null || pwd)"   # 给原生 python 用的 Windows 路径
+
+LOG="run-$(date +%m%d-%H%M).log"
+exec > >(tee "$LOG") 2>&1     # 整段输出都进日志，含版本头
 
 echo "== 1. 实例初始化（已初始化则只刷新 token）=="
 BASE="$BASE" DISTILL_SQLITE="$DB" DISTILL_ENV_OUT="$OUT" \
@@ -38,6 +41,7 @@ echo "== 3. 版本 =="
 curl -s -m 5 -D - -o /dev/null "$BASE/api/status" | grep -i "x-new-api-version" | tr -d '\r'
 
 echo "== 4. 跑全部用例 =="
-LOG="run-$(date +%m%d-%H%M).log"
-python rate_limit_acceptance.py "${@:4}" 2>&1 | tee "$LOG"
+python rate_limit_acceptance.py "${@:4}"
+rc=$?
 echo "日志: $HERE/$LOG"
+exit $rc
