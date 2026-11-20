@@ -43,9 +43,9 @@ import {
 } from '@/components/ui/table'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
-import { listDistillHits } from './api'
-import { parseCategories } from './lib'
-import type { DistillHit, DistillHitsQuery } from './types'
+import { getDistillSetting, listDistillHits } from './api'
+import { parseCategories, questionLabel } from './lib'
+import type { DistillHit, DistillHitsQuery, DistillQuestion } from './types'
 
 const PAGE_SIZE = 20
 
@@ -91,6 +91,15 @@ export function DistillHits() {
     queryFn: () => listDistillHits(query),
     placeholderData: keepPreviousData,
   })
+  // 只用来把 categories 里的题目 id 换成题名；拿不到就直接显示 id。
+  const settingQuery = useQuery({
+    queryKey: ['distill-detect', 'setting'],
+    queryFn: getDistillSetting,
+    staleTime: 60_000,
+  })
+  const questions = settingQuery.data?.success
+    ? (settingQuery.data.data.questions ?? [])
+    : []
   const pageData = hitsQuery.data?.success ? hitsQuery.data.data : undefined
   const items = pageData?.items ?? []
   const total = pageData?.total ?? 0
@@ -223,7 +232,7 @@ export function DistillHits() {
                 </TableHeader>
                 <TableBody>
                   {items.map((hit) => (
-                    <HitRow key={hit.id} hit={hit} />
+                    <HitRow key={hit.id} hit={hit} questions={questions} />
                   ))}
                 </TableBody>
               </Table>
@@ -264,11 +273,13 @@ export function DistillHits() {
   )
 }
 
-function HitRow(props: { hit: DistillHit }) {
+function HitRow(props: { hit: DistillHit; questions: DistillQuestion[] }) {
   const { t } = useTranslation()
   const hit = props.hit
   const scores = parseCategories(hit.categories)
-  const scoreTitle = scores.map(([k, v]) => `${k}: ${v.toFixed(3)}`).join('\n')
+  const scoreTitle = scores
+    .map(([k, v]) => `${questionLabel(k, props.questions)}: ${v.toFixed(3)}`)
+    .join('\n')
 
   const copyRequestId = async () => {
     if (await copyToClipboard(hit.request_id)) {

@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 
 import type {
   ApiResponse,
+  DistillAlertTestResult,
   DistillHitsPage,
   DistillHitsQuery,
   DistillSetting,
@@ -54,6 +55,14 @@ export async function listDistillHits(query: DistillHitsQuery) {
   const res = await api.get<ApiResponse<DistillHitsPage>>(
     '/api/distill_detect/hits',
     { params }
+  )
+  return res.data
+}
+
+export async function testDistillAlert() {
+  const res = await api.post<ApiResponse<DistillAlertTestResult>>(
+    '/api/distill_detect/alert_test',
+    {}
   )
   return res.data
 }

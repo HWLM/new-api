@@ -17,6 +17,40 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import type { DistillAlertChannelResult, DistillQuestion } from './types'
+
+export type AlertOutcome = {
+  kind: 'sent' | 'disabled' | 'not_configured' | 'failed'
+  detail: string
+}
+
+/** 单通道测试结果 → 展示用状态；未知 status 按失败处理并把原值带出来。 */
+export function describeAlertResult(
+  raw: DistillAlertChannelResult | undefined
+): AlertOutcome {
+  const status = raw?.status ?? ''
+  if (status === 'sent') return { kind: 'sent', detail: '' }
+  if (status === 'disabled') return { kind: 'disabled', detail: '' }
+  if (status === 'not_configured') {
+    return { kind: 'not_configured', detail: '' }
+  }
+  return { kind: 'failed', detail: raw?.error || status }
+}
+
+/** 题目 id → 展示名；题库里找不到（已删除的题）就显示 id 本身。 */
+export function questionLabel(
+  id: string,
+  questions: DistillQuestion[] | undefined
+): string {
+  const found = questions?.find((q) => q.id === id)
+  return found?.name ? found.name : id
+}
+
+/** 按 Unicode 字符数计长度，与后端 utf8.RuneCountInString 对齐。 */
+export function charCount(value: string): number {
+  return [...value].length
+}
+
 /** categories 是逐题分数的 JSON 文本；解析失败返回空数组，不影响主分数展示。按分数降序。 */
 export function parseCategories(raw: string): Array<[string, number]> {
   if (!raw) {

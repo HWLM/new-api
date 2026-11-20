@@ -51,11 +51,24 @@ import { getChannels } from '@/features/channels/api'
 import {
   getDistillSetting,
   testDistill,
+  testDistillAlert,
   updateDistillSetting,
 } from '@/features/distill-detect/api'
-import { parseCategories } from '@/features/distill-detect/lib'
+import {
+  describeAlertResult,
+  parseCategories,
+  questionLabel,
+  type AlertOutcome,
+} from '@/features/distill-detect/lib'
+import {
+  questionsSchema,
+  toQuestionFormValues,
+  toQuestionPayload,
+} from '@/features/distill-detect/questions'
 import {
   DISTILL_CLEAR_KEY,
+  type DistillAlertTestResult,
+  type DistillQuestion,
   type DistillSetting,
   type DistillSettingUpdate,
   type DistillTestResult,
@@ -68,6 +81,7 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
+import { DistillQuestionsEditor } from './distill-questions-editor'
 
 // 校验范围与 controller/distill_detect.go 的 UpdateDistillDetectSetting 一致：
 // 后端越界直接拒绝（不钳制），前端提前拦住，避免运营以为改了实际没生效。
@@ -92,13 +106,13 @@ const distillSchema = z.object({
   max_state_chars: z.number().int().min(500).max(200000),
   head_sample_chars: z.number().int().min(0).max(200000),
   dedup_seconds: z.number().int().min(0).max(86400),
-  question_corpus_farm: z.boolean(),
-  question_reward_rl: z.boolean(),
-  question_judge_eval: z.boolean(),
-  question_distill_target: z.boolean(),
+  questions: questionsSchema,
   alert_telegram: z.boolean(),
   alert_wecom: z.boolean(),
   alert_throttle_seconds: z.number().int().min(0).max(86400),
+  tg_bot_token: z.string(),
+  clear_tg_bot_token: z.boolean(),
+  tg_chat_id: z.string().trim(),
   wecom_webhook_url: z
     .string()
     .trim()
@@ -125,13 +139,10 @@ const PLAIN_KEYS = [
   'max_state_chars',
   'head_sample_chars',
   'dedup_seconds',
-  'question_corpus_farm',
-  'question_reward_rl',
-  'question_judge_eval',
-  'question_distill_target',
   'alert_telegram',
   'alert_wecom',
   'alert_throttle_seconds',
+  'tg_chat_id',
   'wecom_webhook_url',
   'fallback_channel_id',
 ] as const satisfies ReadonlyArray<keyof DistillSetting>
@@ -153,14 +164,14 @@ function toFormValues(s: DistillSetting): DistillFormValues {
     max_state_chars: s.max_state_chars,
     head_sample_chars: s.head_sample_chars,
     dedup_seconds: s.dedup_seconds,
-    question_corpus_farm: s.question_corpus_farm,
-    question_reward_rl: s.question_reward_rl,
-    question_judge_eval: s.question_judge_eval,
-    question_distill_target: s.question_distill_target,
+    questions: toQuestionFormValues(s.questions),
     alert_telegram: s.alert_telegram,
     alert_wecom: s.alert_wecom,
     // 旧后端没有该字段时按 0（不节流）展示，提交时只有改动才发送。
     alert_throttle_seconds: s.alert_throttle_seconds ?? 0,
+    tg_bot_token: '',
+    clear_tg_bot_token: false,
+    tg_chat_id: s.tg_chat_id ?? '',
     wecom_webhook_url: s.wecom_webhook_url,
     fallback_channel_id: s.fallback_channel_id,
   }
@@ -176,13 +187,23 @@ function buildUpdate(
       typeof values[key] === 'string'
         ? (values[key] as string).trim()
         : values[key]
-    if (next !== saved[key]) update[key] = next
+    if (next !== (saved[key] ?? '')) update[key] = next
+  }
+  // 题库全量替换：内容（含顺序）有变化才提交整组。
+  const questions = toQuestionPayload(values.questions)
+  if (JSON.stringify(questions) !== JSON.stringify(saved.questions ?? [])) {
+    update.questions = questions
   }
   // 密钥：勾选清空优先；否则只有填了新值才提交，空串不提交（= 不修改）。
   if (values.clear_jev_api_key) {
     update.jev_api_key = DISTILL_CLEAR_KEY
   } else if (values.jev_api_key.trim() !== '') {
     update.jev_api_key = values.jev_api_key.trim()
+  }
+  if (values.clear_tg_bot_token) {
+    update.tg_bot_token = DISTILL_CLEAR_KEY
+  } else if (values.tg_bot_token.trim() !== '') {
+    update.tg_bot_token = values.tg_bot_token.trim()
   }
   return update as DistillSettingUpdate
 }
@@ -269,6 +290,7 @@ export function DistillDetectSection() {
   const control = form.control
   const observeOnly = form.watch('observe_only')
   const clearKey = form.watch('clear_jev_api_key')
+  const clearTgToken = form.watch('clear_tg_bot_token')
 
   return (
     <SettingsSection title={t('Distillation detection')}>
@@ -546,29 +568,14 @@ export function DistillDetectSection() {
             />
           </div>
 
-          <GroupTitle>{t('Questions (training data & evaluation)')}</GroupTitle>
-          <div className='grid gap-3 md:grid-cols-2'>
-            <SwitchField
-              control={control}
-              name='question_corpus_farm'
-              label={t('Batch corpus production')}
-            />
-            <SwitchField
-              control={control}
-              name='question_reward_rl'
-              label={t('Reward model / RL preference data')}
-            />
-            <SwitchField
-              control={control}
-              name='question_judge_eval'
-              label={t('LLM-as-judge evaluation')}
-            />
-            <SwitchField
-              control={control}
-              name='question_distill_target'
-              label={t('Outputs used as training targets')}
-            />
-          </div>
+          <GroupTitle>{t('Question bank')}</GroupTitle>
+          <DistillQuestionsEditor
+            control={
+              control as unknown as Control<{
+                questions: DistillFormValues['questions']
+              }>
+            }
+          />
 
           <GroupTitle>{t('Alerts')}</GroupTitle>
           <div className='grid gap-3 md:grid-cols-2'>
@@ -577,7 +584,7 @@ export function DistillDetectSection() {
               name='alert_telegram'
               label={t('Telegram alert')}
               description={t(
-                'Uses the existing Telegram notification channel.'
+                'Uses the dedicated bot and chat below, not the site notification channel.'
               )}
             />
             <SwitchField
@@ -597,6 +604,75 @@ export function DistillDetectSection() {
               'Send at most one alert per user within this window. 0 disables throttling.'
             )}
           />
+          <div className='grid gap-4 md:grid-cols-2'>
+            <FormField
+              control={control}
+              name='tg_bot_token'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className='flex items-center gap-2'>
+                    {t('Telegram bot token')}
+                    {saved.tg_bot_token_set ? (
+                      <Badge variant='secondary'>{t('Configured')}</Badge>
+                    ) : (
+                      <Badge variant='warning'>{t('Not configured')}</Badge>
+                    )}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='password'
+                      autoComplete='new-password'
+                      disabled={clearTgToken}
+                      placeholder={
+                        saved.tg_bot_token_set
+                          ? t('Leave empty to keep the current token')
+                          : '123456:ABC-DEF...'
+                      }
+                    />
+                  </FormControl>
+                  {saved.tg_bot_token_set ? (
+                    <FormField
+                      control={control}
+                      name='clear_tg_bot_token'
+                      render={({ field: clearField }) => (
+                        <label className='text-muted-foreground flex items-center gap-2 text-xs'>
+                          <Switch
+                            checked={clearField.value}
+                            onCheckedChange={clearField.onChange}
+                          />
+                          {t('Clear the saved token on save')}
+                        </label>
+                      )}
+                    />
+                  ) : null}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={control}
+              name='tg_chat_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Telegram chat ID')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      autoComplete='off'
+                      placeholder='-1001234567890'
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Group or channel that receives distillation alerts; the bot must be a member.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
           <FormField
             control={control}
             name='wecom_webhook_url'
@@ -614,10 +690,11 @@ export function DistillDetectSection() {
               </FormItem>
             )}
           />
+          <DistillAlertTestPanel />
         </SettingsForm>
       </Form>
 
-      <DistillTestPanel />
+      <DistillTestPanel questions={saved.questions ?? []} />
     </SettingsSection>
   )
 }
@@ -727,7 +804,81 @@ function NumberField(props: {
   )
 }
 
-function DistillTestPanel() {
+function DistillAlertTestPanel() {
+  const { t } = useTranslation()
+  const [result, setResult] = useState<DistillAlertTestResult | null>(null)
+  const alertMutation = useMutation({
+    mutationFn: testDistillAlert,
+    onSuccess: (res) => {
+      if (res.success) setResult(res.data)
+    },
+  })
+
+  return (
+    <div className='flex flex-col gap-2'>
+      <div className='flex flex-wrap items-center gap-3'>
+        <Button
+          type='button'
+          size='sm'
+          variant='outline'
+          disabled={alertMutation.isPending}
+          onClick={() => {
+            setResult(null)
+            alertMutation.mutate()
+          }}
+        >
+          {alertMutation.isPending ? t('Sending...') : t('Send test alert')}
+        </Button>
+        <span className='text-muted-foreground text-xs'>
+          {t('Uses the saved settings; save your changes first.')}
+        </span>
+      </div>
+      {result ? (
+        <ul className='flex flex-col gap-1 text-sm'>
+          <AlertResultLine
+            label='Telegram'
+            outcome={describeAlertResult(result.telegram)}
+          />
+          <AlertResultLine
+            label={t('WeCom')}
+            outcome={describeAlertResult(result.wecom)}
+          />
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+function AlertResultLine(props: { label: string; outcome: AlertOutcome }) {
+  const { kind, detail } = props.outcome
+  return (
+    <li className='flex flex-wrap items-center gap-2'>
+      <span className='w-20 shrink-0'>{props.label}</span>
+      <AlertBadge kind={kind} />
+      {detail ? (
+        <span className='text-muted-foreground text-xs break-all'>
+          {detail}
+        </span>
+      ) : null}
+    </li>
+  )
+}
+
+function AlertBadge(props: { kind: AlertOutcome['kind'] }) {
+  const { t } = useTranslation()
+  if (props.kind === 'sent') {
+    return <Badge variant='secondary'>{t('Sent')}</Badge>
+  }
+  if (props.kind === 'disabled') {
+    return <Badge variant='outline'>{t('Alert switch off')}</Badge>
+  }
+  if (props.kind === 'not_configured') {
+    return <Badge variant='outline'>{t('Not configured')}</Badge>
+  }
+  return <Badge variant='destructive'>{t('Failed')}</Badge>
+}
+
+function DistillTestPanel(props: { questions: DistillQuestion[] }) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'body' | 'text'>('body')
   const [input, setInput] = useState('')
@@ -801,12 +952,17 @@ function DistillTestPanel() {
           {testMutation.isPending ? t('Judging...') : t('Run test')}
         </Button>
       </div>
-      {result ? <DistillTestResultView result={result} /> : null}
+      {result ? (
+        <DistillTestResultView result={result} questions={props.questions} />
+      ) : null}
     </div>
   )
 }
 
-function DistillTestResultView(props: { result: DistillTestResult }) {
+function DistillTestResultView(props: {
+  result: DistillTestResult
+  questions: DistillQuestion[]
+}) {
   const { t } = useTranslation()
   const result = props.result
   if (result.skipped) {
@@ -836,8 +992,8 @@ function DistillTestResultView(props: { result: DistillTestResult }) {
       {scores.length > 0 ? (
         <ul className='text-muted-foreground grid gap-1 font-mono text-xs md:grid-cols-2'>
           {scores.map(([key, value]) => (
-            <li key={key}>
-              {key}: {value.toFixed(3)}
+            <li key={key} title={key}>
+              {questionLabel(key, props.questions)}: {value.toFixed(3)}
             </li>
           ))}
         </ul>

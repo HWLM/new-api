@@ -18,6 +18,18 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 // 字段与 controller/distill_detect.go 的 DistillSettingView / DistillHitView 一一对应。
+// 题库与独立 TG 通道见 docs/distill-detection-plan.md §14.3。
+
+/** 题库中的一道题。id 是命中记录 categories 的键，已保存的题不改 id。 */
+export type DistillQuestion = {
+  /** [a-z0-9_]{1,32}，唯一 */
+  id: string
+  /** 展示用短名，1..64 */
+  name: string
+  /** 题面正文，1..8000 字符 */
+  prompt: string
+  enabled: boolean
+}
 
 export type DistillSetting = {
   enabled: boolean
@@ -34,14 +46,15 @@ export type DistillSetting = {
   jev_timeout_ms: number
   max_state_chars: number
   head_sample_chars: number
-  question_corpus_farm: boolean
-  question_reward_rl: boolean
-  question_judge_eval: boolean
-  question_distill_target: boolean
+  /** 题库，按判定顺序排列。 */
+  questions: DistillQuestion[]
   alert_telegram: boolean
   alert_wecom: boolean
   /** 同一用户告警节流窗口（秒），0 = 不节流。 */
   alert_throttle_seconds: number
+  /** 独立 TG bot token 只回「是否已配置」。 */
+  tg_bot_token_set: boolean
+  tg_chat_id: string
   wecom_webhook_url: string
   fallback_channel_id: number
   dedup_seconds: number
@@ -49,15 +62,24 @@ export type DistillSetting = {
 
 /**
  * PUT 请求体：全部可选，只覆盖提交了的字段。
- * jev_api_key：省略或空串 = 不修改；'__clear__' = 清空。
+ * jev_api_key / tg_bot_token：省略或空串 = 不修改；'__clear__' = 清空。
+ * questions：全量替换。
  */
 export type DistillSettingUpdate = Partial<
-  Omit<DistillSetting, 'jev_api_key_set'>
+  Omit<DistillSetting, 'jev_api_key_set' | 'tg_bot_token_set'>
 > & {
   jev_api_key?: string
+  tg_bot_token?: string
 }
 
 export const DISTILL_CLEAR_KEY = '__clear__'
+
+export const DISTILL_QUESTION_LIMITS = {
+  maxCount: 20,
+  idPattern: /^[a-z0-9_]{1,32}$/,
+  nameMax: 64,
+  promptMax: 8000,
+} as const
 
 export type DistillHit = {
   id: number
@@ -69,7 +91,7 @@ export type DistillHit = {
   /** 实际重导到的渠道，0 = 未重导（观察模式恒为 0）。 */
   fallback_id: number
   score: number
-  /** 逐题分数的 JSON 文本，可能为空串。 */
+  /** 逐题分数的 JSON 文本 {题目id: 分数}，可能为空串。 */
   categories: string
   doc_chars: number
   /** RFC3339 */
@@ -104,6 +126,20 @@ export type DistillTestResult = {
   /** 非空 = 没有真的调用判定服务，值是原因。 */
   skipped: string
   observe_only: boolean
+}
+
+/**
+ * 单个告警通道的测试结果，对应 service.DistillAlertChannelResult。
+ * status：sent / disabled（开关没开）/ not_configured（开了但没填）/ failed（带 error）。
+ */
+export type DistillAlertChannelResult = {
+  status: 'sent' | 'disabled' | 'not_configured' | 'failed' | (string & {})
+  error?: string
+}
+
+export type DistillAlertTestResult = {
+  telegram?: DistillAlertChannelResult
+  wecom?: DistillAlertChannelResult
 }
 
 export type ApiResponse<T> = {
