@@ -1,7 +1,0 @@
-{
-  "admin_password": "Hermes-tpBdCcP5f40UCCsC",
-  "admin_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl91c2UiOiJhY2Nlc3MiLCJzaWQiOiIyOGYzYmZlOC0yODRiLTQxYWUtOWVhMC04NmY0M2FhNzViNmQiLCJ1diI6MSwic3YiOjEsImlzcyI6Im5ldy1hcGkiLCJzdWIiOiIxIiwiYXVkIjpbIm5ldy1hcGktZGFzaGJvYXJkIl0sImV4cCI6MTc5NTE3MDU3MywibmJmIjoxNzk1MTY5NjY4LCJpYXQiOjE3OTUxNjk2NzMsImp0aSI6IjU0OGEzZGUyLTYzMzItNDE1MS04ZjhjLTg3NjFiZDBiMmRiMCJ9.wqNzdliV2dl4aZ8HGPBrRfHIQo6Uk8i8xt1m8cpjCgc",
-  "base_url": "http://127.0.0.1:3101",
-  "relay_key": "sk-vCltxvRXaYod9GQd5utVIjFhhDQMt5UCJj5pVpZiGbGqPXNn",
-  "user_id": 1
-}
