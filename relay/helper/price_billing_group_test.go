@@ -116,7 +116,11 @@ func distillBillingTestInfo() *relaycommon.RelayInfo {
 	}
 }
 
-// ① 蒸馏重导后：group_ratio = 兜底分组倍率，日志里两个分组字段齐全。
+// ① 蒸馏重导后：使用日志的「分组」列 = 兜底分组，group_ratio = 兜底分组倍率，
+// 日志里两个分组字段齐全。
+//
+// ⛔ 日志列的来源是 relayInfo.UsingGroup（text_quota.go / quota.go 写
+// RecordConsumeLog 时取的就是它），所以断言它等于兜底分组，就是断言日志列。
 func TestDistillRedirectBillsAtTheFallbackGroupRatio(t *testing.T) {
 	withGroupRatios(t, `{"default":1,"backup":3}`)
 
@@ -131,6 +135,10 @@ func TestDistillRedirectBillsAtTheFallbackGroupRatio(t *testing.T) {
 	priceData := HandleGroupRatio(ctx, info)
 	other := service.GenerateTextOtherInfo(ctx, info, 0.5, priceData.GroupRatio, 1, 0, 1, 0, -1)
 
+	// 使用日志的「分组」列。
+	if info.UsingGroup != "backup" {
+		t.Fatalf("the consume log's group column must show the fallback group, got %q", info.UsingGroup)
+	}
 	if got := other["group_ratio"]; got != float64(3) {
 		t.Fatalf("a distill redirect must be billed at the fallback group ratio, got %v", got)
 	}
@@ -146,7 +154,8 @@ func TestDistillRedirectBillsAtTheFallbackGroupRatio(t *testing.T) {
 	}
 }
 
-// ② 拒答降级命中后：group_ratio 仍是原分组倍率，且 other 里没有那两个新字段。
+// ② 拒答降级命中后：使用日志的「分组」列仍是原分组、group_ratio 仍是原分组
+// 倍率，且 other 里没有那两个新字段。
 //
 // ⛔ 这是**产品口径**，不是漏改：拒答降级沿用用户原分组，避免用户看到的价格
 // 因风控降级而漂移。把分组替换做成通用行为会破坏这条，测试必须挡住。
@@ -165,6 +174,10 @@ func TestRefusalDemoteKeepsTheOriginalGroupRatio(t *testing.T) {
 	priceData := HandleGroupRatio(ctx, info)
 	other := service.GenerateTextOtherInfo(ctx, info, 0.5, priceData.GroupRatio, 1, 0, 1, 0, -1)
 
+	// 使用日志的「分组」列必须还是原分组。
+	if info.UsingGroup != "default" {
+		t.Fatalf("a refusal demotion must keep the log group column at the original group, got %q", info.UsingGroup)
+	}
 	if got := other["group_ratio"]; got != float64(1) {
 		t.Fatalf("a refusal demotion must keep billing at the original group ratio, got %v", got)
 	}
