@@ -41,7 +41,9 @@ RELAY_KEY = os.environ.get("RL_RELAY_KEY", "")
 USER_ID = int(os.environ.get("RL_USER_ID", "1") or 1)
 MODEL = os.environ.get("RL_MODEL", "rl-model")
 MODEL_OTHER = MODEL + "-other"
+MODEL_HOLD = MODEL + "-hold"    # 占位请求用的非白名单模型：只占并发槽，不参与蒸馏判定
 UPSTREAM_PORT = int(os.environ.get("RL_UPSTREAM_PORT", "18110"))
+JEV_PORT = int(os.environ.get("RL_JEV_PORT", "18097"))
 SLOW_MS = int(os.environ.get("RL_SLOW_MS", "2500"))
 REDIS_ADDR = os.environ.get("RL_REDIS_ADDR", "")
 REDIS_DB = int(os.environ.get("RL_REDIS_DB", "0"))
@@ -90,9 +92,9 @@ def must(code, txt, what):
     return j
 
 
-def relay(text, timeout=120):
+def relay(text, timeout=120, model=None):
     return http("POST", "/v1/chat/completions", {
-        "model": MODEL, "stream": False, "max_tokens": 8,
+        "model": model or MODEL, "stream": False, "max_tokens": 8,
         "messages": [{"role": "user", "content": text}],
     }, RELAY_KEY, timeout=timeout)
 
@@ -352,6 +354,53 @@ class SlowUpstream:
         self.server.shutdown()
 
 
+class JevStub:
+    """假 Jev：正文含 hitmarker 给 0.9（命中），否则 0.05。"""
+
+    def __init__(self, port):
+        self.port = port
+        self.calls = []
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("content-length") or 0)
+                raw = self.rfile.read(n)
+                try:
+                    body = json.loads(raw or b"{}")
+                except Exception:
+                    body = {}
+                state = body.get("state") or ""
+                qs = list((body.get("questions") or {}).keys()) or ["train.corpus_farm"]
+                self.server_owner.calls.append(len(state))
+                score = 0.90 if "hitmarker" in state else 0.05
+                payload = json.dumps({"answers": {q: {"noul": score} for q in qs},
+                                      "model": "fake-jev"}).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *a):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", port), H)
+        H.server_owner = self
+
+    def start(self):
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def stop(self):
+        self.server.shutdown()
+
+
+def hits_for_request(request_id):
+    j = must(*admin("GET", "/api/distill_detect/hits?p=1&page_size=50"), "读命中记录")
+    d = j.get("data") or {}
+    items = d.get("items") or d.get("records") or []
+    return [h for h in items if h.get("request_id") == request_id]
+
+
 # ── 用例 ────────────────────────────────────────────────────────────────
 def prepare(ids):
     """统一把并发限制打开，模型走白名单无关的普通链路。"""
@@ -580,10 +629,62 @@ def case_RL8(ids):
     distill_put({"enabled": False, "fallback_channel_id": 0, "detect_channel_ids": []})
 
 
+def case_RL9(ids):
+    """重导模式下「命中即第 N 次确认、同时并发超限被 429」的命中行不能记成已重导"""
+    case = "RL9"
+    if not REDIS_ADDR:
+        report(case, "被 429 的命中行 fallback_id 为空", "SKIP", "需要 RL_REDIS_ADDR 清降级态")
+        return
+    r = Redis(REDIS_ADDR, REDIS_PASSWORD, REDIS_DB)
+    r.cmd("DEL", "distill:demote:{user:%d}" % USER_ID)
+
+    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
+    set_option("RateLimitFallbackChannelId", ids["global_fb"])
+    distill_put({"enabled": True, "observe_only": False, "activate_rpm": 1,
+                 "confirm_hits": 1, "confirm_window_seconds": 300, "threshold": 0.6,
+                 "demote_seconds": 600, "fallback_channel_id": ids["distill_fb"],
+                 "detect_channel_ids": [ids["main"]], "dedup_seconds": 0,
+                 "judge_interval_seconds": 30,
+                 "jev_base_url": "http://127.0.0.1:%d/v1/systemone" % JEV_PORT})
+    set_user(max_concurrency=1, group_rate_limits="")
+    time.sleep(0.5)
+
+    # A 先占住唯一槽位：走**非白名单**模型，这样它不会消耗本次判定的时间桶
+    # （judge_interval 是按用户分桶的，白名单被 A 占掉的话 B 会被桶跳过，根本不会命中）
+    holder = {}
+    def hold():
+        holder["res"] = relay("RL9 占位请求 slow:%d" % SLOW_MS, timeout=60, model=MODEL_HOLD)
+    t = threading.Thread(target=hold)
+    t.start()
+    time.sleep(0.4)
+    t_hit = int(time.time())
+    code, txt = relay("RL9 hitmarker 命中并发超限 %f" % time.time(), timeout=60)
+    t.join()
+
+    report(case, "命中且超限的那条被 429", "PASS" if code == 429 else "FAIL",
+           "B HTTP %s；占位请求 HTTP %s" % (code, (holder.get("res") or [""])[0]))
+    report(case, "429 带 rate_limit_exceeded", "PASS" if "rate_limit_exceeded" in txt else "FAIL",
+           txt[:140])
+
+    rid = ""
+    import re as _re
+    m = _re.search(r"request id: ([0-9a-zA-Z]+)", txt)
+    if m:
+        rid = m.group(1)
+    rows = hits_for_request(rid) if rid else []
+    report(case, "命中记录已落库（场景确实发生）", "PASS" if rows else "FAIL",
+           "request_id=%s 命中行 %d 条" % (rid or "-", len(rows)))
+    if rows:
+        fb = max(int(h.get("fallback_id") or 0) for h in rows)
+        report(case, "被 429 的命中行 fallback_id 为空", "PASS" if fb == 0 else "FAIL",
+               "fallback_id=%d（非 0 说明记成已重导了）" % fb)
+
+
 CASES = {"RL1": case_RL1, "RL2": case_RL2, "RL3": case_RL3, "RL4": case_RL4,
          "RL5": case_RL5, "RL6": case_RL6,
          "RL7": case_RL7,
-         "RL8": case_RL8}
+         "RL8": case_RL8,
+         "RL9": case_RL9}
 
 
 def main():
@@ -596,6 +697,8 @@ def main():
 
     up = SlowUpstream(UPSTREAM_PORT)
     up.start()
+    jev = JevStub(JEV_PORT)
+    jev.start()
     time.sleep(0.5)
     saved_user = None
     saved_opts = {}
@@ -605,13 +708,14 @@ def main():
                          {"model": MODEL, "messages": [{"role": "user", "content": "preflight"}]})
         print("      自检 upstream -> %s %s" % (code, txt[:40]), flush=True)
 
-        for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb", DISTILL_FB_NAME):
+        for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb", DISTILL_FB_NAME, "rl-hold"):
             drop_channel(nm)
         ids["main"] = ensure_channel("rl-main", [MODEL], priority=100)
         ids["old_fb"] = ensure_channel("rl-oldfb", [MODEL], priority=0)
         ids["global_fb"] = ensure_channel("rl-globalfb", [MODEL], priority=0)
         ids["bad_fb"] = ensure_channel("rl-badfb", [MODEL_OTHER], priority=0)
         ids["distill_fb"] = ensure_channel(DISTILL_FB_NAME, [MODEL], priority=0)
+        ids["hold"] = ensure_channel("rl-hold", [MODEL_HOLD], priority=0)
         patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
         admin("POST", "/api/channel/fix")
         time.sleep(0.5)
@@ -647,11 +751,12 @@ def main():
                     if v is not None:
                         set_option(k, v)
                 patch_channel(ids["main"], {"fallback_channel_id": 0}) if ids.get("main") else None
-                for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb", DISTILL_FB_NAME):
+                for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb", DISTILL_FB_NAME, "rl-hold"):
                     drop_channel(nm)
             except Exception as e:
                 print("!! 收尾失败（需手工清理）:", repr(e)[:200], flush=True)
         up.stop()
+        jev.stop()
 
     print("\n== 汇总 ==", flush=True)
     fail = 0
