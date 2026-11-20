@@ -38,6 +38,12 @@ python3 rate_limit_acceptance.py --case RL4,RL5
 | RL4 | §21.6-4 | 只配总并发 2、分组额度空 → 超限那条走**渠道自配**兜底，不走全局兜底（旧行为） |
 | RL5 | §21.6-5 | 拒答降级回归：仍走渠道自配兜底、`group` 不变；渠道没配兜底时 429 文案仍是「风控降级」口径且**不带** `rate_limit_exceeded` |
 | RL6 | §21.1 | 两种 429 并排：速率 429 带 code，拒答 429 不带 code —— 谁把两段合并成一条通用逻辑，这里立刻红 |
+| RL7 | §21.3 / §21.6-4 | 分组写了条目但 `limit<=0`（`0+false`、`-1+false`、`0+true` 三种写法）→ 视为没配分组速率：只超总并发必须 **不 429**、走渠道自配兜底、不碰全局速率兜底 |
+
+RL7 是补的洞：RL1–RL6 全 PASS 但没覆盖 `limit<=0` 的分组条目，`decideConcurrencyAction` 当时用
+`hasGroupCfg`（map 里有条目）而不是 `groupLimited`（`limit>0`）做判据，导致 `{"limit":0,"fallback":false}`
+在只超总并发时被误 429。这条用例在 `5b3d833bb` 上返回 `[200,200,429]`，`9f2f572a4` 起返回 `[200,200,200]`。
+教训：新增分支要专门有一条「配置写了但取默认值」的用例。
 
 RL5 造降级态的办法：用户 `refusal_demote_override=1` + 往 Redis 写
 `refusal:demote:{user:N}`（EX 600），跑完删键、override 还原 0。内存模式的实例没法从外部伪造，

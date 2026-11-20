@@ -475,8 +475,33 @@ def case_RL6(ids):
     report(case, "速率 429 文案是并发超限口径", "PASS" if "并发" in rate_body else "FAIL", rate_body[:120])
 
 
+def case_RL7(ids):
+    """分组写了条目但 limit<=0 —— 等于没配分组速率，只超总并发必须走旧行为（渠道自配兜底）"""
+    case = "RL7"
+    set_option("RateLimitFallbackChannelId", ids["global_fb"])
+    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
+    for label, cfg in (("limit=0 + fallback:false", {"default": {"limit": 0, "fallback": False}}),
+                       ("limit=-1 + fallback:false", {"default": {"limit": -1, "fallback": False}}),
+                       ("limit=0 + fallback:true", {"default": {"limit": 0, "fallback": True}})):
+        set_user(max_concurrency=2, group_rate_limits=json.dumps(cfg))
+        time.sleep(0.3)
+        t0 = int(time.time()) - 1
+        base = max_log_id()
+        res = burst(3, "RL7")
+        time.sleep(1.2)
+        rows = logs_after(base, t0)
+        served = sorted({int(r.get("channel") or 0) for r in rows})
+        report(case, "%s → 不 429" % label, "PASS" if codes(res) == [200, 200, 200] else "FAIL",
+               "状态码 %s（429 说明 limit<=0 被当成启用了分组策略）" % codes(res))
+        report(case, "%s → 超限走渠道自配兜底" % label, "PASS" if ids["old_fb"] in served else "FAIL",
+               "自配兜底=%s，实际服务渠道=%s" % (ids["old_fb"], served))
+        report(case, "%s → 不走全局速率兜底" % label, "PASS" if ids["global_fb"] not in served else "FAIL",
+               "全局兜底=%s，实际服务渠道=%s" % (ids["global_fb"], served))
+
+
 CASES = {"RL1": case_RL1, "RL2": case_RL2, "RL3": case_RL3, "RL4": case_RL4,
-         "RL5": case_RL5, "RL6": case_RL6}
+         "RL5": case_RL5, "RL6": case_RL6,
+         "RL7": case_RL7}
 
 
 def main():
