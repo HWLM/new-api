@@ -616,6 +616,53 @@ export function UsersMutateDrawer({
 
                   <FormField
                     control={form.control}
+                    name='distill_detect_override'
+                    render={({ field }) => {
+                      const value = field.value ?? 0
+                      return (
+                        <FormItem>
+                          <FormLabel>{t('Distillation detection')}</FormLabel>
+                          <FormControl>
+                            <div className='flex items-center gap-2'>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value === 0 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(0)}
+                              >
+                                {t('Follow global')}
+                              </Button>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value === 1 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(1)}
+                              >
+                                {t('Force enabled')}
+                              </Button>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value < 0 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(-1)}
+                              >
+                                {t('Exempt (off)')}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Override distillation detection for this user. Follow global = use system setting; Force enabled = judge this user even when the global switch is off; Off = exempt this user.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )
+                    }}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name='remark'
                     render={({ field }) => (
                       <FormItem>

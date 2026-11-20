@@ -836,6 +836,25 @@ func (info *RelayInfo) HasSendResponse() bool {
 	return info.FirstResponseTime.After(info.StartTime)
 }
 
+// ResolveUsingGroup 返回本次请求**实际用于计费**的使用分组。
+//
+// 取值顺序：auto_group 上下文键（选渠道 / 兜底重导时写入）优先，其次
+// relayInfo.UsingGroup。
+//
+// ⛔ 预扣、结算、日志三处必须都经由这一个函数解析分组（或都用它写回的
+// relayInfo.UsingGroup），否则会出现「预扣按新分组、结算按老分组」——
+// 蒸馏兜底改分组时尤其容易踩，因为那时代码已经离开 Distribute 很久了。
+func (info *RelayInfo) ResolveUsingGroup(ctx *gin.Context) string {
+	if ctx != nil {
+		if v, ok := common.GetContextKey(ctx, constant.ContextKeyAutoGroup); ok {
+			if s, isStr := v.(string); isStr && s != "" {
+				return s
+			}
+		}
+	}
+	return info.UsingGroup
+}
+
 type TaskRelayInfo struct {
 	Action       string
 	OriginTaskID string

@@ -163,16 +163,68 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
+				// 蒸馏检测（规格 §16）：只有本次分发到的渠道在检测白名单里才跑，
+				// 其余渠道连每分钟请求量都不累加。
+				// ⛔ 必须在下面的兜底重导之前：命中并确认的那一条要立刻改走兜底渠道。
+				servedChannelID := channel.Id
+				distillHit := runDistillDetection(c, channel, modelRequest.Model)
+				if distillHit != nil {
+					// 命中记录回填路由：原渠道 = 重导前选中的渠道，兜底渠道 id 看后面
+					// 到底有没有真切（429 拒绝时为 0）。defer 是为了两条结局都覆盖到。
+					defer func(hit *model.DistillDetectHit, originID int) {
+						service.UpdateDistillHitRouting(hit, originID,
+							common.GetContextKeyInt(c, constant.ContextKeyDistillFallbackChannelId))
+					}(distillHit, servedChannelID)
+				}
+
+				// 蒸馏检测兜底：用户命中蒸馏判定后，整段流量切到「蒸馏检测」卡片里
+				// 配置的**全局**兜底渠道。⛔ 与渠道自配的 FallbackChannelId、以及拒答
+				// 降级的兜底都不是同一条链路，两者同时命中时蒸馏优先。
+				// 兜底不可用 → 429，code 固定 distill_fallback_unavailable，文案与
+				// 拒答降级的「风控降级」明确区分，运营一眼能认出是蒸馏兜底。
+				if channel != nil && common.GetContextKeyBool(c, constant.ContextKeyDistillDemoted) {
+					originalChannelID := channel.Id
+					originGroup := selectGroup
+					if fb := distillFallbackChannel(c, channel.Id, modelRequest.Model, selectGroup); fb != nil {
+						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, channel.Id)
+						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelName, channel.Name)
+						common.SetContextKey(c, constant.ContextKeyFallbackFromGroup, originGroup)
+						common.SetContextKey(c, constant.ContextKeyDistillFallbackChannelId, fb.channel.Id)
+						channel = fb.channel
+						selectGroup = fb.group
+						// 计费分组（规格 §15）：与超限/拒答兜底不同，蒸馏兜底是强制降级，
+						// 必须按兜底渠道的分组结算，否则用户在原分组下继续享受原倍率。
+						common.SetContextKey(c, constant.ContextKeyUsingGroup, selectGroup)
+						common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
+						common.SetContextKey(c, constant.ContextKeyDistillOriginGroup, originGroup)
+						common.SetContextKey(c, constant.ContextKeyDistillFallbackGroup, selectGroup)
+						common.SysLog(fmt.Sprintf("[distribute] user=%d distill demoted: channel %d (group=%s) -> distill fallback %d (billing group=%s)",
+							c.GetInt("id"), originalChannelID, originGroup, fb.channel.Id, selectGroup))
+					} else {
+						common.SysLog(fmt.Sprintf("[distribute] user=%d rejected: distill demoted but fallback channel %d unusable",
+							c.GetInt("id"), operation_setting.GetDistillDetectSetting().FallbackChannelId))
+						abortWithOpenAiMessage(c, http.StatusTooManyRequests,
+							"您账号当前处于风控降级状态（蒸馏检测），且无可用兜底渠道，请联系管理员",
+							types.ErrorCodeDistillFallbackUnavailable)
+						return
+					}
+				}
+
 				// 兜底渠道重导：使用者当前 in-flight 超限，且命中渠道配置了
 				// FallbackChannelId，则改走该兜底渠道。只做一跳，不递归。
 				// 若超限但未配置兜底（或兜底本身不可用），直接 429 拒绝，
 				// 保持「超限请求必须走兜底」的硬承诺。
+				//
+				// ⛔ 蒸馏兜底已经生效时不再走这一跳：否则兜底渠道若自己还配了
+				// FallbackChannelId，就会变成「蒸馏兜底 → 再按超限跳到别处」的
+				// 两跳链路，运维对账时根本看不出流量最后去了哪。蒸馏优先。
+				distillRedirected := common.GetContextKeyInt(c, constant.ContextKeyDistillFallbackChannelId) > 0
 				overloaded := common.GetContextKeyBool(c, constant.ContextKeyUserOverloaded)
 				if channel != nil {
 					common.SysLog(fmt.Sprintf("[distribute] user=%d model=%q selected channel=%d (fallback_channel_id=%d) overloaded=%v",
 						c.GetInt("id"), modelRequest.Model, channel.Id, channel.FallbackChannelId, overloaded))
 				}
-				if overloaded && channel != nil {
+				if overloaded && channel != nil && !distillRedirected {
 					originalChannelID := channel.Id
 					if fb := redirectToFallbackChannel(c, channel, modelRequest.Model, selectGroup); fb != nil {
 						// 记录重导前的原渠道信息，供消费日志审计
@@ -236,6 +288,7 @@ type fallbackResolution struct {
 //     backup，使用者原本在 default 下的 GroupRatio 配置就失效，可能命中默认倍率
 //   - 便于日志与账单对账：无论是否触发兜底，同一个请求的 group 字段始终是用户
 //     本来会使用的那个
+//
 // 仅当 origGroup 为空或等于 "auto"（例如 token 使用 auto 分组、兜底渠道未参与
 // 自动分组链时）才回退到兜底渠道自己的第一个分组。
 //
@@ -269,6 +322,95 @@ func redirectToFallbackChannel(c *gin.Context, original *model.Channel, modelNam
 	logger.LogInfo(c, fmt.Sprintf("overload redirect: user=%d model=%q from channel %d (group=%s) to channel %d (billing group=%s)",
 		c.GetInt("id"), modelName, original.Id, origGroup, fb.Id, group))
 	return &fallbackResolution{channel: fb, group: group}
+}
+
+// distillFallbackChannel 解析「蒸馏检测」卡片里配置的那个全局兜底渠道。
+//
+// 与 redirectToFallbackChannel 的区别（⛔ 不要合并成一套）：
+//   - 来源不同：这里读的是 DistillDetectSetting.FallbackChannelId（全局一个），
+//     不是 channel.FallbackChannelId（每个渠道自配）；
+//   - 自环判定不同：全局兜底渠道可能恰好就是当前选中的渠道，那也**不是**错误配置
+//     ——用户命中蒸馏时，若流量本来就在兜底渠道上，就继续留在原渠道即可，
+//     不能因此返回 429（否则用户会因为「已经在我该去的渠道上」被拒）。
+//     这种情况按「重导成功、原地不动」处理。
+//
+// 任何真正不可用的情况（未配置、渠道不存在、已禁用、不支持模型/路径、无分组）
+// 返回 nil，由调用方回 429 distill_fallback_unavailable。
+func distillFallbackChannel(c *gin.Context, currentChannelID int, modelName, origGroup string) *fallbackResolution {
+	s := operation_setting.GetDistillDetectSetting()
+	if s == nil || s.FallbackChannelId <= 0 {
+		return nil
+	}
+	// 当前渠道就是兜底渠道：原地不动即可，视为已重导。
+	// ⛔ 必须用调用方传进来的 currentChannelID：本函数在 SetupContextForSelectedChannel
+	// 之前执行，那时 ContextKeyChannelId 还没写入，读它恒为 0（自环判断永远不成立）。
+	if currentChannelID > 0 && currentChannelID == s.FallbackChannelId {
+		if ch, err := model.CacheGetChannel(s.FallbackChannelId); err == nil && ch != nil {
+			return &fallbackResolution{channel: ch, group: origGroup}
+		}
+	}
+	fb, err := model.CacheGetChannel(s.FallbackChannelId)
+	if err != nil || fb == nil {
+		logger.LogWarn(c, fmt.Sprintf("distill fallback channel %d not found: %v", s.FallbackChannelId, err))
+		return nil
+	}
+	if fb.Status != common.ChannelStatusEnabled {
+		logger.LogWarn(c, fmt.Sprintf("distill fallback channel %d is disabled", fb.Id))
+		return nil
+	}
+	if !channelSupportsModel(fb, modelName) {
+		logger.LogWarn(c, fmt.Sprintf("distill fallback channel %d does not support model %q", fb.Id, modelName))
+		return nil
+	}
+	if !channelSupportsRequestPath(fb, c.Request.URL.Path, modelName) {
+		logger.LogWarn(c, fmt.Sprintf("distill fallback channel %d does not support request path %q", fb.Id, c.Request.URL.Path))
+		return nil
+	}
+	group, ok := pickDistillFallbackGroup(c, fb, origGroup)
+	if !ok {
+		// §15：兜底渠道没有任何配了倍率的分组时，维持原分组并打 warn ——
+		// 这时代码会按原分组结算，运营需要知道「兜底其实没改价」。
+		return &fallbackResolution{channel: fb, group: group}
+	}
+	return &fallbackResolution{channel: fb, group: group}
+}
+
+// pickDistillFallbackGroup 决定蒸馏兜底后的**计费分组**（规格 §15）。
+//
+// ⛔ 与 pickFallbackChannelGroup 的策略不同，不要合并：
+//   - 并发超限 / 拒答降级的兜底沿用用户原分组，是为了不打乱用户看到的计费口径；
+//   - 蒸馏兜底是对**滥用行为**的强制降级，必须按兜底渠道的价格结算，否则用户
+//     在原分组的倍率照旧生效，「转兜底」就只是换了上游、没换价（这是实测到的
+//     bug：转到兜底分组后没按兜底的价格计费）。
+//
+// 取法：
+//  1. 兜底渠道里有与用户原分组同名的分组 → 用它（口径最平滑）；
+//  2. 否则取兜底渠道里第一个**配了倍率**的分组（没配倍率的分组会走默认 1.0，
+//     看不出是兜底价）；
+//  3. 都没有 → 维持原分组，返回 ok=false 让调用方打 warn。
+func pickDistillFallbackGroup(c *gin.Context, ch *model.Channel, origGroup string) (group string, ok bool) {
+	if ch == nil {
+		return origGroup, false
+	}
+	groups := ch.GetGroups()
+	if origGroup != "" && origGroup != "auto" {
+		for _, g := range groups {
+			if g == origGroup {
+				return g, true
+			}
+		}
+	}
+	for _, g := range groups {
+		if g == "" || g == "auto" {
+			continue
+		}
+		if ratio_setting.ContainsGroupRatio(g) {
+			return g, true
+		}
+	}
+	logger.LogWarn(c, fmt.Sprintf("distill fallback channel %d has no group with a configured ratio (groups=%v), keeping origin group %q",
+		ch.Id, groups, origGroup))
+	return origGroup, false
 }
 
 // channelSupportsModel 以 "," 包裹两端做精确匹配，避免 "gpt-4" 误中 "gpt-4o"。

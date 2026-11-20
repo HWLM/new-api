@@ -115,6 +115,33 @@ func appendFallbackFromInfo(ctx *gin.Context, other map[string]interface{}) {
 	adminInfo["fallback_from"] = info
 }
 
+// appendDistillFallbackGroupInfo 若本次请求因蒸馏检测被重导到兜底渠道，
+// 记录重导前后的**计费分组**（规格 §15）。
+//
+// 嵌到 admin_info 之下与 fallback_from 一致：分组名本身不敏感，但「这笔被
+// 蒸馏兜底了」是风控细节，不适合暴露给终端用户。
+func appendDistillFallbackGroupInfo(ctx *gin.Context, other map[string]interface{}) {
+	if ctx == nil || other == nil {
+		return
+	}
+	// 只在真的换了渠道时才写：没重导（观察模式 / 兜底不可用）时分组根本没变，
+	// 记两个相同的值只会让对账时误以为发生过改价。
+	if common.GetContextKeyInt(ctx, constant.ContextKeyDistillFallbackChannelId) <= 0 {
+		return
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		adminInfo = map[string]interface{}{}
+		other["admin_info"] = adminInfo
+	}
+	if origin := common.GetContextKeyString(ctx, constant.ContextKeyDistillOriginGroup); origin != "" {
+		adminInfo["distill_origin_group"] = origin
+	}
+	if fbGroup := common.GetContextKeyString(ctx, constant.ContextKeyDistillFallbackGroup); fbGroup != "" {
+		adminInfo["distill_fallback_group"] = fbGroup
+	}
+}
+
 // appendRefusalDemoteInfo 若本次请求因「用户拒答比超限」被降级到兜底渠道，
 // 把触发信息写到 other.admin_info.refusal_demote_triggered。嵌到 admin_info
 // 之下，普通用户视图自动剥离——避免终端用户看到风控内部指标。
@@ -189,6 +216,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
 	appendFallbackFromInfo(ctx, other)
+	appendDistillFallbackGroupInfo(ctx, other)
 	appendRefusalDemoteInfo(ctx, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)

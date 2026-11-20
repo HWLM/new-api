@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -129,11 +128,11 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	groupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
 	modelRatio, _, _ := ratio_setting.GetModelRatio(modelName)
 
-	autoGroup, exists := common.GetContextKey(ctx, constant.ContextKeyAutoGroup)
-	if exists {
-		groupRatio = ratio_setting.GetGroupRatio(autoGroup.(string))
+	// ⛔ 与预扣（relay/helper.HandleGroupRatio）走同一个解析函数，保证三处同源。
+	if resolved := relayInfo.ResolveUsingGroup(ctx); resolved != "" {
+		groupRatio = ratio_setting.GetGroupRatio(resolved)
 		logger.LogDebug(ctx, "final group ratio: %f", groupRatio)
-		relayInfo.UsingGroup = autoGroup.(string)
+		relayInfo.UsingGroup = resolved
 	}
 
 	actualGroupRatio := groupRatio

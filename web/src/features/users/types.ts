@@ -55,6 +55,8 @@ export const userSchema = z.object({
    *    1  该用户强制启用（即便全局关闭）
    */
   refusal_demote_override: z.number().optional(),
+  /** 蒸馏检测用户级三态：-1=豁免，0=跟随全局，1=强制启用 */
+  distill_detect_override: z.number().optional(),
   aff_code: z.string().optional(),
   aff_count: z.number().optional(),
   aff_quota: z.number().optional(),
@@ -185,6 +187,8 @@ export interface UserFormData {
   max_concurrency?: number // Only used when updating user; 0 = system default
   /** 拒答降级用户级三态：-1=永不降级，0=跟随全局，1=强制启用 */
   refusal_demote_override?: number
+  /** 蒸馏检测用户级三态：-1=豁免，0=跟随全局，1=强制启用 */
+  distill_detect_override?: number
   remark?: string // Only used when updating user
   /** 结算方式：'CNY' = 按人民币，'USD' = 按美元 */
   settlement_currency?: string

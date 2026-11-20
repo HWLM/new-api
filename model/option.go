@@ -199,12 +199,22 @@ func InitOptionMap() {
 
 func loadOptionsFromDatabase() {
 	options, _ := AllOption()
+	// ⛔ 必须在遍历时就记下「库里到底有没有 questions 这一行」：InitOptionMap 里的
+	// ExportAllConfigs 已经把默认题库 JSON 预填进 OptionMap，所以迁移不能拿
+	// OptionMap 有没有这个键当判据 —— 那样守卫永远成立，迁移一次都不会跑。
+	distillQuestionsPersisted := false
 	for _, option := range options {
+		if option.Key == "distill_detect_setting.questions" && strings.TrimSpace(option.Value) != "" {
+			distillQuestionsPersisted = true
+		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
 	}
+	// 旧版蒸馏题库的四个 question_* 开关映射到 questions 的 enabled 位。
+	// 只在库里还没有 questions 行时生效，因此每次 sync 重跑都是幂等的。
+	operation_setting.MigrateLegacyDistillQuestionToggles(distillQuestionsPersisted)
 }
 
 func SyncOptions(frequency int) {

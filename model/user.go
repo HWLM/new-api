@@ -77,53 +77,58 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id                 int                        `json:"id"`
-	Username           string                     `json:"username" gorm:"unique;index" validate:"max=20"`
-	Password           string                     `json:"password" gorm:"not null;" validate:"min=8,max=20"`
-	OriginalPassword   string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName        string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role               int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status             int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email              string                     `json:"email" gorm:"index" validate:"max=50"`
-	GitHubId           string                     `json:"github_id" gorm:"column:github_id;index"`
-	DiscordId          string                     `json:"discord_id" gorm:"column:discord_id;index"`
-	OidcId             string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
-	WeChatId           string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
-	TelegramId         string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
-	VerificationCode   string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
-	AccessToken        *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	Quota              int                        `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota          int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	TotalQuota         *int64                     `json:"total_quota,omitempty" gorm:"type:bigint;column:total_quota"`
-	RequestCount       int                        `json:"request_count" gorm:"type:int;default:0;"` // request number
-	Group              string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
-	MaxConcurrency     int                        `json:"max_concurrency" gorm:"type:int;default:0;column:max_concurrency"` // -1 = 不限；0 = 使用系统默认值；>0 = 自定义上限
+	Id               int     `json:"id"`
+	Username         string  `json:"username" gorm:"unique;index" validate:"max=20"`
+	Password         string  `json:"password" gorm:"not null;" validate:"min=8,max=20"`
+	OriginalPassword string  `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName      string  `json:"display_name" gorm:"index" validate:"max=20"`
+	Role             int     `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status           int     `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email            string  `json:"email" gorm:"index" validate:"max=50"`
+	GitHubId         string  `json:"github_id" gorm:"column:github_id;index"`
+	DiscordId        string  `json:"discord_id" gorm:"column:discord_id;index"`
+	OidcId           string  `json:"oidc_id" gorm:"column:oidc_id;index"`
+	WeChatId         string  `json:"wechat_id" gorm:"column:wechat_id;index"`
+	TelegramId       string  `json:"telegram_id" gorm:"column:telegram_id;index"`
+	VerificationCode string  `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
+	AccessToken      *string `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
+	Quota            int     `json:"quota" gorm:"type:int;default:0"`
+	UsedQuota        int     `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
+	TotalQuota       *int64  `json:"total_quota,omitempty" gorm:"type:bigint;column:total_quota"`
+	RequestCount     int     `json:"request_count" gorm:"type:int;default:0;"` // request number
+	Group            string  `json:"group" gorm:"type:varchar(64);default:'default'"`
+	MaxConcurrency   int     `json:"max_concurrency" gorm:"type:int;default:0;column:max_concurrency"` // -1 = 不限；0 = 使用系统默认值；>0 = 自定义上限
 	// RefusalDemoteOverride 拒答降级功能的用户级三态开关：
 	//   -1  该用户永远不降级
 	//    0  跟随全局 refusal_demote_setting.enabled
 	//    1  该用户强制启用（即便全局关闭）
 	RefusalDemoteOverride int `json:"refusal_demote_override" gorm:"type:int;default:0;column:refusal_demote_override"`
-	AffCode            string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
-	AffCount           int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
-	AffQuota           int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
-	AffHistoryQuota    int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
-	InviterId          int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
-	InviterUsername    string                     `json:"inviter_username,omitempty" gorm:"-"` // 非持久化字段：通过 inviter_id 关联查询填充
-	DeletedAt          gorm.DeletedAt             `gorm:"index"`
-	LinuxDOId          string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
-	Setting            string                     `json:"setting" gorm:"type:text;column:setting"`
-	Remark             string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
-	SettlementCurrency string                     `json:"settlement_currency" gorm:"type:varchar(16);default:'';column:settlement_currency" validate:"omitempty,oneof=CNY USD"`
-	StripeCustomer     string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
-	IsVipCustomer      bool                       `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
-	BusinessChannel    string                     `json:"business_channel" gorm:"type:varchar(255);default:'';column:business_channel" validate:"max=255"`
-	AllowOnlineTopup   bool                       `json:"allow_online_topup" gorm:"type:bool;default:false;column:allow_online_topup;index"`
-	IsAgent            bool                       `json:"is_agent" gorm:"type:bool;default:false;column:is_agent;index"`
-	AgentTokenId       int                        `json:"agent_token_id" gorm:"type:int;column:agent_token_id"`
-	CreatedAt          int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
-	LastLoginAt        int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
-	AuthVersion        int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
-	AdminPermissions   map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+	// DistillDetectOverride 蒸馏检测的用户级三态开关，语义与上面同款：
+	//   -1  该用户永不做蒸馏检测（豁免）
+	//    0  跟随全局 distill_detect_setting.enabled
+	//    1  该用户强制启用（即便全局关闭）
+	DistillDetectOverride int                        `json:"distill_detect_override" gorm:"type:int;default:0;column:distill_detect_override"`
+	AffCode               string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
+	AffCount              int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
+	AffQuota              int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
+	AffHistoryQuota       int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
+	InviterId             int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	InviterUsername       string                     `json:"inviter_username,omitempty" gorm:"-"` // 非持久化字段：通过 inviter_id 关联查询填充
+	DeletedAt             gorm.DeletedAt             `gorm:"index"`
+	LinuxDOId             string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
+	Setting               string                     `json:"setting" gorm:"type:text;column:setting"`
+	Remark                string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
+	SettlementCurrency    string                     `json:"settlement_currency" gorm:"type:varchar(16);default:'';column:settlement_currency" validate:"omitempty,oneof=CNY USD"`
+	StripeCustomer        string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	IsVipCustomer         bool                       `json:"is_vip_customer" gorm:"type:bool;default:false;column:is_vip_customer;index"`
+	BusinessChannel       string                     `json:"business_channel" gorm:"type:varchar(255);default:'';column:business_channel" validate:"max=255"`
+	AllowOnlineTopup      bool                       `json:"allow_online_topup" gorm:"type:bool;default:false;column:allow_online_topup;index"`
+	IsAgent               bool                       `json:"is_agent" gorm:"type:bool;default:false;column:is_agent;index"`
+	AgentTokenId          int                        `json:"agent_token_id" gorm:"type:int;column:agent_token_id"`
+	CreatedAt             int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
+	LastLoginAt           int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
+	AuthVersion           int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
+	AdminPermissions      map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -138,6 +143,7 @@ func (user *User) ToBaseUser() *UserBase {
 		Email:                 user.Email,
 		MaxConcurrency:        user.MaxConcurrency,
 		RefusalDemoteOverride: user.RefusalDemoteOverride,
+		DistillDetectOverride: user.DistillDetectOverride,
 		AuthVersion:           user.AuthVersion,
 		CacheSchema:           userCacheSchemaVersion,
 	}
@@ -216,6 +222,9 @@ func generateDefaultSidebarConfigForRole(userRole int) string {
 		"enabled":  true,
 		"topup":    true,
 		"personal": true,
+		// distill_hits 蒸馏命中记录（规格 §17.2）：个人中心分组下，
+		// 普通用户默认可见（管理员可以在「侧边栏模块」里关掉）。
+		"distill_hits": true,
 	}
 
 	// 管理员区域 - 根据角色决定
@@ -1185,6 +1194,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		"allow_online_topup":      newUser.AllowOnlineTopup,
 		"max_concurrency":         newUser.MaxConcurrency,
 		"refusal_demote_override": newUser.RefusalDemoteOverride,
+		"distill_detect_override": newUser.DistillDetectOverride,
 	}
 	// settlement_currency 为空表示本次请求未提交该字段（如用户列表里仅切换"允许在线充值"的
 	// 部分更新），此时保留数据库原值，避免把用户的结算方式误清为默认（按人民币）。

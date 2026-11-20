@@ -330,6 +330,8 @@ func migrateDB() error {
 		&BusinessCooperation{},
 		&UpstreamBenchmarkRun{},
 		&UpstreamBenchmarkProfile{},
+		// 蒸馏检测命中流水，见 docs/distill-detection-plan.md §6。
+		&DistillDetectHit{},
 	)
 	if err != nil {
 		return err

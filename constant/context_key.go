@@ -69,6 +69,30 @@ const (
 	// 置为 ContextKeyUserOverloaded；仅用于区分 fallback_from 的触发来源，
 	// 不影响 Distribute 中间件的实际行为。
 	ContextKeyConcurrencyOverloaded ContextKey = "concurrency_overloaded"
+
+	// ContextKeyDistillDemoted 标记本次请求因「用户命中蒸馏检测」被重导到
+	// **蒸馏兜底渠道**（DistillDetectSetting.FallbackChannelId，全局一个），
+	// 与各渠道自配的 FallbackChannelId、以及拒答降级的兜底都不是同一条链路。
+	//
+	// ⛔ 不能被拒答降级的 ContextKeyUserOverloaded 覆盖：两者同时命中时，
+	// 蒸馏优先 —— 蒸馏是用户在批量薅模型输出，比拒答更该被切走。
+	ContextKeyDistillDemoted ContextKey = "distill_demoted"
+	// ContextKeyDistillDemotedScore 命中蒸馏时这次判定的最高分，仅供审计日志。
+	ContextKeyDistillDemotedScore ContextKey = "distill_demoted_score"
+	// ContextKeyDistillFallbackChannelId 本次请求「实际被蒸馏兜底切到了哪个渠道」。
+	// 重导成功才写；兜底不可用（走了 429）时不写，据此区分两种结局。
+	ContextKeyDistillFallbackChannelId ContextKey = "distill_fallback_channel_id"
+	// ContextKeyDistillOriginGroup / ContextKeyDistillFallbackGroup 记录蒸馏兜底
+	// 前后的**计费分组**，供消费日志对账时一眼看出这笔按谁的价格结算。
+	// 只在真的换了渠道时写；分组没变（例如原分组在兜底渠道里也有）时两者相同。
+	ContextKeyDistillOriginGroup   ContextKey = "distill_origin_group"
+	ContextKeyDistillFallbackGroup ContextKey = "distill_fallback_group"
+	// ContextKeyDistillRequestBody 是蒸馏检测中间件在 Distribute 之前抄下来的
+	// 请求正文副本（[]byte）。检测要等渠道选出来才知道该不该跑（规格 §16 白名单），
+	// 而正文到那时可能已经被 relay 读走，所以在中间件里先存一份。
+	//
+	// ⛔ 只存副本，不改 c.Request.Body：后面的 relay 还要正常读原正文。
+	ContextKeyDistillRequestBody ContextKey = "distill_request_body"
 	// ContextKeyConcurrencyCount / ContextKeyConcurrencyLimit 记录并发超限命中
 	// 时的 in-flight 计数和上限，供 Distribute 中间件在决定「重导兜底/429」后
 	// 异步发 TG 时拼消息用。

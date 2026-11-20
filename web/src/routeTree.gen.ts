@@ -43,6 +43,7 @@ import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authentic
 import { Route as AuthenticatedCustomIdRouteImport } from './routes/_authenticated/custom/$id'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
+import { Route as AuthenticatedDistillHitsIndexRouteImport } from './routes/_authenticated/distill-hits/index'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
@@ -246,6 +247,12 @@ const AuthenticatedDashboardSectionRoute =
   AuthenticatedDashboardSectionRouteImport.update({
     id: '/dashboard/$section',
     path: '/dashboard/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedDistillHitsIndexRoute =
+  AuthenticatedDistillHitsIndexRouteImport.update({
+    id: '/distill-hits/',
+    path: '/distill-hits/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedErrorsErrorRoute =
@@ -468,6 +475,7 @@ export interface FileRoutesByFullPath {
   '/business-cooperation/': typeof AuthenticatedBusinessCooperationIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/distill-hits/': typeof AuthenticatedDistillHitsIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
@@ -532,6 +540,7 @@ export interface FileRoutesByTo {
   '/business-cooperation': typeof AuthenticatedBusinessCooperationIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
+  '/distill-hits': typeof AuthenticatedDistillHitsIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
@@ -600,6 +609,7 @@ export interface FileRoutesById {
   '/_authenticated/business-cooperation/': typeof AuthenticatedBusinessCooperationIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/_authenticated/distill-hits/': typeof AuthenticatedDistillHitsIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
@@ -667,6 +677,7 @@ export interface FileRouteTypes {
     | '/business-cooperation/'
     | '/channels/'
     | '/dashboard/'
+    | '/distill-hits/'
     | '/keys/'
     | '/models/'
     | '/playground/'
@@ -731,6 +742,7 @@ export interface FileRouteTypes {
     | '/business-cooperation'
     | '/channels'
     | '/dashboard'
+    | '/distill-hits'
     | '/keys'
     | '/models'
     | '/playground'
@@ -798,6 +810,7 @@ export interface FileRouteTypes {
     | '/_authenticated/business-cooperation/'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
+    | '/_authenticated/distill-hits/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
     | '/_authenticated/playground/'
@@ -1088,6 +1101,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard/$section'
       fullPath: '/dashboard/$section'
       preLoaderRoute: typeof AuthenticatedDashboardSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/distill-hits/': {
+      id: '/_authenticated/distill-hits/'
+      path: '/distill-hits'
+      fullPath: '/distill-hits/'
+      preLoaderRoute: typeof AuthenticatedDistillHitsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/errors/$error': {
@@ -1405,6 +1425,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBusinessCooperationIndexRoute: typeof AuthenticatedBusinessCooperationIndexRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
+  AuthenticatedDistillHitsIndexRoute: typeof AuthenticatedDistillHitsIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
@@ -1433,6 +1454,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedBusinessCooperationIndexRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
+  AuthenticatedDistillHitsIndexRoute: AuthenticatedDistillHitsIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,

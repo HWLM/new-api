@@ -11,7 +11,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 3
+// userCacheSchemaVersion 用户缓存哈希的结构版本。
+//
+// ⛔ 加法都要升版：旧版本哈希里没有新字段，读出来是零值，而零值在这里有语义
+// （例如 DistillDetectOverride=0 = 跟随全局）。不升版会让新字段在缓存 TTL
+// 内静默读成 0，用户编辑完三态后看起来「没有生效」。
+//
+//	3 → 4  加入 MaxConcurrency / RefusalDemoteOverride / DistillDetectOverride
+const userCacheSchemaVersion = 4
 
 type UserBase struct {
 	Id                    int    `json:"id"`
@@ -24,6 +31,7 @@ type UserBase struct {
 	Setting               string `json:"setting"`
 	MaxConcurrency        int    `json:"max_concurrency"`
 	RefusalDemoteOverride int    `json:"refusal_demote_override"`
+	DistillDetectOverride int    `json:"distill_detect_override"`
 	AuthVersion           int64  `json:"-"`
 	CacheSchema           int    `json:"-"`
 }
@@ -107,6 +115,17 @@ func updateUserCache(user User) error {
 		return err
 	}
 	if err := updateUserNameCache(user.Id, user.Username); err != nil {
+		return err
+	}
+	// 下面三个是「改了必须立刻生效」的策略字段：运营就是为了止损才会去改，
+	// 等 60 秒 TTL 等于这一分钟继续按旧策略跑。
+	if err := updateUserMaxConcurrencyCache(user.Id, user.MaxConcurrency); err != nil {
+		return err
+	}
+	if err := updateUserRefusalDemoteOverrideCache(user.Id, user.RefusalDemoteOverride); err != nil {
+		return err
+	}
+	if err := updateUserDistillDetectOverrideCache(user.Id, user.DistillDetectOverride); err != nil {
 		return err
 	}
 	return updateUserSettingCache(user.Id, user.Setting)
@@ -295,6 +314,24 @@ func updateUserNameCache(userId int, username string) error {
 
 func updateUserSettingCache(userId int, setting string) error {
 	return updateUserCacheField(userId, "Setting", setting)
+}
+
+// updateUserDistillDetectOverrideCache 立即刷新蒸馏检测三态。
+//
+// ⛔ 不能只等缓存 TTL（默认 60s）：运营在用户编辑里把某人豁免掉，是因为他
+// 正在被反复判中；等一分钟才生效，等于这段时间的命中照常记、告警照常发。
+func updateUserDistillDetectOverrideCache(userId int, override int) error {
+	return updateUserCacheField(userId, "DistillDetectOverride", override)
+}
+
+// updateUserRefusalDemoteOverrideCache 同上，拒答降级三态。
+func updateUserRefusalDemoteOverrideCache(userId int, override int) error {
+	return updateUserCacheField(userId, "RefusalDemoteOverride", override)
+}
+
+// updateUserMaxConcurrencyCache 并发上限，同属「改了要立刻生效」的一类。
+func updateUserMaxConcurrencyCache(userId int, value int) error {
+	return updateUserCacheField(userId, "MaxConcurrency", value)
 }
 
 // updateUserCacheField prevents individual cache refreshes from bypassing the
