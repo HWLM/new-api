@@ -239,7 +239,29 @@ def logs_since(ts, limit=50):
     return d.get("items") or []
 
 
-# ── Redis（只为 RL5 造降级态）──────────────────────────────────────────
+# ── 蒸馏配置（RL8 要让用户处于蒸馏降级态）──────────────────────────────
+DISTILL_FB_NAME = "rl-distillfb"
+
+
+def distill_get():
+    j = must(*admin("GET", "/api/distill_detect/setting"), "读蒸馏配置")
+    return j.get("data") or {}
+
+
+def distill_put(patch):
+    s = distill_get()
+    body = {k: s[k] for k in (
+        "enabled", "activate_rpm", "judge_interval_seconds", "confirm_hits",
+        "confirm_window_seconds", "threshold", "demote_seconds", "observe_only",
+        "jev_base_url", "alert_telegram", "alert_wecom", "alert_throttle_seconds",
+        "wecom_webhook_url", "fallback_channel_id", "dedup_seconds",
+        "detect_channel_ids", "jev_timeout_ms", "questions") if k in s}
+    body["jev_api_key"] = ""
+    body.update(patch)
+    must(*admin("PUT", "/api/distill_detect/setting", body), "写蒸馏配置")
+
+
+# ── Redis（RL5 造拒答降级态、RL8 造蒸馏降级态）──────────────────────────
 class Redis:
     def __init__(self, addr, password="", db=0):
         host, _, port = addr.partition(":")
@@ -499,9 +521,69 @@ def case_RL7(ids):
                "全局兜底=%s，实际服务渠道=%s" % (ids["global_fb"], served))
 
 
+def case_RL8(ids):
+    """蒸馏降级态 + 并发超限 → 直接 429（不跳第二次兜底），且不超限时照常走蒸馏兜底"""
+    case = "RL8"
+    if not REDIS_ADDR:
+        report(case, "降级态并发超限 → 429", "SKIP",
+               "需要 RL_REDIS_ADDR 才能写 distill:demote:{user:N} 造假降级态")
+        return
+    r = Redis(REDIS_ADDR, REDIS_PASSWORD, REDIS_DB)
+    demote_key = "distill:demote:{user:%d}" % USER_ID
+
+    # 三条兜底链路给三个不同渠道：自配(2) / 全局速率(3) / 蒸馏(5)，看落点就知道走了哪条
+    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
+    set_option("RateLimitFallbackChannelId", ids["global_fb"])
+    distill_put({"enabled": True, "observe_only": False, "activate_rpm": 1,
+                 "confirm_hits": 1, "confirm_window_seconds": 300, "threshold": 0.6,
+                 "demote_seconds": 900, "fallback_channel_id": ids["distill_fb"],
+                 "detect_channel_ids": [ids["main"]], "dedup_seconds": 0,
+                 "jev_base_url": "http://127.0.0.1:18098/v1/systemone"})
+    set_user(max_concurrency=1, group_rate_limits="")
+    r.cmd("SET", demote_key, "1", "EX", "900")
+    time.sleep(0.5)
+
+    # 控制组：降级 + 未超限 → 仍应正常放行并落到蒸馏兜底渠道
+    t0 = int(time.time()) - 1
+    base = max_log_id()
+    code1, _ = relay("RL8 降级未超限 %f" % time.time(), timeout=60)
+    time.sleep(1.2)
+    rows1 = logs_after(base, t0)
+    served1 = sorted({int(x.get("channel") or 0) for x in rows1})
+    report(case, "降级+未超限 → 200 且走蒸馏兜底",
+           "PASS" if (code1 == 200 and ids["distill_fb"] in served1) else "FAIL",
+           "HTTP %s，服务渠道=%s，蒸馏兜底=%s" % (code1, served1, ids["distill_fb"]))
+
+    # 降级 + limit=1 并发 3 → 只该过 1 条，另外 2 条 429，且不许再跳第二跳
+    t0 = int(time.time()) - 1
+    base = max_log_id()
+    res = burst(3, "RL8")
+    time.sleep(1.2)
+    got = codes(res)
+    bodies = [b for _, c, b in res if c == 429]
+    rows = logs_after(base, t0)
+    served = sorted({int(x.get("channel") or 0) for x in rows})
+    report(case, "降级+超限 → [200,429,429]", "PASS" if got == [200, 429, 429] else "FAIL",
+           "状态码 %s（全 200 说明并发限制又被降级绕过）" % got)
+    report(case, "两条 429 都是 rate_limit_exceeded",
+           "PASS" if bodies and all("rate_limit_exceeded" in b for b in bodies) else "FAIL",
+           (bodies[0][:140] if bodies else "没有 429"))
+    b0 = bodies[0] if bodies else ""
+    report(case, "429 文案是并发超限、不混蒸馏兜底措辞",
+           "PASS" if ("并发请求数已超限" in b0 and "兜底渠道不可用" not in b0) else "FAIL",
+           b0[:140])
+    report(case, "429 没有产生第二次跳转（日志只有通过的那条）",
+           "PASS" if (len(rows) == 1 and served == [ids["distill_fb"]]) else "FAIL",
+           "日志 %d 行，渠道=%s，期望 [%s]" % (len(rows), served, ids["distill_fb"]))
+
+    r.cmd("DEL", demote_key)
+    distill_put({"enabled": False, "fallback_channel_id": 0, "detect_channel_ids": []})
+
+
 CASES = {"RL1": case_RL1, "RL2": case_RL2, "RL3": case_RL3, "RL4": case_RL4,
          "RL5": case_RL5, "RL6": case_RL6,
-         "RL7": case_RL7}
+         "RL7": case_RL7,
+         "RL8": case_RL8}
 
 
 def main():
@@ -523,17 +605,24 @@ def main():
                          {"model": MODEL, "messages": [{"role": "user", "content": "preflight"}]})
         print("      自检 upstream -> %s %s" % (code, txt[:40]), flush=True)
 
-        for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb"):
+        for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb", DISTILL_FB_NAME):
             drop_channel(nm)
         ids["main"] = ensure_channel("rl-main", [MODEL], priority=100)
         ids["old_fb"] = ensure_channel("rl-oldfb", [MODEL], priority=0)
         ids["global_fb"] = ensure_channel("rl-globalfb", [MODEL], priority=0)
         ids["bad_fb"] = ensure_channel("rl-badfb", [MODEL_OTHER], priority=0)
+        ids["distill_fb"] = ensure_channel(DISTILL_FB_NAME, [MODEL], priority=0)
         patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
         admin("POST", "/api/channel/fix")
         time.sleep(0.5)
-        print("      渠道 main=%d old_fb=%d global_fb=%d bad_fb=%d 模型=%s" %
-              (ids["main"], ids["old_fb"], ids["global_fb"], ids["bad_fb"], MODEL), flush=True)
+        print("      渠道 main=%d old_fb=%d global_fb=%d bad_fb=%d distill_fb=%d 模型=%s" %
+              (ids["main"], ids["old_fb"], ids["global_fb"], ids["bad_fb"],
+               ids["distill_fb"], MODEL), flush=True)
+        # 除 RL8 外都别让蒸馏降级掺进来
+        try:
+            distill_put({"enabled": False, "detect_channel_ids": [], "fallback_channel_id": 0})
+        except Exception as e:
+            print("      !! 关闭蒸馏失败:", repr(e)[:120], flush=True)
 
         saved_user = user_get()
         for k in ("MaxConcurrentRequestsPerUserEnabled", "RateLimitFallbackChannelId", "SelfUseModeEnabled"):
@@ -558,7 +647,7 @@ def main():
                     if v is not None:
                         set_option(k, v)
                 patch_channel(ids["main"], {"fallback_channel_id": 0}) if ids.get("main") else None
-                for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb"):
+                for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb", DISTILL_FB_NAME):
                     drop_channel(nm)
             except Exception as e:
                 print("!! 收尾失败（需手工清理）:", repr(e)[:200], flush=True)
