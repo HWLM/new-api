@@ -6216,6 +6216,17 @@
     "Uses the saved settings; save your changes first.": "使用已保存的配置，请先保存改动。",
     "WeCom": "企业微信",
     "{{enabled}} of {{total}} enabled, up to {{max}} questions.": "已启用 {{enabled}} / {{total}} 道，最多 {{max}} 道。",
-    "Alert switch off": "告警开关未开"
+    "Alert switch off": "告警开关未开",
+    "Detection channels": "检测渠道",
+    "Channels to detect": "参与蒸馏检测的渠道",
+    "Select channels...": "选择渠道...",
+    "Only requests dispatched to these channels are counted and judged. Other channels skip detection entirely. The fallback channel cannot be selected here.": "只有分发到这些渠道的请求才会计数和判定，其它渠道完全不走检测逻辑。兜底渠道不能选为检测渠道。",
+    "No detection channel selected: distillation detection is effectively off.": "未选择检测渠道：蒸馏检测实际处于关闭状态。",
+    "Applies only to the detection channels selected above.": "以下参数仅对上面选中的检测渠道生效。",
+    "fallback channel": "兜底渠道",
+    "detection channel": "检测渠道",
+    "invalid": "已失效",
+    "This channel is a detection channel; it cannot be the fallback": "该渠道已是检测渠道，不能设为兜底渠道",
+    "Detection channels cannot be selected as the fallback.": "已选为检测渠道的不能再设为兜底渠道。"
   }
 }

@@ -57,6 +57,8 @@ export type DistillSetting = {
   tg_chat_id: string
   wecom_webhook_url: string
   fallback_channel_id: number
+  /** §16 检测渠道白名单；空 = 不检测。与 fallback_channel_id 互斥。 */
+  detect_channel_ids: number[]
   dedup_seconds: number
 }
 

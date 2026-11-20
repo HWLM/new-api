@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
+import { MultiSelect } from '@/components/multi-select'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -85,42 +86,58 @@ import { DistillQuestionsEditor } from './distill-questions-editor'
 
 // 校验范围与 controller/distill_detect.go 的 UpdateDistillDetectSetting 一致：
 // 后端越界直接拒绝（不钳制），前端提前拦住，避免运营以为改了实际没生效。
-const distillSchema = z.object({
-  enabled: z.boolean(),
-  observe_only: z.boolean(),
-  activate_rpm: z.number().int().min(0).max(100000),
-  judge_interval_seconds: z.number().int().min(1).max(3600),
-  confirm_hits: z.number().int().min(1).max(100),
-  confirm_window_seconds: z.number().int().min(30).max(86400),
-  threshold: z.number().gt(0).max(1),
-  demote_seconds: z.number().int().min(60).max(2592000),
-  jev_base_url: z
-    .string()
-    .trim()
-    .refine((v) => v === '' || /^https?:\/\//.test(v), {
-      message: 'Must start with http:// or https://',
-    }),
-  jev_api_key: z.string(),
-  clear_jev_api_key: z.boolean(),
-  jev_timeout_ms: z.number().int().min(200).max(60000),
-  max_state_chars: z.number().int().min(500).max(200000),
-  head_sample_chars: z.number().int().min(0).max(200000),
-  dedup_seconds: z.number().int().min(0).max(86400),
-  questions: questionsSchema,
-  alert_telegram: z.boolean(),
-  alert_wecom: z.boolean(),
-  alert_throttle_seconds: z.number().int().min(0).max(86400),
-  tg_bot_token: z.string(),
-  clear_tg_bot_token: z.boolean(),
-  tg_chat_id: z.string().trim(),
-  wecom_webhook_url: z
-    .string()
-    .trim()
-    .refine((v) => v === '' || v.startsWith('https://qyapi.weixin.qq.com/'), {
-      message: 'Must be a qyapi.weixin.qq.com address',
-    }),
-  fallback_channel_id: z.number().int().min(0),
-})
+const distillSchema = z
+  .object({
+    enabled: z.boolean(),
+    observe_only: z.boolean(),
+    activate_rpm: z.number().int().min(0).max(100000),
+    judge_interval_seconds: z.number().int().min(1).max(3600),
+    confirm_hits: z.number().int().min(1).max(100),
+    confirm_window_seconds: z.number().int().min(30).max(86400),
+    threshold: z.number().gt(0).max(1),
+    demote_seconds: z.number().int().min(60).max(2592000),
+    jev_base_url: z
+      .string()
+      .trim()
+      .refine((v) => v === '' || /^https?:\/\//.test(v), {
+        message: 'Must start with http:// or https://',
+      }),
+    jev_api_key: z.string(),
+    clear_jev_api_key: z.boolean(),
+    jev_timeout_ms: z.number().int().min(200).max(60000),
+    max_state_chars: z.number().int().min(500).max(200000),
+    head_sample_chars: z.number().int().min(0).max(200000),
+    dedup_seconds: z.number().int().min(0).max(86400),
+    questions: questionsSchema,
+    alert_telegram: z.boolean(),
+    alert_wecom: z.boolean(),
+    alert_throttle_seconds: z.number().int().min(0).max(86400),
+    tg_bot_token: z.string(),
+    clear_tg_bot_token: z.boolean(),
+    tg_chat_id: z.string().trim(),
+    wecom_webhook_url: z
+      .string()
+      .trim()
+      .refine((v) => v === '' || v.startsWith('https://qyapi.weixin.qq.com/'), {
+        message: 'Must be a qyapi.weixin.qq.com address',
+      }),
+    fallback_channel_id: z.number().int().min(0),
+    detect_channel_ids: z.array(z.number().int().positive()),
+  })
+  // §16.2：兜底渠道不能同时是检测渠道，后端保存时也会拒绝。
+  .superRefine((v, ctx) => {
+    if (
+      v.fallback_channel_id > 0 &&
+      v.detect_channel_ids.includes(v.fallback_channel_id)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fallback_channel_id'],
+        message:
+          'This channel is a detection channel; it cannot be the fallback',
+      })
+    }
+  })
 
 type DistillFormValues = z.infer<typeof distillSchema>
 
@@ -174,6 +191,7 @@ function toFormValues(s: DistillSetting): DistillFormValues {
     tg_chat_id: s.tg_chat_id ?? '',
     wecom_webhook_url: s.wecom_webhook_url,
     fallback_channel_id: s.fallback_channel_id,
+    detect_channel_ids: s.detect_channel_ids ?? [],
   }
 }
 
@@ -188,6 +206,14 @@ function buildUpdate(
         ? (values[key] as string).trim()
         : values[key]
     if (next !== (saved[key] ?? '')) update[key] = next
+  }
+  // 检测渠道整组提交；比较时忽略顺序。
+  const sortIds = (ids: number[]) => [...ids].sort((a, b) => a - b).join(',')
+  if (
+    sortIds(values.detect_channel_ids) !==
+    sortIds(saved.detect_channel_ids ?? [])
+  ) {
+    update.detect_channel_ids = values.detect_channel_ids
   }
   // 题库全量替换：内容（含顺序）有变化才提交整组。
   const questions = toQuestionPayload(values.questions)
@@ -291,6 +317,27 @@ export function DistillDetectSection() {
   const observeOnly = form.watch('observe_only')
   const clearKey = form.watch('clear_jev_api_key')
   const clearTgToken = form.watch('clear_tg_bot_token')
+  const detectIds = form.watch('detect_channel_ids') ?? []
+  const fallbackId = form.watch('fallback_channel_id') ?? 0
+  const detectIdSet = new Set(detectIds)
+  // 检测渠道：已删除的渠道仍保留在列表里，标注「已失效」，可手动移除。
+  const knownIds = new Set(channelOptions.map((o) => Number(o.value)))
+  const detectOptions = [
+    ...channelOptions.map((o) => ({
+      ...o,
+      label:
+        Number(o.value) === fallbackId
+          ? `${o.label} (${t('fallback channel')})`
+          : o.label,
+      disabled: Number(o.value) === fallbackId,
+    })),
+    ...detectIds
+      .filter((id) => !knownIds.has(id) && channelsQuery.isSuccess)
+      .map((id) => ({
+        value: String(id),
+        label: `#${id} (${t('invalid')})`,
+      })),
+  ]
 
   return (
     <SettingsSection title={t('Distillation detection')}>
@@ -339,7 +386,44 @@ export function DistillDetectSection() {
             )}
           />
 
+          <GroupTitle>{t('Detection channels')}</GroupTitle>
+          <FormField
+            control={control}
+            name='detect_channel_ids'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Channels to detect')}</FormLabel>
+                <FormControl>
+                  <MultiSelect
+                    options={detectOptions}
+                    selected={(field.value ?? []).map(String)}
+                    onChange={(values) =>
+                      field.onChange(values.map(Number).filter((n) => n > 0))
+                    }
+                    placeholder={t('Select channels...')}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Only requests dispatched to these channels are counted and judged. Other channels skip detection entirely. The fallback channel cannot be selected here.'
+                  )}
+                </FormDescription>
+                {detectIds.length === 0 ? (
+                  <p className='text-warning text-sm'>
+                    {t(
+                      'No detection channel selected: distillation detection is effectively off.'
+                    )}
+                  </p>
+                ) : null}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
           <GroupTitle>{t('Activation & judging cadence')}</GroupTitle>
+          <p className='text-muted-foreground -mt-2 text-xs'>
+            {t('Applies only to the detection channels selected above.')}
+          </p>
           <div className='grid gap-4 md:grid-cols-2'>
             <NumberField
               control={control}
@@ -453,11 +537,20 @@ export function DistillDetectSection() {
                     >
                       <SelectGroup>
                         <SelectItem value='0'>{t('None')}</SelectItem>
-                        {channelOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
+                        {channelOptions.map((option) => {
+                          const isDetect = detectIdSet.has(Number(option.value))
+                          return (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              disabled={isDetect}
+                            >
+                              {isDetect
+                                ? `${option.label} (${t('detection channel')})`
+                                : option.label}
+                            </SelectItem>
+                          )
+                        })}
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -465,7 +558,8 @@ export function DistillDetectSection() {
                 <FormDescription>
                   {t(
                     'Global channel for confirmed distillation users, independent of the refusal-demotion fallback. When it is unset or unavailable, requests get 429 distill_fallback_unavailable.'
-                  )}
+                  )}{' '}
+                  {t('Detection channels cannot be selected as the fallback.')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

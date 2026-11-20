@@ -41,6 +41,8 @@ import { cn } from '@/lib/utils'
 export type Option = {
   label: string
   value: string
+  /** Shown but not selectable (already-selected values can still be removed). */
+  disabled?: boolean
 }
 
 interface MultiSelectProps {
@@ -138,6 +140,16 @@ export function MultiSelect(props: MultiSelectProps) {
     }
     return map
   }, [props.options])
+
+  const disabledSet = React.useMemo(
+    () =>
+      new Set(
+        props.options
+          .filter((option) => option.disabled)
+          .map((option) => option.value)
+      ),
+    [props.options]
+  )
 
   const trimmedInput = inputValue.trim()
   const inputMatchesExisting =
@@ -360,6 +372,7 @@ export function MultiSelect(props: MultiSelectProps) {
                 <ComboboxItem
                   key={item}
                   value={item}
+                  disabled={disabledSet.has(item) && !selectedSet.has(item)}
                   className={isCreate ? 'text-foreground' : undefined}
                 >
                   {isCreate ? (
