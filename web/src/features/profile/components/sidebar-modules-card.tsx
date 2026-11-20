@@ -121,7 +121,7 @@ export function SidebarModulesCard() {
           description: t('Personal info settings'),
         },
         {
-          key: 'distill',
+          key: 'distill_hits',
           title: t('Distillation hits'),
           description: t('Your distillation interception records'),
         },

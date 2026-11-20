@@ -128,7 +128,7 @@ export function SidebarModulesSection({
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
       },
-      distill: {
+      distill_hits: {
         title: t('Distillation hits'),
         description: t(
           'Users see their own interception records; admins see everyone.'
