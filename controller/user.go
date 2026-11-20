@@ -677,6 +677,8 @@ func generateDefaultSidebarConfig(userRole int) string {
 		"enabled":  true,
 		"topup":    true,
 		"personal": true,
+		// distill_hits 蒸馏命中记录（规格 §17.2）：个人中心分组下默认可见。
+		"distill_hits": true,
 	}
 
 	// 管理员区域 - 根据角色决定

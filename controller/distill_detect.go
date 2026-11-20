@@ -405,7 +405,28 @@ type DistillHitView struct {
 	AlertSent   bool    `json:"alert_sent"`
 }
 
+// DistillHitUserView 是**普通用户**看到的命中记录形状（规格 §17.1）。
+//
+// 只给本人需要的信息：时间、模型、分数、降级截止。⛔ 渠道 id、逐题分数
+// （categories）、告警状态都是运营视角 —— 逐题分数露出去等于把判定口径交给
+// 被判定的人，绕法立刻就有了。
+type DistillHitUserView struct {
+	Id          int64   `json:"id"`
+	RequestId   string  `json:"request_id"`
+	Model       string  `json:"model"`
+	Score       float64 `json:"score"`
+	SampledAt   string  `json:"sampled_at"`
+	DemoteUntil string  `json:"demote_until"`
+}
+
 // ListDistillHits 按用户 / 时间 / 请求编号查命中记录。
+//
+// 权限（规格 §17）：挂在 UserAuth 上，个人中心里普通用户也能进。
+//   - 管理员：可按 user_id 筛选任意用户，看到完整的运营字段；
+//   - 非管理员：作用域**强制**成自己，请求里带的 user_id 直接覆盖（不报错），
+//     返回体也只给本人需要的字段。
+//
+// ⛔ 不能靠前端不传参数来兜底：URL 是用户可以手改的，作用域必须在服务端定死。
 func ListDistillHits(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("p", "1"))
 	if page < 1 {
@@ -416,14 +437,22 @@ func ListDistillHits(c *gin.Context) {
 		pageSize = 20
 	}
 
+	role := c.GetInt("role")
+	isAdmin := role >= common.RoleAdminUser
+	scopeUserID, err := distillHitUserScope(role, c.GetInt("id"), c.Query("user_id"))
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	if !isAdmin && scopeUserID <= 0 {
+		// 正常不会走到：UserAuth 一定带上了 id。宁可拒绝，也不要退化成「不加过滤」。
+		common.ApiErrorMsg(c, "未登录")
+		return
+	}
+
 	query := model.DB.Model(&model.DistillDetectHit{})
-	if uid := c.Query("user_id"); uid != "" {
-		id, err := strconv.Atoi(uid)
-		if err != nil {
-			common.ApiErrorMsg(c, "user_id 不是数字")
-			return
-		}
-		query = query.Where("user_id = ?", id)
+	if scopeUserID > 0 {
+		query = query.Where("user_id = ?", scopeUserID)
 	}
 	if rid := strings.TrimSpace(c.Query("request_id")); rid != "" {
 		query = query.Where("request_id LIKE ?", "%"+rid+"%")
@@ -452,23 +481,34 @@ func ListDistillHits(c *gin.Context) {
 		return
 	}
 
-	items := make([]DistillHitView, 0, len(rows))
+	items := make([]any, 0, len(rows))
 	for _, r := range rows {
-		view := DistillHitView{
-			Id:         r.Id,
-			UserId:     r.UserId,
-			RequestId:  r.RequestId,
-			Model:      r.Model,
-			ChannelId:  r.ChannelId,
-			FallbackId: r.FallbackId,
-			Score:      r.Score,
-			Categories: r.Categories,
-			DocChars:   r.DocChars,
-			SampledAt:  r.SampledAt.Format(time.RFC3339),
-			AlertSent:  r.AlertSent,
+		if !isAdmin {
+			// ⛔ 渠道 id、逐题分数（categories）、告警状态都是运营视角：逐题分数
+			// 一旦露出去，等于把判定口径交给被判定的人，绕法立刻就有了。
+			items = append(items, DistillHitUserView{
+				Id:          r.Id,
+				RequestId:   r.RequestId,
+				Model:       r.Model,
+				Score:       r.Score,
+				SampledAt:   r.SampledAt.Format(time.RFC3339),
+				DemoteUntil: distillHitDemoteUntil(r),
+			})
+			continue
 		}
-		if r.DemoteUntil != nil {
-			view.DemoteUntil = r.DemoteUntil.Format(time.RFC3339)
+		view := DistillHitView{
+			Id:          r.Id,
+			UserId:      r.UserId,
+			RequestId:   r.RequestId,
+			Model:       r.Model,
+			ChannelId:   r.ChannelId,
+			FallbackId:  r.FallbackId,
+			Score:       r.Score,
+			Categories:  r.Categories,
+			DocChars:    r.DocChars,
+			SampledAt:   r.SampledAt.Format(time.RFC3339),
+			DemoteUntil: distillHitDemoteUntil(r),
+			AlertSent:   r.AlertSent,
 		}
 		if cache, err := model.GetUserCache(r.UserId); err == nil && cache != nil {
 			view.Username = cache.Username
@@ -485,6 +525,35 @@ func ListDistillHits(c *gin.Context) {
 			"page":  page,
 		},
 	})
+}
+
+// distillHitUserScope 解析命中记录查询的用户作用域（规格 §17.1）。
+//
+// 返回 0 表示「不按用户过滤」（只有管理员给得出这个值）。
+//
+// ⛔ 非管理员的越权参数**直接覆盖**而不是报错：报错等于告诉对方「这个参数确实
+// 有用，只是你不够格」，而正确行为是让他怎么改都只能拿到自己的行。
+func distillHitUserScope(role, selfID int, rawUserID string) (int, error) {
+	if role < common.RoleAdminUser {
+		return selfID, nil
+	}
+	raw := strings.TrimSpace(rawUserID)
+	if raw == "" {
+		return 0, nil
+	}
+	id, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("user_id 不是数字")
+	}
+	return id, nil
+}
+
+// distillHitDemoteUntil 格式化降级截止时间；为空返回空串。
+func distillHitDemoteUntil(r model.DistillDetectHit) string {
+	if r.DemoteUntil == nil {
+		return ""
+	}
+	return r.DemoteUntil.Format(time.RFC3339)
 }
 
 // DistillTestRequest 是试判请求体。

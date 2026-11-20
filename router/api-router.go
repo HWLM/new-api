@@ -286,16 +286,24 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.GET("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
 		}
 
-		// 蒸馏检测（docs/distill-detection-plan.md）。管理员配置 + 命中记录查询。
-		// Use AdminAuth() 而非 RootAuth()：运营也要能查 request_id 通知客户。
+		// 蒸馏检测（docs/distill-detection-plan.md）。
+		//
+		// ⛔ 命中记录与配置的权限不同（规格 §17.1）：
+		//   - /hits 是**个人中心**功能，普通用户能查自己的记录，所以用 UserAuth；
+		//     作用域由控制器强制（非管理员只能看自己），不靠前端藏参数。
+		//   - 其余是配置/试判/测试告警，仍要 AdminAuth（运营也要能配，不能只给 root）。
 		distillRoute := apiRouter.Group("/distill_detect")
-		distillRoute.Use(middleware.AdminAuth())
 		{
-			distillRoute.GET("/setting", controller.GetDistillDetectSetting)
-			distillRoute.PUT("/setting", controller.UpdateDistillDetectSetting)
-			distillRoute.GET("/hits", controller.ListDistillHits)
-			distillRoute.POST("/test", controller.TestDistill)
-			distillRoute.POST("/alert_test", controller.TestDistillAlert)
+			distillRoute.GET("/hits", middleware.UserAuth(), controller.ListDistillHits)
+
+			distillSettingRoute := distillRoute.Group("")
+			distillSettingRoute.Use(middleware.AdminAuth())
+			{
+				distillSettingRoute.GET("/setting", controller.GetDistillDetectSetting)
+				distillSettingRoute.PUT("/setting", controller.UpdateDistillDetectSetting)
+				distillSettingRoute.POST("/test", controller.TestDistill)
+				distillSettingRoute.POST("/alert_test", controller.TestDistillAlert)
+			}
 		}
 
 		// Custom OAuth provider management (root only)
