@@ -279,13 +279,18 @@ var distillLegacyQuestionKeys = []struct {
 // MigrateLegacyDistillQuestionToggles 把旧版的四个 `question_*` 开关映射成
 // 对应题目的 enabled 位。
 //
-// ⛔ 只在新键 `distill_detect_setting.questions` 不存在时才生效：一旦用新版
-// 保存过题库，老键就永久失效 —— 否则运营删掉或改名过的题，会被遗留的老开关
-// 反复覆盖。
+// ⛔ `questionsPersisted` 必须来自**数据库里有没有 `distill_detect_setting.questions`
+// 这一行**，不能看 common.OptionMap 里有没有这个键 —— InitOptionMap 会先跑
+// `config.GlobalConfig.ExportAllConfigs()`，把默认题库的 JSON 预填进 OptionMap，
+// 于是「看 OptionMap」的守卫永远命中，迁移就一次也不会执行。这是实测踩到的：
+// 库里 question_reward_rl=false，升级后页面上却是 enabled=true。
+//
+// ⛔ 只有数据库里没有 questions 行时才生效：一旦用新版保存过题库，老键永久
+// 失效 —— 否则运营删掉或改名过的题，会被遗留的老开关反复覆盖。
 //
 // ⛔ 老配置把四题全关时恢复默认题库：那样判定永远不命中，功能静默失效。
-func MigrateLegacyDistillQuestionToggles() {
-	if v, ok := common.OptionMap["distill_detect_setting.questions"]; ok && strings.TrimSpace(v) != "" {
+func MigrateLegacyDistillQuestionToggles(questionsPersisted bool) {
+	if questionsPersisted {
 		return
 	}
 	applied := false

@@ -167,10 +167,6 @@ func SendDistillTestAlert(ctx context.Context) DistillAlertTestResult {
 		out.WeCom = DistillAlertChannelResult{Status: "sent"}
 	}
 
-	if out.Telegram.Status == "sent" || out.WeCom.Status == "sent" {
-		return out
-	}
-	_ = ctx // 发送函数本身不接 context；保留参数以便将来改成可取消
 	return out
 }
 

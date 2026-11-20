@@ -3,6 +3,8 @@ package operation_setting
 import (
 	"strings"
 	"testing"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 // 题库校验（规格 §14.1）。这里的每一条都是后端**强制**的：前端也会挡，
@@ -116,5 +118,78 @@ func TestEnabledDistillQuestionsKeepsOrder(t *testing.T) {
 	got := s.EnabledDistillQuestions()
 	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "c" {
 		t.Fatalf("enabled questions must keep configuration order, got %+v", got)
+	}
+}
+
+// ── 旧配置迁移（Deploy 实测到的启动顺序 bug）────────────────────────────
+
+// withLegacyOption 临时把一条 legacy 开关塞进 OptionMap，测试结束还原。
+//
+// ⚠️ 这个包里 OptionMap 默认是 nil（InitOptionMap 没跑过），要先建出来。
+func withLegacyOption(t *testing.T, key, value string) {
+	t.Helper()
+	if common.OptionMap == nil {
+		common.OptionMap = map[string]string{}
+		t.Cleanup(func() { common.OptionMap = nil })
+	}
+	prev, existed := common.OptionMap[key]
+	common.OptionMap[key] = value
+	t.Cleanup(func() {
+		if existed {
+			common.OptionMap[key] = prev
+		} else {
+			delete(common.OptionMap, key)
+		}
+	})
+}
+
+// withCleanQuestions 把题库复位到默认值，测试结束再复位一次。
+func withCleanQuestions(t *testing.T) {
+	t.Helper()
+	distillDetectSetting.Questions = DefaultDistillQuestions()
+	t.Cleanup(func() { distillDetectSetting.Questions = DefaultDistillQuestions() })
+}
+
+// ⭐ Deploy 在真实实例上踩到的 bug：InitOptionMap 会先跑 ExportAllConfigs，
+// 把默认题库 JSON 预填进 OptionMap，于是「看 OptionMap 有没有 questions 键」
+// 这个守卫永远成立，迁移一次也不执行 —— 库里 question_reward_rl=false，
+// 页面上却显示 enabled=true。
+//
+// 判据必须是数据库里有没有 questions 这一行，由调用方传进来。
+func TestMigrateLegacyTogglesRespectsTheDatabaseRowFlag(t *testing.T) {
+	withCleanQuestions(t)
+	withLegacyOption(t, "distill_detect_setting.question_reward_rl", "false")
+	// 模拟 ExportAllConfigs 已经把默认题库预填进 OptionMap。
+	common.OptionMap["distill_detect_setting.questions"] = `[{"id":"reward_rl","enabled":true}]`
+
+	// 库里已经有 questions 行：以库为准，老开关不覆盖。
+	MigrateLegacyDistillQuestionToggles(true)
+	for _, q := range distillDetectSetting.Questions {
+		if q.ID == "reward_rl" && !q.Enabled {
+			t.Fatal("a persisted questions row must win over legacy toggles")
+		}
+	}
+
+	// 库里没有 questions 行：老开关必须生效。
+	MigrateLegacyDistillQuestionToggles(false)
+	for _, q := range distillDetectSetting.Questions {
+		if q.ID == "reward_rl" && q.Enabled {
+			t.Fatal("without a persisted row the legacy toggle must be applied")
+		}
+	}
+}
+
+// 老配置把四题全关时必须恢复默认题库：全关等于判定永远不命中，
+// 功能会静默失效。
+func TestMigrateLegacyTogglesRestoresDefaultsWhenEverythingWasOff(t *testing.T) {
+	withCleanQuestions(t)
+	for _, legacy := range distillLegacyQuestionKeys {
+		withLegacyOption(t, legacy.Key, "false")
+	}
+
+	MigrateLegacyDistillQuestionToggles(false)
+
+	if len(distillDetectSetting.EnabledDistillQuestions()) == 0 {
+		t.Fatal("an all-disabled legacy bank must fall back to the default bank")
 	}
 }
