@@ -98,6 +98,9 @@ type User struct {
 	RequestCount     int     `json:"request_count" gorm:"type:int;default:0;"` // request number
 	Group            string  `json:"group" gorm:"type:varchar(64);default:'default'"`
 	MaxConcurrency   int     `json:"max_concurrency" gorm:"type:int;default:0;column:max_concurrency"` // -1 = 不限；0 = 使用系统默认值；>0 = 自定义上限
+	// GroupRateLimits 分组并发配置（规格 §21）：`{"vip":{"limit":20,"fallback":true}}`。
+	// limit: -1 不限 / 0 不单独限制 / >0 自定义；fallback=false 时到顶直接 429。
+	GroupRateLimits string `json:"group_rate_limits" gorm:"type:text"`
 	// RefusalDemoteOverride 拒答降级功能的用户级三态开关：
 	//   -1  该用户永远不降级
 	//    0  跟随全局 refusal_demote_setting.enabled
@@ -142,6 +145,7 @@ func (user *User) ToBaseUser() *UserBase {
 		Setting:               user.Setting,
 		Email:                 user.Email,
 		MaxConcurrency:        user.MaxConcurrency,
+		GroupRateLimits:       user.GroupRateLimits,
 		RefusalDemoteOverride: user.RefusalDemoteOverride,
 		DistillDetectOverride: user.DistillDetectOverride,
 		AuthVersion:           user.AuthVersion,
@@ -1176,8 +1180,43 @@ func (user *User) Edit(updatePassword bool) error {
 	return nil
 }
 
+// ValidateGroupRateLimits 校验用户的分组速率 JSON（规格 §21.3）。
+//
+// 空串 = 不配置（行为与现在一致）；有内容必须是
+// `{"<分组>":{"limit":-1|0|>0,"fallback":bool}}`。
+// ⛔ limit 只允许 -1 / 0 / 正数：-2 这种既不是「不限」也不是「不限」，会让
+// 判定逻辑落进未定义分支。
+func ValidateGroupRateLimits(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	var parsed map[string]struct {
+		Limit    int  `json:"limit"`
+		Fallback bool `json:"fallback"`
+	}
+	if err := common.UnmarshalJsonStr(trimmed, &parsed); err != nil {
+		return fmt.Errorf("分组速率配置不是合法 JSON 对象：%v", err)
+	}
+	for group, cfg := range parsed {
+		if strings.TrimSpace(group) == "" {
+			return fmt.Errorf("分组速率配置里有空的分组名")
+		}
+		if cfg.Limit < -1 {
+			return fmt.Errorf("分组 %q 的并发上限不能小于 -1（-1 表示不限）", group)
+		}
+		if cfg.Limit > 1000000 {
+			return fmt.Errorf("分组 %q 的并发上限过大", group)
+		}
+	}
+	return nil
+}
+
 func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	var err error
+	if err := ValidateGroupRateLimits(user.GroupRateLimits); err != nil {
+		return err
+	}
 	if updatePassword {
 		user.Password, err = common.Password2Hash(user.Password)
 		if err != nil {
@@ -1193,6 +1232,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		"remark":                  newUser.Remark,
 		"allow_online_topup":      newUser.AllowOnlineTopup,
 		"max_concurrency":         newUser.MaxConcurrency,
+		"group_rate_limits":       newUser.GroupRateLimits,
 		"refusal_demote_override": newUser.RefusalDemoteOverride,
 		"distill_detect_override": newUser.DistillDetectOverride,
 	}

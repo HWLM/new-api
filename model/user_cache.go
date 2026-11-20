@@ -18,7 +18,8 @@ import (
 // 内静默读成 0，用户编辑完三态后看起来「没有生效」。
 //
 //	3 → 4  加入 MaxConcurrency / RefusalDemoteOverride / DistillDetectOverride
-const userCacheSchemaVersion = 4
+//	4 → 5  加入 GroupRateLimits（分组速率，规格 §21）
+const userCacheSchemaVersion = 5
 
 type UserBase struct {
 	Id                    int    `json:"id"`
@@ -30,6 +31,7 @@ type UserBase struct {
 	Username              string `json:"username"`
 	Setting               string `json:"setting"`
 	MaxConcurrency        int    `json:"max_concurrency"`
+	GroupRateLimits       string `json:"group_rate_limits"`
 	RefusalDemoteOverride int    `json:"refusal_demote_override"`
 	DistillDetectOverride int    `json:"distill_detect_override"`
 	AuthVersion           int64  `json:"-"`
@@ -120,6 +122,9 @@ func updateUserCache(user User) error {
 	// 下面三个是「改了必须立刻生效」的策略字段：运营就是为了止损才会去改，
 	// 等 60 秒 TTL 等于这一分钟继续按旧策略跑。
 	if err := updateUserMaxConcurrencyCache(user.Id, user.MaxConcurrency); err != nil {
+		return err
+	}
+	if err := updateUserGroupRateLimitsCache(user.Id, user.GroupRateLimits); err != nil {
 		return err
 	}
 	if err := updateUserRefusalDemoteOverrideCache(user.Id, user.RefusalDemoteOverride); err != nil {
@@ -332,6 +337,11 @@ func updateUserRefusalDemoteOverrideCache(userId int, override int) error {
 // updateUserMaxConcurrencyCache 并发上限，同属「改了要立刻生效」的一类。
 func updateUserMaxConcurrencyCache(userId int, value int) error {
 	return updateUserCacheField(userId, "MaxConcurrency", value)
+}
+
+// updateUserGroupRateLimitsCache 分组速率，同样「改了要立刻生效」。
+func updateUserGroupRateLimitsCache(userId int, value string) error {
+	return updateUserCacheField(userId, "GroupRateLimits", value)
 }
 
 // updateUserCacheField prevents individual cache refreshes from bypassing the

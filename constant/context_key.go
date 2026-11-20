@@ -70,6 +70,18 @@ const (
 	// 不影响 Distribute 中间件的实际行为。
 	ContextKeyConcurrencyOverloaded ContextKey = "concurrency_overloaded"
 
+	// ContextKeyRateLimitExceeded 标记本次请求因「并发/分组速率超限」需要重导到
+	// **速率限制兜底渠道**（全局 RateLimitFallbackChannelId，规格 §21）。
+	//
+	// ⛔ 与拒答降级的 ContextKeyUserOverloaded 是两个独立标记：两条兜底依据不同、
+	// 渠道来源不同、失败文案不同，不许合并成一段通用逻辑。
+	ContextKeyRateLimitExceeded ContextKey = "rate_limit_exceeded"
+	// ContextKeyRateLimitRejected 标记「超限且该分组策略是不走兜底」——直接 429，
+	// 连跳转都不做。文案与「兜底不可用」区分开，运营一眼能看出是策略拒的。
+	ContextKeyRateLimitRejected ContextKey = "rate_limit_rejected"
+	// ContextKeyRateLimitGroup 触发本次超限的分组名，供日志与告警用。
+	ContextKeyRateLimitGroup ContextKey = "rate_limit_group"
+
 	// ContextKeyDistillDemoted 标记本次请求因「用户命中蒸馏检测」被重导到
 	// **蒸馏兜底渠道**（DistillDetectSetting.FallbackChannelId，全局一个），
 	// 与各渠道自配的 FallbackChannelId、以及拒答降级的兜底都不是同一条链路。
