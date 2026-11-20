@@ -79,6 +79,8 @@ def relay():
 
 
 def channel_ids():
+    if not ADMIN:
+        return []
     code, txt = http("GET", "/api/channel/?p=1&page_size=100", token=ADMIN)
     if code != 200:
         return None
@@ -109,15 +111,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--wait", type=int, default=WAIT)
     a = ap.parse_args()
-    if not SQLITE or not ADMIN or not RELAY_KEY:
-        sys.exit("需要 CC_SQLITE / CC_ADMIN_TOKEN / CC_RELAY_KEY")
+    if not SQLITE or not RELAY_KEY:
+        sys.exit("需要 CC_SQLITE / CC_RELAY_KEY")
+    if not ADMIN:
+        print("      ⚠️ 没给 CC_ADMIN_TOKEN：跳过「渠道集合」类断言，只看进程存活与 relay",
+              flush=True)
     if not alive():
         sys.exit("实例当前不可达，先把服务起来")
 
     before_ids = channel_ids()
     c0 = relay()
     report("基线：relay 可用", "PASS" if c0 == 200 else "FAIL", "HTTP %s" % c0)
-    report("基线：渠道集合可读", "PASS" if before_ids else "FAIL", "渠道 %s" % before_ids)
+    report("基线：渠道集合可读", "PASS" if before_ids else ("SKIP" if not ADMIN else "FAIL"),
+           "渠道 %s" % (before_ids or "（未提供管理员令牌）"))
 
     try:
         sql("ALTER TABLE abilities RENAME TO abilities_hidden")
@@ -154,8 +160,9 @@ def main():
            "状态码 %s" % relay_codes)
 
     after_ids = channel_ids()
-    report("渠道集合与破坏前一致", "PASS" if after_ids == before_ids and before_ids else "FAIL",
-           "前 %s 后 %s" % (before_ids, after_ids))
+    report("渠道集合与破坏前一致",
+           "PASS" if after_ids == before_ids and before_ids else ("SKIP" if not ADMIN else "FAIL"),
+           "前 %s 后 %s" % (before_ids or "-", after_ids or "-"))
 
     try:
         sql("ALTER TABLE abilities_hidden RENAME TO abilities")
