@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 )
 
 // 命中记录的作用域（规格 §17.1）。
@@ -63,5 +64,18 @@ func TestDistillHitUserViewHidesOperatorFields(t *testing.T) {
 		if !strings.Contains(string(raw), wanted) {
 			t.Fatalf("the user-facing view should keep %q: %s", wanted, raw)
 		}
+	}
+}
+
+// ⛔ 老记录没有逐题快照、也不是新写的命中时，question_results 必须是 []，
+// 不是 null：detect_channel_ids 已经在同一个坑里摔过一次。
+func TestDistillHitQuestionResultsIsNeverNil(t *testing.T) {
+	results := distillHitQuestionResults(model.DistillDetectHit{})
+	raw, err := json.Marshal(DistillHitUserView{QuestionResults: results})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if !strings.Contains(string(raw), `"question_results":[]`) {
+		t.Fatalf("question_results must serialize as [], got %s", raw)
 	}
 }

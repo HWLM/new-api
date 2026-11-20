@@ -569,10 +569,15 @@ func distillHitQuestionResults(r model.DistillDetectHit) []service.DistillQuesti
 	}
 	s := operation_setting.GetDistillDetectSetting()
 	if s == nil {
-		return nil
+		return []service.DistillQuestionResult{}
 	}
 	fallback := service.BuildDistillQuestionResults(r.Categories, s.Questions, s.Threshold)
-	return service.ParseDistillQuestionResults(fallback)
+	if results := service.ParseDistillQuestionResults(fallback); len(results) > 0 {
+		return results
+	}
+	// ⛔ 一律返回空数组而不是 nil：接口约定这个字段是数组，返回 null 会让
+	// 每个调用方都得再写一次 `?? []`（detect_channel_ids 就是这么踩过的）。
+	return []service.DistillQuestionResult{}
 }
 
 // distillHitDemoteUntil 格式化降级截止时间；为空返回空串。
