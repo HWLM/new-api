@@ -82,6 +82,11 @@ const (
 	// ContextKeyDistillFallbackChannelId 本次请求「实际被蒸馏兜底切到了哪个渠道」。
 	// 重导成功才写；兜底不可用（走了 429）时不写，据此区分两种结局。
 	ContextKeyDistillFallbackChannelId ContextKey = "distill_fallback_channel_id"
+	// ContextKeyDistillOriginGroup / ContextKeyDistillFallbackGroup 记录蒸馏兜底
+	// 前后的**计费分组**，供消费日志对账时一眼看出这笔按谁的价格结算。
+	// 只在真的换了渠道时写；分组没变（例如原分组在兜底渠道里也有）时两者相同。
+	ContextKeyDistillOriginGroup   ContextKey = "distill_origin_group"
+	ContextKeyDistillFallbackGroup ContextKey = "distill_fallback_group"
 	// ContextKeyConcurrencyCount / ContextKeyConcurrencyLimit 记录并发超限命中
 	// 时的 in-flight 计数和上限，供 Distribute 中间件在决定「重导兜底/429」后
 	// 异步发 TG 时拼消息用。

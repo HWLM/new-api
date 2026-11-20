@@ -216,7 +216,7 @@ type DistillQuestion struct {
 - 存在 `DistillDetectSetting.Questions []DistillQuestion`，随配置一起走 options 表，**不动表结构**。
 - 管理页要能：看到每题完整题面、单题编辑、单题启停、新增、删除、调整顺序。
 - 校验（后端强制，前端同步）：题目总数 1..20；`id` 唯一且匹配 `[a-z0-9_]{1,32}`；`name` 1..64；`prompt` 1..8000；**至少 1 题启用**（全关直接拒绝，别让判定静默失效）。
-- 判定：遍历启用的题，逐题调 Jev 拿分，**取最高分**与 `threshold` 比较；命中记录 `categories` 存 `{题目id: 分数}`。并发上限 4，单题超时与整体超时共用 `jev_timeout_ms`。
+- 判定：**一次请求带全部启用题**（与 hw_gateway 的 `questions_payload` 一致，也是 §11 成本模型「一次判定 = 1 次调用」的前提），Jev 一次回全部 answers，取最高分与 `threshold` 比较；命中记录 `categories` 存 `{题目id: 分数}`。**不要逐题各发一次**——那会把 28,657 次/日翻到 4 倍。整体超时用 `jev_timeout_ms`。
 - 旧的四个 `question_*` 布尔字段**废弃删除**（迁移时把它们的 true/false 映射成对应题目的 `enabled`），GET/PUT 都不再出现这四个字段。
 
 ### 14.2 Telegram 告警独立通道
@@ -253,3 +253,29 @@ POST /api/distill_detect/alert_test  {}
 POST /api/distill_detect/test  （试判，返回逐题分数）
   → data.categories 键改为题目 id，题目标题取 questions[].name
 ```
+## 15. 蒸馏兜底按兜底分组计费（2026-11-20 用户提出）
+
+现状：蒸馏命中后 `Distribute` 换渠道，但 `relayInfo.UsingGroup` 仍是原分组，结算走原分组倍率 —— 用户实际用上了兜底渠道，却按原渠道价格扣费。拒答降级也有同样问题，但本次只修蒸馏，拒答那条单独立项。
+
+### 15.1 规则
+
+命中重导到兜底渠道（且真的换了渠道）后，本次请求的计费分组改为**兜底渠道的分组**：
+
+1. 取兜底渠道的 `Group` 字段（逗号分隔）。
+2. 若原 `UsingGroup` 在兜底渠道的分组列表里，用它（价格最贴近用户原意）。
+3. 否则取兜底渠道分组列表中第一个**已配置倍率**的分组（`ratio_setting.ContainsGroupRatio` 为真）。
+4. 兜底渠道无分组、或所有分组都没配倍率 → 维持原 `UsingGroup` 不变，并写一条 warn 日志（说明这笔按原分组计费）。
+5. 记住值的不是渠道 id，是**结算用的分组名**：`relayInfo.UsingGroup` 换成上面选中的分组，`PriceData.GroupRatioInfo` 随之重算（不能沿用换渠道前算好的价格）。
+6. 日志 `other` 里加两个字段：`distill_fallback_group`（实际计费分组）、`distill_origin_group`（原分组），便于对账。
+7. 只改计费口径，不碰倍率配置本身、不改渠道分组。
+
+### 15.2 边界
+
+- **拒答降级那条路径一个字都不动**：它命中后仍按原渠道/原分组价格计费，这是明确的产品口径，不是漏改。不许因为共用 `Distribute` 就把分组替换做成通用行为。
+- 未命中/确认次数不足/观察模式：完全不变，不写这两个字段。
+- 兜底渠道 == 原渠道（自环）：不重算，按原分组计费。
+- 计费分组改了之后，预扣/结算/日志三处必须用同一个分组，不能一处新一处旧 —— 这条要有测试。
+
+### 15.3 验收
+
+一条命中请求打到兜底渠道后：`distill_detect_hits` 里能看到兜底渠道 id；对应 `logs` 行的 `other.group_ratio` 等于兜底分组的倍率，而不是原分组倍率；`other.distill_fallback_group` 与之一致。

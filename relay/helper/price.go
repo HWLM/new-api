@@ -43,18 +43,21 @@ const claudeCacheCreation1hMultiplier = 6 / 3.75
 // the pre-consumed quota still reflects a plausible output cost in paid groups.
 const defaultTieredPreConsumeMaxTokens = 8192
 
-// HandleGroupRatio checks for "auto_group" in the context and updates the group ratio and relayInfo.UsingGroup if present
+// HandleGroupRatio 解析本次请求的计费分组与倍率。
+//
+// ⛔ 分组统一走 relayInfo.ResolveUsingGroup：预扣、结算、日志三处必须同源。
+// 早期这里单独读 ctx 里的 "auto_group"，与结算侧各写一遍，正是
+// 「预扣按新分组、结算按老分组」那类问题的温床。
 func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hosttypes.GroupRatioInfo {
 	groupRatioInfo := hosttypes.GroupRatioInfo{
 		GroupRatio:        1.0, // default ratio
 		GroupSpecialRatio: -1,
 	}
 
-	// check auto group
-	autoGroup, exists := ctx.Get("auto_group")
-	if exists {
-		logger.LogDebug(ctx, "final group: %s", autoGroup)
-		relayInfo.UsingGroup = autoGroup.(string)
+	resolved := relayInfo.ResolveUsingGroup(ctx)
+	if resolved != "" && resolved != relayInfo.UsingGroup {
+		logger.LogDebug(ctx, "final group: %s", resolved)
+		relayInfo.UsingGroup = resolved
 	}
 
 	// check user group special ratio

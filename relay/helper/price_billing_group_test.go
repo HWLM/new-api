@@ -1,0 +1,103 @@
+package helper
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+// 蒸馏兜底改计费分组后的「三处同源」（规格 §15）。
+//
+// 预扣走 HandleGroupRatio 把结果存进 PriceData.GroupRatioInfo，结算与日志都读
+// 这一份；唯一会在后面重新解析分组的是 WSS 预扣，现在也走
+// RelayInfo.ResolveUsingGroup。只要这三处都经由同一个解析函数，就不会出现
+// 「预扣按兜底价、结算还按原价」。
+
+// withGroupRatios 临时替换分组倍率表，测试结束还原。
+func withGroupRatios(t *testing.T, jsonStr string) {
+	t.Helper()
+	original := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(original))
+	})
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(jsonStr))
+}
+
+func newBillingTestContext(t *testing.T) *gin.Context {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	return ctx
+}
+
+// ⭐ 预扣算出来的倍率，必须等于「结算时用同一个解析函数得到的倍率」。
+// Distribute 在蒸馏兜底时把 auto_group 写成兜底渠道的分组，这里模拟那条链路。
+func TestHandleGroupRatioMatchesTheGroupSettlementWouldResolve(t *testing.T) {
+	withGroupRatios(t, `{"default":1,"backup":3}`)
+
+	ctx := newBillingTestContext(t)
+	info := &relaycommon.RelayInfo{UsingGroup: "default", UserGroup: "default"}
+
+	common.SetContextKey(ctx, constant.ContextKeyAutoGroup, "backup")
+
+	// 预扣侧。
+	preConsumed := HandleGroupRatio(ctx, info)
+	if preConsumed.GroupRatio != 3 {
+		t.Fatalf("pre-consume must use the fallback group ratio, got %v", preConsumed.GroupRatio)
+	}
+	if info.UsingGroup != "backup" {
+		t.Fatalf("the relay info must be updated to the billing group, got %q", info.UsingGroup)
+	}
+
+	// 结算侧（service.PreWssConsumeQuota 与这里用的是同一个函数）。
+	settled := ratio_setting.GetGroupRatio(info.ResolveUsingGroup(ctx))
+	if settled != preConsumed.GroupRatio {
+		t.Fatalf("settlement must bill the same ratio as pre-consume: pre=%v settled=%v",
+			preConsumed.GroupRatio, settled)
+	}
+}
+
+// 分组没变（观察模式 / 兜底渠道里就有用户原分组）时，倍率也不该变。
+func TestHandleGroupRatioKeepsTheRatioWhenTheGroupIsUnchanged(t *testing.T) {
+	withGroupRatios(t, `{"default":1,"backup":3}`)
+
+	ctx := newBillingTestContext(t)
+	info := &relaycommon.RelayInfo{UsingGroup: "default", UserGroup: "default"}
+	common.SetContextKey(ctx, constant.ContextKeyAutoGroup, "default")
+
+	got := HandleGroupRatio(ctx, info)
+	if got.GroupRatio != 1 {
+		t.Fatalf("an unchanged group must keep its ratio, got %v", got.GroupRatio)
+	}
+}
+
+// 用户分组特例倍率（group_group_ratio）要跟着**新分组**重新取，
+// 不能沿用换分组前那张表的结果。
+func TestHandleGroupRatioRecomputesTheSpecialRatioForTheNewGroup(t *testing.T) {
+	withGroupRatios(t, `{"default":1,"backup":3}`)
+
+	originalSpecial := ratio_setting.GroupGroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(originalSpecial))
+	})
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"backup":0.5}}`))
+
+	ctx := newBillingTestContext(t)
+	info := &relaycommon.RelayInfo{UsingGroup: "default", UserGroup: "default"}
+	common.SetContextKey(ctx, constant.ContextKeyAutoGroup, "backup")
+
+	got := HandleGroupRatio(ctx, info)
+	if !got.HasSpecialRatio || got.GroupRatio != 0.5 {
+		t.Fatalf("the special ratio must be resolved for the new group, got %+v", got)
+	}
+}

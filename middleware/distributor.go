@@ -170,17 +170,22 @@ func Distribute() func(c *gin.Context) {
 				// 拒答降级的「风控降级」明确区分，运营一眼能认出是蒸馏兜底。
 				if channel != nil && common.GetContextKeyBool(c, constant.ContextKeyDistillDemoted) {
 					originalChannelID := channel.Id
+					originGroup := selectGroup
 					if fb := distillFallbackChannel(c, channel.Id, modelRequest.Model, selectGroup); fb != nil {
 						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, channel.Id)
 						common.SetContextKey(c, constant.ContextKeyFallbackFromChannelName, channel.Name)
-						common.SetContextKey(c, constant.ContextKeyFallbackFromGroup, selectGroup)
+						common.SetContextKey(c, constant.ContextKeyFallbackFromGroup, originGroup)
 						common.SetContextKey(c, constant.ContextKeyDistillFallbackChannelId, fb.channel.Id)
 						channel = fb.channel
 						selectGroup = fb.group
+						// 计费分组（规格 §15）：与超限/拒答兜底不同，蒸馏兜底是强制降级，
+						// 必须按兜底渠道的分组结算，否则用户在原分组下继续享受原倍率。
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, selectGroup)
 						common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
-						common.SysLog(fmt.Sprintf("[distribute] user=%d distill demoted: channel %d -> distill fallback %d",
-							c.GetInt("id"), originalChannelID, fb.channel.Id))
+						common.SetContextKey(c, constant.ContextKeyDistillOriginGroup, originGroup)
+						common.SetContextKey(c, constant.ContextKeyDistillFallbackGroup, selectGroup)
+						common.SysLog(fmt.Sprintf("[distribute] user=%d distill demoted: channel %d (group=%s) -> distill fallback %d (billing group=%s)",
+							c.GetInt("id"), originalChannelID, originGroup, fb.channel.Id, selectGroup))
 					} else {
 						common.SysLog(fmt.Sprintf("[distribute] user=%d rejected: distill demoted but fallback channel %d unusable",
 							c.GetInt("id"), operation_setting.GetDistillDetectSetting().FallbackChannelId))
@@ -347,12 +352,51 @@ func distillFallbackChannel(c *gin.Context, currentChannelID int, modelName, ori
 		logger.LogWarn(c, fmt.Sprintf("distill fallback channel %d does not support request path %q", fb.Id, c.Request.URL.Path))
 		return nil
 	}
-	group := pickFallbackChannelGroup(fb, origGroup)
-	if group == "" {
-		logger.LogWarn(c, fmt.Sprintf("distill fallback channel %d has no group configured", fb.Id))
-		return nil
+	group, ok := pickDistillFallbackGroup(c, fb, origGroup)
+	if !ok {
+		// §15：兜底渠道没有任何配了倍率的分组时，维持原分组并打 warn ——
+		// 这时代码会按原分组结算，运营需要知道「兜底其实没改价」。
+		return &fallbackResolution{channel: fb, group: group}
 	}
 	return &fallbackResolution{channel: fb, group: group}
+}
+
+// pickDistillFallbackGroup 决定蒸馏兜底后的**计费分组**（规格 §15）。
+//
+// ⛔ 与 pickFallbackChannelGroup 的策略不同，不要合并：
+//   - 并发超限 / 拒答降级的兜底沿用用户原分组，是为了不打乱用户看到的计费口径；
+//   - 蒸馏兜底是对**滥用行为**的强制降级，必须按兜底渠道的价格结算，否则用户
+//     在原分组的倍率照旧生效，「转兜底」就只是换了上游、没换价（这是实测到的
+//     bug：转到兜底分组后没按兜底的价格计费）。
+//
+// 取法：
+//  1. 兜底渠道里有与用户原分组同名的分组 → 用它（口径最平滑）；
+//  2. 否则取兜底渠道里第一个**配了倍率**的分组（没配倍率的分组会走默认 1.0，
+//     看不出是兜底价）；
+//  3. 都没有 → 维持原分组，返回 ok=false 让调用方打 warn。
+func pickDistillFallbackGroup(c *gin.Context, ch *model.Channel, origGroup string) (group string, ok bool) {
+	if ch == nil {
+		return origGroup, false
+	}
+	groups := ch.GetGroups()
+	if origGroup != "" && origGroup != "auto" {
+		for _, g := range groups {
+			if g == origGroup {
+				return g, true
+			}
+		}
+	}
+	for _, g := range groups {
+		if g == "" || g == "auto" {
+			continue
+		}
+		if ratio_setting.ContainsGroupRatio(g) {
+			return g, true
+		}
+	}
+	logger.LogWarn(c, fmt.Sprintf("distill fallback channel %d has no group with a configured ratio (groups=%v), keeping origin group %q",
+		ch.Id, groups, origGroup))
+	return origGroup, false
 }
 
 // channelSupportsModel 以 "," 包裹两端做精确匹配，避免 "gpt-4" 误中 "gpt-4o"。
