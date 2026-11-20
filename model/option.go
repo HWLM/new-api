@@ -205,6 +205,9 @@ func loadOptionsFromDatabase() {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
 	}
+	// 旧版蒸馏题库的四个 question_* 开关映射到 questions 的 enabled 位。
+	// 只在新键不存在时生效，因此每次 sync 重跑都是幂等的。
+	operation_setting.MigrateLegacyDistillQuestionToggles()
 }
 
 func SyncOptions(frequency int) {

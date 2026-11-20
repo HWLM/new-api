@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 // 蒸馏检测的单元测试（docs/distill-detection-plan.md）。
@@ -251,24 +253,86 @@ func TestDistillDecisionURLAcceptsThreeBaseShapes(t *testing.T) {
 	}
 }
 
-func TestDistillQuestionsPayloadRespectsPerQuestionSwitches(t *testing.T) {
-	// 用到 setter 会污染全局配置，这里直接构造一个局部 setting 走同一套拼装逻辑。
-	// distillQuestionsPayload 只读这四个布尔位，所以单独验证它的取舍。
-	q := distillQuestionBank
-	if len(q) != 4 {
-		t.Fatalf("the train bank must carry exactly 4 questions, got %d", len(q))
+// ── 可编辑题库（规格 §14）──────────────────────────────────────────────
+
+// ⭐ 题库是数据：只有启用的题进 payload，题面用的是配置里那份（管理页改过
+// 的就是这份），wire key 仍是 `train.<id>` 与 hw_gateway 对齐。
+func TestDistillQuestionsPayloadUsesEnabledConfiguredQuestions(t *testing.T) {
+	s := &operation_setting.DistillDetectSetting{
+		Questions: []operation_setting.DistillQuestion{
+			{ID: "corpus_farm", Name: "A", Prompt: "prompt-a", Enabled: true},
+			{ID: "reward_rl", Name: "B", Prompt: "prompt-b", Enabled: false},
+			{ID: "my_custom", Name: "C", Prompt: "prompt-c", Enabled: true},
+		},
 	}
-	ids := make(map[string]bool, len(q))
-	for _, item := range q {
-		ids[item.ID] = true
-		if item.Instructions == "" {
-			t.Fatalf("question %s has no instructions", item.ID)
+	payload := distillQuestionsPayload(s)
+
+	if len(payload) != 2 {
+		t.Fatalf("only enabled questions may be sent, got %d", len(payload))
+	}
+	for _, want := range []string{"train.corpus_farm", "train.my_custom"} {
+		entry, ok := payload[want].(map[string]any)
+		if !ok {
+			t.Fatalf("missing wire question %s", want)
+		}
+		if entry["type"] != "noul" {
+			t.Fatalf("%s must be a noul question", want)
+		}
+	}
+	if _, ok := payload["train.reward_rl"]; ok {
+		t.Fatal("a disabled question must not be sent")
+	}
+	// 题面必须取配置里那份：管理页改过题面后，送出去的就该是改后的文字。
+	if got := payload["train.corpus_farm"].(map[string]any)["instructions"]; got != "prompt-a" {
+		t.Fatalf("the configured prompt must be used verbatim, got %v", got)
+	}
+}
+
+// ⛔ 上游多回了没问过的题时忽略 —— 题库改小之后，旧答案不能把分数抬上去。
+func TestParseDistillAnswersIgnoresQuestionsNotAsked(t *testing.T) {
+	asked := []operation_setting.DistillQuestion{
+		{ID: "corpus_farm", Name: "A", Prompt: "p", Enabled: true},
+	}
+	payload := []byte(`{"answers":{
+		"train.corpus_farm":{"noul":0.2},
+		"train.removed_question":{"noul":0.99}
+	}}`)
+	best, categories, ok := ParseDistillAnswersFor(payload, asked)
+	if !ok {
+		t.Fatal("a well-formed answers object must parse")
+	}
+	if best != 0.2 {
+		t.Fatalf("an unasked question must not set the score, got %v", best)
+	}
+	if strings.Contains(categories, "removed_question") {
+		t.Fatalf("an unasked question must not appear in categories: %s", categories)
+	}
+}
+
+// 默认题库必须是 hw_gateway 那四题，id 齐全且都有题面 —— 题面被改写或压缩
+// 会让判定口径变化，已有观察期数据失去可比性。
+func TestDefaultDistillQuestionsMirrorHwGatewayTrainBank(t *testing.T) {
+	qs := operation_setting.DefaultDistillQuestions()
+	if len(qs) != 4 {
+		t.Fatalf("the builtin train bank must carry exactly 4 questions, got %d", len(qs))
+	}
+	ids := make(map[string]bool, len(qs))
+	for _, q := range qs {
+		ids[q.ID] = true
+		if q.Prompt == "" || q.Name == "" {
+			t.Fatalf("question %s has no name/prompt", q.ID)
+		}
+		if !q.Enabled {
+			t.Fatalf("question %s must default to enabled", q.ID)
 		}
 	}
 	for _, want := range []string{distillQCorpusFarm, distillQRewardRL, distillQJudgeEval, distillQDistillTgt} {
 		if !ids[want] {
 			t.Fatalf("question %s is missing from the bank", want)
 		}
+	}
+	if err := operation_setting.ValidateDistillQuestions(qs); err != nil {
+		t.Fatalf("the default bank must be valid: %v", err)
 	}
 }
 

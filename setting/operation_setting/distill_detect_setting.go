@@ -1,6 +1,139 @@
 package operation_setting
 
-import "github.com/QuantumNous/new-api/setting/config"
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/config"
+)
+
+// DistillQuestion 是一道判定题。
+//
+// 题库是**数据**：管理页可以新增、删除、改题面、启停、排序。判定服务按当前
+// 启用的题遍历取最高分，`categories` 存 `{题目id: 分数}`。
+type DistillQuestion struct {
+	ID      string `json:"id"`      // [a-z0-9_]{1,32}，唯一
+	Name    string `json:"name"`    // 展示用短名，1..64
+	Prompt  string `json:"prompt"`  // 题面正文，1..8000 字符
+	Enabled bool   `json:"enabled"` // 关掉的题不送判定
+}
+
+// 蒸馏题库的规模与字段约束。后端强制、前端同步，两边用同一组数。
+const (
+	DistillQuestionMinCount     = 1
+	DistillQuestionMaxCount     = 20
+	DistillQuestionMaxIDLen     = 32
+	DistillQuestionMaxNameLen   = 64
+	DistillQuestionMaxPromptLen = 8000
+)
+
+var distillQuestionIDPattern = regexp.MustCompile(`^[a-z0-9_]{1,32}$`)
+
+// DefaultDistillQuestions 返回内置题库：hw_gateway「训练数据与评测」题库的
+// 四道题，题面**逐字照搬** crates/portunex-gateway/src/services/decision_model/
+// config.rs 的 `BUILTIN_TRAIN_QUESTIONS`。
+//
+// ⛔ 不要改写、压缩或翻译这些题面：判定口径就是这几句话，改一个字命中率都会变，
+// 已有的观察期数据也就失去可比性。
+func DefaultDistillQuestions() []DistillQuestion {
+	return []DistillQuestion{
+		{
+			ID:     "corpus_farm",
+			Name:   "批量语料生产",
+			Prompt: "Is this request part of batch production of a training corpus for another model — generating or rewriting prompt/answer pairs, synthetic instructions, or positive/negative preference examples at scale?",
+			// hw_gateway 的 BUILTIN_TRAIN_ENABLED 只默认开 corpus_farm 与
+			// distill_target；这里四题全开 —— new-api 侧只有这一个题库，
+			// 题目的目标就是「训练数据与评测」本身，不需要靠关题收窄口径。
+			Enabled: true,
+		},
+		{
+			ID:      "reward_rl",
+			Name:    "RM / RL 偏好数据",
+			Prompt:  "Is this request producing reward-model or reinforcement-learning training data for another model — preference comparisons, rubric-scored tasks, reward labels, or scored trajectories?",
+			Enabled: true,
+		},
+		{
+			ID:      "judge_eval",
+			Name:    "LLM-as-judge 评测",
+			Prompt:  "Is this request part of an evaluation or scoring pipeline for another model's outputs at batch scale — benchmark items, eval sets, rubric scores, pairwise preferences — where the answer is stored as evaluation data rather than read by an end user?",
+			Enabled: true,
+		},
+		{
+			ID:      "distill_target",
+			Name:    "输出当训练目标",
+			Prompt:  "Does this request aim to use this model's outputs as training targets or distillation data for another model, or to reverse-engineer its training method?",
+			Enabled: true,
+		},
+	}
+}
+
+// ValidateDistillQuestions 校验题库。越界一律返回错误而不是静默修正 ——
+// 静默修正会让运营以为改生效了，实际跑的是另一套题。
+func ValidateDistillQuestions(qs []DistillQuestion) error {
+	if len(qs) < DistillQuestionMinCount {
+		return fmt.Errorf("题库至少要有 %d 道题", DistillQuestionMinCount)
+	}
+	if len(qs) > DistillQuestionMaxCount {
+		return fmt.Errorf("题库最多 %d 道题，当前 %d 道", DistillQuestionMaxCount, len(qs))
+	}
+	seen := make(map[string]bool, len(qs))
+	enabled := 0
+	for i, q := range qs {
+		id := strings.TrimSpace(q.ID)
+		if !distillQuestionIDPattern.MatchString(id) {
+			return fmt.Errorf("第 %d 题的 id %q 不合法：只允许小写字母、数字、下划线，长度 1~%d", i+1, q.ID, DistillQuestionMaxIDLen)
+		}
+		if seen[id] {
+			return fmt.Errorf("题目 id %q 重复", id)
+		}
+		seen[id] = true
+		name := strings.TrimSpace(q.Name)
+		if name == "" || len([]rune(name)) > DistillQuestionMaxNameLen {
+			return fmt.Errorf("第 %d 题（%s）的名称必须为 1~%d 个字符", i+1, id, DistillQuestionMaxNameLen)
+		}
+		prompt := strings.TrimSpace(q.Prompt)
+		if prompt == "" || len([]rune(prompt)) > DistillQuestionMaxPromptLen {
+			return fmt.Errorf("第 %d 题（%s）的题面必须为 1~%d 个字符", i+1, id, DistillQuestionMaxPromptLen)
+		}
+		if q.Enabled {
+			enabled++
+		}
+	}
+	// ⛔ 全关必须拒绝：一道题都不启用时判定永远不命中，功能静默失效，
+	// 而管理页看起来「一切正常」—— 这种失败最难被发现。
+	if enabled == 0 {
+		return fmt.Errorf("至少要启用一道题，否则判定永远不会命中")
+	}
+	return nil
+}
+
+// NormalizeDistillQuestions 去掉 id/name/prompt 两端空白，返回可落库的副本。
+func NormalizeDistillQuestions(qs []DistillQuestion) []DistillQuestion {
+	out := make([]DistillQuestion, 0, len(qs))
+	for _, q := range qs {
+		out = append(out, DistillQuestion{
+			ID:      strings.TrimSpace(q.ID),
+			Name:    strings.TrimSpace(q.Name),
+			Prompt:  strings.TrimSpace(q.Prompt),
+			Enabled: q.Enabled,
+		})
+	}
+	return out
+}
+
+// EnabledDistillQuestions 返回当前启用的题（按配置顺序）。
+func (s *DistillDetectSetting) EnabledDistillQuestions() []DistillQuestion {
+	out := make([]DistillQuestion, 0, len(s.Questions))
+	for _, q := range s.Questions {
+		if q.Enabled {
+			out = append(out, q)
+		}
+	}
+	return out
+}
 
 // DistillDetectSetting 控制「蒸馏检测 → 临时降级到兜底渠道」功能。
 //
@@ -62,16 +195,20 @@ type DistillDetectSetting struct {
 	// 批处理语料的证据常在头部，纯尾部截断会丢。
 	HeadSampleChars int `json:"head_sample_chars"`
 
-	// QuestionCorpusFarm / QuestionRewardRL / QuestionJudgeEval / QuestionDistillTarget
-	// 四道题各自可单独禁用（与 hw_gateway 的题库 enabled 位对应）。
-	QuestionCorpusFarm    bool `json:"question_corpus_farm"`
-	QuestionRewardRL      bool `json:"question_reward_rl"`
-	QuestionJudgeEval     bool `json:"question_judge_eval"`
-	QuestionDistillTarget bool `json:"question_distill_target"`
+	// Questions 题库。默认 = hw_gateway「训练数据与评测」题库的四道题，题面逐字
+	// 照搬（见 BUILTIN_TRAIN_QUESTIONS）。⛔ 题库是**数据**不是代码：管理页可以
+	// 增删改、启停、排序，判定服务按当前启用的题遍历取最高分。
+	Questions []DistillQuestion `json:"questions"`
 
 	// AlertTelegram / AlertWeCom 告警通道开关。
 	AlertTelegram bool `json:"alert_telegram"`
 	AlertWeCom    bool `json:"alert_wecom"`
+	// TgBotToken / TgChatId 蒸馏告警专用的 Telegram 通道。
+	//
+	// ⛔ 完全独立：不读取、不复用 tg_notify_bot_token / tg_notify_overload_chat_id
+	// 那套通知配置。两套互不影响，运营改这里不会动到系统通知，反之亦然。
+	TgBotToken string `json:"tg_bot_token"`
+	TgChatId   string `json:"tg_chat_id"`
 	// AlertThrottleSeconds 同一用户的告警节流窗口：窗口内最多 1 条。
 	// 0 = 不节流（每次命中都发）。
 	//
@@ -94,29 +231,28 @@ type DistillDetectSetting struct {
 }
 
 var distillDetectSetting = DistillDetectSetting{
-	Enabled:               true,
-	ActivateRPM:           20,
-	JudgeIntervalSeconds:  30,
-	ConfirmHits:           4,
-	ConfirmWindowSeconds:  300,
-	Threshold:             0.60,
-	DemoteSeconds:         3600,
-	ObserveOnly:           true, // 灰度：先只记录 + 告警
-	JevBaseURL:            "",
-	JevApiKey:             "",
-	JevTimeoutMs:          5000,
-	MaxStateChars:         16000,
-	HeadSampleChars:       4000,
-	QuestionCorpusFarm:    true,
-	QuestionRewardRL:      true,
-	QuestionJudgeEval:     true,
-	QuestionDistillTarget: true,
-	AlertTelegram:         false,
-	AlertWeCom:            false,
-	AlertThrottleSeconds:  600,
-	WeComWebhookUrl:       "",
-	FallbackChannelId:     0,
-	DedupSeconds:          600,
+	Enabled:              true,
+	ActivateRPM:          20,
+	JudgeIntervalSeconds: 30,
+	ConfirmHits:          4,
+	ConfirmWindowSeconds: 300,
+	Threshold:            0.60,
+	DemoteSeconds:        3600,
+	ObserveOnly:          true, // 灰度：先只记录 + 告警
+	JevBaseURL:           "",
+	JevApiKey:            "",
+	JevTimeoutMs:         5000,
+	MaxStateChars:        16000,
+	HeadSampleChars:      4000,
+	Questions:            DefaultDistillQuestions(),
+	AlertTelegram:        false,
+	AlertWeCom:           false,
+	TgBotToken:           "",
+	TgChatId:             "",
+	AlertThrottleSeconds: 600,
+	WeComWebhookUrl:      "",
+	FallbackChannelId:    0,
+	DedupSeconds:         600,
 }
 
 func init() {
@@ -126,4 +262,50 @@ func init() {
 // GetDistillDetectSetting 返回当前全局配置指针；上层只读。
 func GetDistillDetectSetting() *DistillDetectSetting {
 	return &distillDetectSetting
+}
+
+// distillLegacyQuestionKeys 是题库改数据化之前的四个布尔开关在 option 表里的键。
+// 顺序与默认题库一致。
+var distillLegacyQuestionKeys = []struct {
+	ID  string
+	Key string
+}{
+	{"corpus_farm", "distill_detect_setting.question_corpus_farm"},
+	{"reward_rl", "distill_detect_setting.question_reward_rl"},
+	{"judge_eval", "distill_detect_setting.question_judge_eval"},
+	{"distill_target", "distill_detect_setting.question_distill_target"},
+}
+
+// MigrateLegacyDistillQuestionToggles 把旧版的四个 `question_*` 开关映射成
+// 对应题目的 enabled 位。
+//
+// ⛔ 只在新键 `distill_detect_setting.questions` 不存在时才生效：一旦用新版
+// 保存过题库，老键就永久失效 —— 否则运营删掉或改名过的题，会被遗留的老开关
+// 反复覆盖。
+//
+// ⛔ 老配置把四题全关时恢复默认题库：那样判定永远不命中，功能静默失效。
+func MigrateLegacyDistillQuestionToggles() {
+	if v, ok := common.OptionMap["distill_detect_setting.questions"]; ok && strings.TrimSpace(v) != "" {
+		return
+	}
+	applied := false
+	for _, legacy := range distillLegacyQuestionKeys {
+		raw, ok := common.OptionMap[legacy.Key]
+		if !ok {
+			continue
+		}
+		enabled, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			continue
+		}
+		applied = true
+		for i := range distillDetectSetting.Questions {
+			if distillDetectSetting.Questions[i].ID == legacy.ID {
+				distillDetectSetting.Questions[i].Enabled = enabled
+			}
+		}
+	}
+	if applied && len(distillDetectSetting.EnabledDistillQuestions()) == 0 {
+		distillDetectSetting.Questions = DefaultDistillQuestions()
+	}
 }

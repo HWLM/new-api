@@ -295,6 +295,7 @@ func SetApiRouter(router *gin.Engine) {
 			distillRoute.PUT("/setting", controller.UpdateDistillDetectSetting)
 			distillRoute.GET("/hits", controller.ListDistillHits)
 			distillRoute.POST("/test", controller.TestDistill)
+			distillRoute.POST("/alert_test", controller.TestDistillAlert)
 		}
 
 		// Custom OAuth provider management (root only)

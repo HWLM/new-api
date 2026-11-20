@@ -29,29 +29,29 @@ import (
 // ⛔ JevApiKey 不回显真实值，只回「是否已配置」：管理页需要知道该不该让运营
 // 重新填，但不能把密钥再送到浏览器。
 type DistillSettingView struct {
-	Enabled               bool    `json:"enabled"`
-	ActivateRPM           int     `json:"activate_rpm"`
-	JudgeIntervalSeconds  int     `json:"judge_interval_seconds"`
-	ConfirmHits           int     `json:"confirm_hits"`
-	ConfirmWindowSeconds  int     `json:"confirm_window_seconds"`
-	Threshold             float64 `json:"threshold"`
-	DemoteSeconds         int     `json:"demote_seconds"`
-	ObserveOnly           bool    `json:"observe_only"`
-	JevBaseURL            string  `json:"jev_base_url"`
-	JevApiKeySet          bool    `json:"jev_api_key_set"`
-	JevTimeoutMs          int     `json:"jev_timeout_ms"`
-	MaxStateChars         int     `json:"max_state_chars"`
-	HeadSampleChars       int     `json:"head_sample_chars"`
-	QuestionCorpusFarm    bool    `json:"question_corpus_farm"`
-	QuestionRewardRL      bool    `json:"question_reward_rl"`
-	QuestionJudgeEval     bool    `json:"question_judge_eval"`
-	QuestionDistillTarget bool    `json:"question_distill_target"`
-	AlertTelegram         bool    `json:"alert_telegram"`
-	AlertWeCom            bool    `json:"alert_wecom"`
-	AlertThrottleSeconds  int     `json:"alert_throttle_seconds"`
-	WeComWebhookUrl       string  `json:"wecom_webhook_url"`
-	FallbackChannelId     int     `json:"fallback_channel_id"`
-	DedupSeconds          int     `json:"dedup_seconds"`
+	Enabled              bool    `json:"enabled"`
+	ActivateRPM          int     `json:"activate_rpm"`
+	JudgeIntervalSeconds int     `json:"judge_interval_seconds"`
+	ConfirmHits          int     `json:"confirm_hits"`
+	ConfirmWindowSeconds int     `json:"confirm_window_seconds"`
+	Threshold            float64 `json:"threshold"`
+	DemoteSeconds        int     `json:"demote_seconds"`
+	ObserveOnly          bool    `json:"observe_only"`
+	JevBaseURL           string  `json:"jev_base_url"`
+	JevApiKeySet         bool    `json:"jev_api_key_set"`
+	JevTimeoutMs         int     `json:"jev_timeout_ms"`
+	MaxStateChars        int     `json:"max_state_chars"`
+	HeadSampleChars      int     `json:"head_sample_chars"`
+	// Questions 完整题库（含题面全文），题库是数据：管理页要看全文并编辑。
+	Questions            []operation_setting.DistillQuestion `json:"questions"`
+	AlertTelegram        bool                                `json:"alert_telegram"`
+	AlertWeCom           bool                                `json:"alert_wecom"`
+	TgBotTokenSet        bool                                `json:"tg_bot_token_set"`
+	TgChatId             string                              `json:"tg_chat_id"`
+	AlertThrottleSeconds int                                 `json:"alert_throttle_seconds"`
+	WeComWebhookUrl      string                              `json:"wecom_webhook_url"`
+	FallbackChannelId    int                                 `json:"fallback_channel_id"`
+	DedupSeconds         int                                 `json:"dedup_seconds"`
 }
 
 // GetDistillDetectSetting 返回当前配置。
@@ -61,29 +61,28 @@ func GetDistillDetectSetting(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": DistillSettingView{
-			Enabled:               s.Enabled,
-			ActivateRPM:           s.ActivateRPM,
-			JudgeIntervalSeconds:  s.JudgeIntervalSeconds,
-			ConfirmHits:           s.ConfirmHits,
-			ConfirmWindowSeconds:  s.ConfirmWindowSeconds,
-			Threshold:             s.Threshold,
-			DemoteSeconds:         s.DemoteSeconds,
-			ObserveOnly:           s.ObserveOnly,
-			JevBaseURL:            s.JevBaseURL,
-			JevApiKeySet:          strings.TrimSpace(s.JevApiKey) != "",
-			JevTimeoutMs:          s.JevTimeoutMs,
-			MaxStateChars:         s.MaxStateChars,
-			HeadSampleChars:       s.HeadSampleChars,
-			QuestionCorpusFarm:    s.QuestionCorpusFarm,
-			QuestionRewardRL:      s.QuestionRewardRL,
-			QuestionJudgeEval:     s.QuestionJudgeEval,
-			QuestionDistillTarget: s.QuestionDistillTarget,
-			AlertTelegram:         s.AlertTelegram,
-			AlertWeCom:            s.AlertWeCom,
-			AlertThrottleSeconds:  s.AlertThrottleSeconds,
-			WeComWebhookUrl:       s.WeComWebhookUrl,
-			FallbackChannelId:     s.FallbackChannelId,
-			DedupSeconds:          s.DedupSeconds,
+			Enabled:              s.Enabled,
+			ActivateRPM:          s.ActivateRPM,
+			JudgeIntervalSeconds: s.JudgeIntervalSeconds,
+			ConfirmHits:          s.ConfirmHits,
+			ConfirmWindowSeconds: s.ConfirmWindowSeconds,
+			Threshold:            s.Threshold,
+			DemoteSeconds:        s.DemoteSeconds,
+			ObserveOnly:          s.ObserveOnly,
+			JevBaseURL:           s.JevBaseURL,
+			JevApiKeySet:         strings.TrimSpace(s.JevApiKey) != "",
+			JevTimeoutMs:         s.JevTimeoutMs,
+			MaxStateChars:        s.MaxStateChars,
+			HeadSampleChars:      s.HeadSampleChars,
+			Questions:            s.Questions,
+			AlertTelegram:        s.AlertTelegram,
+			AlertWeCom:           s.AlertWeCom,
+			TgBotTokenSet:        strings.TrimSpace(s.TgBotToken) != "",
+			TgChatId:             s.TgChatId,
+			AlertThrottleSeconds: s.AlertThrottleSeconds,
+			WeComWebhookUrl:      s.WeComWebhookUrl,
+			FallbackChannelId:    s.FallbackChannelId,
+			DedupSeconds:         s.DedupSeconds,
 		},
 	})
 }
@@ -92,29 +91,30 @@ func GetDistillDetectSetting(c *gin.Context) {
 //
 // 指针字段 = 未提交；这样前端只改一个开关时不会把其它字段冲成零值。
 type DistillSettingUpdateRequest struct {
-	Enabled               *bool    `json:"enabled"`
-	ActivateRPM           *int     `json:"activate_rpm"`
-	JudgeIntervalSeconds  *int     `json:"judge_interval_seconds"`
-	ConfirmHits           *int     `json:"confirm_hits"`
-	ConfirmWindowSeconds  *int     `json:"confirm_window_seconds"`
-	Threshold             *float64 `json:"threshold"`
-	DemoteSeconds         *int     `json:"demote_seconds"`
-	ObserveOnly           *bool    `json:"observe_only"`
-	JevBaseURL            *string  `json:"jev_base_url"`
-	JevApiKey             *string  `json:"jev_api_key"`
-	JevTimeoutMs          *int     `json:"jev_timeout_ms"`
-	MaxStateChars         *int     `json:"max_state_chars"`
-	HeadSampleChars       *int     `json:"head_sample_chars"`
-	QuestionCorpusFarm    *bool    `json:"question_corpus_farm"`
-	QuestionRewardRL      *bool    `json:"question_reward_rl"`
-	QuestionJudgeEval     *bool    `json:"question_judge_eval"`
-	QuestionDistillTarget *bool    `json:"question_distill_target"`
-	AlertTelegram         *bool    `json:"alert_telegram"`
-	AlertWeCom            *bool    `json:"alert_wecom"`
-	AlertThrottleSeconds  *int     `json:"alert_throttle_seconds"`
-	WeComWebhookUrl       *string  `json:"wecom_webhook_url"`
-	FallbackChannelId     *int     `json:"fallback_channel_id"`
-	DedupSeconds          *int     `json:"dedup_seconds"`
+	Enabled              *bool    `json:"enabled"`
+	ActivateRPM          *int     `json:"activate_rpm"`
+	JudgeIntervalSeconds *int     `json:"judge_interval_seconds"`
+	ConfirmHits          *int     `json:"confirm_hits"`
+	ConfirmWindowSeconds *int     `json:"confirm_window_seconds"`
+	Threshold            *float64 `json:"threshold"`
+	DemoteSeconds        *int     `json:"demote_seconds"`
+	ObserveOnly          *bool    `json:"observe_only"`
+	JevBaseURL           *string  `json:"jev_base_url"`
+	JevApiKey            *string  `json:"jev_api_key"`
+	JevTimeoutMs         *int     `json:"jev_timeout_ms"`
+	MaxStateChars        *int     `json:"max_state_chars"`
+	HeadSampleChars      *int     `json:"head_sample_chars"`
+	// Questions 全量替换数组（不是增量补丁）：题库的增删改顺序都在一次提交里表达，
+	// 后端校验后整体覆盖。
+	Questions            *[]operation_setting.DistillQuestion `json:"questions"`
+	AlertTelegram        *bool                                `json:"alert_telegram"`
+	AlertWeCom           *bool                                `json:"alert_wecom"`
+	TgBotToken           *string                              `json:"tg_bot_token"`
+	TgChatId             *string                              `json:"tg_chat_id"`
+	AlertThrottleSeconds *int                                 `json:"alert_throttle_seconds"`
+	WeComWebhookUrl      *string                              `json:"wecom_webhook_url"`
+	FallbackChannelId    *int                                 `json:"fallback_channel_id"`
+	DedupSeconds         *int                                 `json:"dedup_seconds"`
 }
 
 // UpdateDistillDetectSetting 写配置。
@@ -221,6 +221,21 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 			return
 		}
 	}
+	// 题库校验：越界一律拒绝。⛔ 尤其是「一题都不启用」必须拒绝 —— 那样判定
+	// 永远不命中，功能静默失效而管理页看起来一切正常。
+	if req.Questions != nil {
+		questions := operation_setting.NormalizeDistillQuestions(*req.Questions)
+		if err := operation_setting.ValidateDistillQuestions(questions); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+	}
+	if req.TgChatId != nil {
+		if len([]rune(strings.TrimSpace(*req.TgChatId))) > 64 {
+			common.ApiErrorMsg(c, "Telegram chat id 过长")
+			return
+		}
+	}
 
 	// 只覆盖提交了的字段。
 	if req.Enabled != nil {
@@ -272,23 +287,30 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 	if req.HeadSampleChars != nil {
 		s.HeadSampleChars = *req.HeadSampleChars
 	}
-	if req.QuestionCorpusFarm != nil {
-		s.QuestionCorpusFarm = *req.QuestionCorpusFarm
-	}
-	if req.QuestionRewardRL != nil {
-		s.QuestionRewardRL = *req.QuestionRewardRL
-	}
-	if req.QuestionJudgeEval != nil {
-		s.QuestionJudgeEval = *req.QuestionJudgeEval
-	}
-	if req.QuestionDistillTarget != nil {
-		s.QuestionDistillTarget = *req.QuestionDistillTarget
+	if req.Questions != nil {
+		s.Questions = operation_setting.NormalizeDistillQuestions(*req.Questions)
 	}
 	if req.AlertTelegram != nil {
 		s.AlertTelegram = *req.AlertTelegram
 	}
 	if req.AlertWeCom != nil {
 		s.AlertWeCom = *req.AlertWeCom
+	}
+	// ⛔ 与 jev_api_key 同一套约定：留空 = 不改，传 "__clear__" 才是清空。
+	// 不能把「前端表单没加载出来」当成「要清空」。
+	if req.TgBotToken != nil {
+		token := strings.TrimSpace(*req.TgBotToken)
+		switch token {
+		case "":
+			// 不改
+		case "__clear__":
+			s.TgBotToken = ""
+		default:
+			s.TgBotToken = token
+		}
+	}
+	if req.TgChatId != nil {
+		s.TgChatId = strings.TrimSpace(*req.TgChatId)
 	}
 	if req.AlertThrottleSeconds != nil {
 		s.AlertThrottleSeconds = *req.AlertThrottleSeconds
@@ -460,5 +482,21 @@ func TestDistill(c *gin.Context) {
 			"skipped":      verdict.Skipped,
 			"observe_only": operation_setting.GetDistillDetectSetting().ObserveOnly,
 		},
+	})
+}
+
+// TestDistillAlert 用当前告警配置发一条测试消息，逐通道返回实际结果。
+//
+// 运营配完 webhook / bot token 后当场点一下就知道通不通，不用等真实命中
+// 才发现配错了 —— 蒸馏命中本来就稀疏，靠等命中来验证通道是折磨人。
+//
+// ⛔ 不受 AlertThrottleSeconds 约束：测试按钮按一下就发一条，节流是防刷屏，
+// 不是防测试。也不写 hits、不改任何状态。
+func TestDistillAlert(c *gin.Context) {
+	results := service.SendDistillTestAlert(c.Request.Context())
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    results,
 	})
 }

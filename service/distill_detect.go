@@ -48,44 +48,17 @@ const (
 	distillRedisTimeoutMs   = 100
 )
 
-// 四道题，文本与 hw_gateway 的 train 题库逐字一致（docs/decision_model_train_bank_seed.sql）。
-// ⛔ 改题面等于改判定口径，命中率会变，必须重新走观察期。
+// 内置题库的四道题 id。题面本身在 operation_setting.DefaultDistillQuestions()
+// 里（与 hw_gateway 的 train 题库逐字一致），这里只保留 id 常量给默认值与测试用。
+//
+// ⛔ 题库现在是**数据**：管理页可以增删改。判定一律遍历配置里启用的题，
+// 不再假设只有这四道。
 const (
 	distillQCorpusFarm = "corpus_farm"
 	distillQRewardRL   = "reward_rl"
 	distillQJudgeEval  = "judge_eval"
 	distillQDistillTgt = "distill_target"
 )
-
-type distillQuestion struct {
-	ID           string
-	Instructions string
-}
-
-var distillQuestionBank = []distillQuestion{
-	{
-		ID: distillQCorpusFarm,
-		Instructions: "Is this request part of batch production of a training corpus for another model — " +
-			"generating or rewriting prompt/answer pairs, synthetic instructions, or positive/negative " +
-			"preference examples at scale?",
-	},
-	{
-		ID: distillQRewardRL,
-		Instructions: "Is this request producing reward-model or reinforcement-learning training data for " +
-			"another model — preference comparisons, rubric-scored tasks, reward labels, or scored trajectories?",
-	},
-	{
-		ID: distillQJudgeEval,
-		Instructions: "Is this request part of an evaluation or scoring pipeline for another model's outputs " +
-			"at batch scale — benchmark items, eval sets, rubric scores, pairwise preferences — where the answer " +
-			"is stored as evaluation data rather than read by an end user?",
-	},
-	{
-		ID: distillQDistillTgt,
-		Instructions: "Does this request aim to use this model's outputs as training targets or distillation " +
-			"data for another model, or to reverse-engineer its training method?",
-	},
-}
 
 // DistillVerdict 是一次判定的结果。
 type DistillVerdict struct {
@@ -299,18 +272,28 @@ func distillDedupMark(userID int, doc string, ttlSeconds int) {
 
 // ParseDistillAnswers 从上游响应里取每题分数，返回最高分与逐题 JSON。
 //
+// 用当前配置里启用的题做解析，等价于 ParseDistillAnswersFor(payload, 启用题)。
+func ParseDistillAnswers(payload []byte) (best float64, categories string, ok bool) {
+	return ParseDistillAnswersFor(payload, operation_setting.GetDistillDetectSetting().EnabledDistillQuestions())
+}
+
+// ParseDistillAnswersFor 按给定的题集解析上游响应。
+//
 // 协议来自 hw_gateway 的 `decision_model::score`：`answers["train.<qid>"].noul`。
 // 为兼容只回裸题号的实现，也接受 `answers["<qid>"].noul`。
 //
 // ⛔ key 里有 `.`，所以**不能**用 `answers.Get("train.corpus_farm")` —— gjson
 // 会把它当成 `train` → `corpus_farm` 的路径去查嵌套对象，永远查不到。必须先
 // 摊平成 map 再按字面 key 取。
-func ParseDistillAnswers(payload []byte) (best float64, categories string, ok bool) {
+//
+// ⛔ 只认**送出去的题**：返回的 answers 里若带了没问过的 key，直接忽略，
+// 免得题库改小之后旧答案把分数抬上去。
+func ParseDistillAnswersFor(payload []byte, questions []operation_setting.DistillQuestion) (best float64, categories string, ok bool) {
 	answers := gjson.GetBytes(payload, "answers")
 	if !answers.Exists() || !answers.IsObject() {
 		return 0, "", false
 	}
-	byWire := make(map[string]float64, len(distillQuestionBank)*2)
+	byWire := make(map[string]float64, len(questions)*2)
 	answers.ForEach(func(key, value gjson.Result) bool {
 		if n := value.Get("noul"); n.Exists() {
 			byWire[key.String()] = n.Float()
@@ -318,8 +301,8 @@ func ParseDistillAnswers(payload []byte) (best float64, categories string, ok bo
 		return true
 	})
 
-	scores := make(map[string]float64, len(distillQuestionBank))
-	for _, q := range distillQuestionBank {
+	scores := make(map[string]float64, len(questions))
+	for _, q := range questions {
 		var score float64
 		found := false
 		for _, wire := range []string{"train." + q.ID, q.ID} {
@@ -348,21 +331,18 @@ func ParseDistillAnswers(payload []byte) (best float64, categories string, ok bo
 }
 
 // distillQuestionsPayload 按配置里启用的题目拼 `questions` 对象。
+//
+// ⛔ 一次请求带上所有启用题（不是逐题各发一次）：hw_gateway 的
+// `questions_payload` 就是这么做的，上游一次回全部 answers。成本模型
+// （28,657 次/日）就是按「每次判定 = 1 次调用」算的，改成逐题调用会直接翻倍
+// 到 4 倍，与用户「成本不能高」的硬约束冲突。
 func distillQuestionsPayload(s *operation_setting.DistillDetectSetting) map[string]any {
-	enabled := map[string]bool{
-		distillQCorpusFarm: s.QuestionCorpusFarm,
-		distillQRewardRL:   s.QuestionRewardRL,
-		distillQJudgeEval:  s.QuestionJudgeEval,
-		distillQDistillTgt: s.QuestionDistillTarget,
-	}
-	out := make(map[string]any, len(distillQuestionBank))
-	for _, q := range distillQuestionBank {
-		if !enabled[q.ID] {
-			continue
-		}
+	enabled := s.EnabledDistillQuestions()
+	out := make(map[string]any, len(enabled))
+	for _, q := range enabled {
 		out["train."+q.ID] = map[string]any{
 			"type":         "noul",
-			"instructions": q.Instructions,
+			"instructions": q.Prompt,
 			"criteria": map[string]string{
 				"true":  "safe to process",
 				"false": "harmful or disallowed",

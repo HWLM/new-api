@@ -194,3 +194,62 @@ T=20 时每个激活用户分钟平均判到 1.99 次（30 秒桶基本都满）
 1. **Gemini 原生流量漏判**：检测中间件只挂在 `relayV1Router` 的文本路径白名单上，`/v1beta/models`、`/pg` 是独立 router，没挂这个中间件；`/pg/chat/completions` 是死条目。当前版本不修，记入待办。
 2. **Redis 不可用时多实例重复判定**：`takeBucket` / `dedupSeen` / `recordConfirm` 的进程内兜底各实例独立，Redis 挂时同一用户最多被 2N 次/分判定（成本问题，不是正确性问题）。观察期只多花钱；切重导后确认会更晚，偏安全。
 3. 已在当轮修掉：dedup 时序（改到判分成功后写键）、告警节流、用户缓存 schema 升版 + 编辑后立即刷新、内存 dedup 过期清理。
+
+## 14. 题库可编辑 + 独立 TG 告警（2026-11-20 用户追加）
+
+### 14.1 题库从四个开关变成可编辑列表
+
+现状：四道题的题面写死在判定服务里，管理页只有四个开关键。
+
+改为：题库是**数据**，不是代码。
+
+```go
+type DistillQuestion struct {
+    ID      string `json:"id"`      // [a-z0-9_]{1,32}，唯一
+    Name    string `json:"name"`    // 展示用短名，1..64
+    Prompt  string `json:"prompt"`  // 题面正文，1..8000 字符
+    Enabled bool   `json:"enabled"`
+}
+```
+
+- 默认值 = hw_gateway「训练数据与评测」题库的 4 题，**题面逐字照搬**：`corpus_farm`、`reward_rl`、`judge_eval`、`distill_target`（搬运时从 hw_gateway 代码/配置取原文，不要重写、不要压缩）。
+- 存在 `DistillDetectSetting.Questions []DistillQuestion`，随配置一起走 options 表，**不动表结构**。
+- 管理页要能：看到每题完整题面、单题编辑、单题启停、新增、删除、调整顺序。
+- 校验（后端强制，前端同步）：题目总数 1..20；`id` 唯一且匹配 `[a-z0-9_]{1,32}`；`name` 1..64；`prompt` 1..8000；**至少 1 题启用**（全关直接拒绝，别让判定静默失效）。
+- 判定：遍历启用的题，逐题调 Jev 拿分，**取最高分**与 `threshold` 比较；命中记录 `categories` 存 `{题目id: 分数}`。并发上限 4，单题超时与整体超时共用 `jev_timeout_ms`。
+- 旧的四个 `question_*` 布尔字段**废弃删除**（迁移时把它们的 true/false 映射成对应题目的 `enabled`），GET/PUT 都不再出现这四个字段。
+
+### 14.2 Telegram 告警独立通道
+
+现状：复用 `log_alert` 的 TG 配置。改为独立配置：
+
+| 字段 | 说明 |
+|---|---|
+| `tg_bot_token` | 独立 bot 的 token；**不回显**，GET 只返回 `tg_bot_token_set: bool`；PUT 留空=不修改，`"__clear__"`=清空 |
+| `tg_chat_id` | 目标群/频道的 chat id，字符串 |
+
+- 不复用、不读取现有通知通道的任何配置；两套互不影响。
+- 企业微信那条已经是独立 webhook（`wecom_webhook_url`），保持不变。
+- 两个通道都未配置时，命中只写 hits，不发告警，不报错。
+- 新增 `POST /api/distill_detect/alert_test`：用当前配置发一条测试消息，返回各通道的实际结果（发送成功/未配置/失败+原因），便于运营配完当场验。
+
+### 14.3 接口契约增量
+
+```
+GET  /api/distill_detect/setting
+  + questions: [{id,name,prompt,enabled}]
+  + tg_bot_token_set: bool
+  + tg_chat_id: string
+  - question_corpus_farm / question_reward_rl / question_judge_eval / question_distill_target（删除）
+
+PUT  /api/distill_detect/setting
+  + questions: 全量替换数组（同上校验）
+  + tg_bot_token: ""=不变 / "__clear__"=清空 / 其它=设置
+  + tg_chat_id: 字符串
+
+POST /api/distill_detect/alert_test  {}
+  → { success, data: { telegram: {...}, wecom: {...} } }
+
+POST /api/distill_detect/test  （试判，返回逐题分数）
+  → data.categories 键改为题目 id，题目标题取 questions[].name
+```

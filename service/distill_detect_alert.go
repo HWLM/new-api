@@ -15,12 +15,13 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
-// 蒸馏命中的告警通道（规格 §7）。
+// 蒸馏命中的告警通道（规格 §7 / §14.2）。
 //
-// ⛔ 复用现有发送能力，但不复用它们的配置表：
-//   - Telegram：沿用 OptionKeyTgBotToken / OptionKeyTgOverloadChatId；
-//   - 企业微信：用蒸馏卡片里自己的 webhook（DistillDetectSetting.WeComWebhookUrl），
-//     而不是 log_alert 的规则表 —— 那套是按错误日志过滤的规则引擎，语义无关。
+// ⛔ 两个通道都只用蒸馏检测卡片自己的配置，完全不读系统通知那套：
+//   - Telegram：DistillDetectSetting.TgBotToken / TgChatId（独立 bot）；
+//   - 企业微信：DistillDetectSetting.WeComWebhookUrl（独立 webhook）。
+// 早期版本复用 tg_notify_bot_token / tg_notify_overload_chat_id，会让运营改
+// 蒸馏告警时把系统通知也一起改掉，反之亦然 —— 两套必须能各自独立配。
 //
 // ⛔ 每次命中都发（不是每轮降级发一次）：观察期需要看到「哪些请求被判中」，
 // 节流会把中间的命中吞掉，运营反而拿不到完整名单。命中量本身很小（一个用户
@@ -46,10 +47,10 @@ func NotifyDistillHit(hit *model.DistillDetectHit) error {
 	sent := false
 
 	if s.AlertTelegram {
-		token := model.GetOptionString(OptionKeyTgBotToken)
-		chatID := strings.TrimSpace(model.GetOptionString(OptionKeyTgOverloadChatId))
+		token := strings.TrimSpace(s.TgBotToken)
+		chatID := strings.TrimSpace(s.TgChatId)
 		if token == "" || chatID == "" {
-			common.SysLog("distill_detect: TG 告警已开启但 bot token / 群 ID 未配置，跳过")
+			common.SysLog("distill_detect: TG 告警已开启但 bot token / chat id 未配置，跳过")
 		} else if err := SendTelegramMessageNoPreview(token, chatID, text); err != nil {
 			common.SysError("distill_detect: TG 告警发送失败: " + err.Error())
 			if firstErr == nil {
@@ -115,6 +116,69 @@ func distillAlertTakeThrottle(userID, windowSeconds int) bool {
 	}
 	distillAlertThrottle[userID] = now.Add(time.Duration(windowSeconds) * time.Second)
 	return true
+}
+
+// DistillAlertChannelResult 是一个告警通道的测试结果。
+//
+// Status 取值：
+//   - "sent"            发送成功
+//   - "not_configured"  通道已启用但 token / chat id / webhook 没填
+//   - "disabled"        通道开关没开
+//   - "failed"          发送失败，Error 里带原因
+type DistillAlertChannelResult struct {
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+// DistillAlertTestResult 是 POST /alert_test 的返回体。
+type DistillAlertTestResult struct {
+	Telegram DistillAlertChannelResult `json:"telegram"`
+	WeCom    DistillAlertChannelResult `json:"wecom"`
+}
+
+// SendDistillTestAlert 用当前配置给每个通道发一条测试消息。
+//
+// ⛔ 与真实告警的区别：不看节流、不写 hits、不改任何状态。运营配完当场点一下
+// 就知道通不通 —— 蒸馏命中稀疏，靠等真实命中来验证通道不现实。
+//
+// ⛔ 通道开关关着时**不发**，返回 disabled 而不是偷偷发一条：否则「关掉了
+// 还在收消息」会让人以为开关坏了。
+func SendDistillTestAlert(ctx context.Context) DistillAlertTestResult {
+	s := operation_setting.GetDistillDetectSetting()
+	var out DistillAlertTestResult
+
+	if !s.AlertTelegram {
+		out.Telegram = DistillAlertChannelResult{Status: "disabled"}
+	} else if strings.TrimSpace(s.TgBotToken) == "" || strings.TrimSpace(s.TgChatId) == "" {
+		out.Telegram = DistillAlertChannelResult{Status: "not_configured"}
+	} else if err := SendTelegramMessageNoPreview(strings.TrimSpace(s.TgBotToken), strings.TrimSpace(s.TgChatId), distillAlertTestText()); err != nil {
+		out.Telegram = DistillAlertChannelResult{Status: "failed", Error: err.Error()}
+	} else {
+		out.Telegram = DistillAlertChannelResult{Status: "sent"}
+	}
+
+	if !s.AlertWeCom {
+		out.WeCom = DistillAlertChannelResult{Status: "disabled"}
+	} else if strings.TrimSpace(s.WeComWebhookUrl) == "" {
+		out.WeCom = DistillAlertChannelResult{Status: "not_configured"}
+	} else if err := SendWeComMarkdown(strings.TrimSpace(s.WeComWebhookUrl), distillAlertTestText()); err != nil {
+		out.WeCom = DistillAlertChannelResult{Status: "failed", Error: err.Error()}
+	} else {
+		out.WeCom = DistillAlertChannelResult{Status: "sent"}
+	}
+
+	if out.Telegram.Status == "sent" || out.WeCom.Status == "sent" {
+		return out
+	}
+	_ = ctx // 发送函数本身不接 context；保留参数以便将来改成可取消
+	return out
+}
+
+// distillAlertTestText 是测试消息正文。开头就写明是测试，避免运营群里误判。
+func distillAlertTestText() string {
+	return "【蒸馏检测】告警通道测试\n" +
+		"如果你在群里看到这条消息，说明该通道配置正确，蒸馏命中时可以正常收到告警。\n" +
+		"本条为手动测试，不是真实命中。"
 }
 
 // buildDistillAlertText 组装告警正文（规格 §7 的格式）。
