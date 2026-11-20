@@ -88,3 +88,29 @@ func TestPickDistillFallbackGroupIgnoresTheAutoPseudoGroup(t *testing.T) {
 		t.Fatalf("an auto origin group must resolve to a real fallback group, got %q ok=%v", group, ok)
 	}
 }
+
+// ⭐ 蒸馏与拒答的取组策略必须并排存在（规格 §15.2）。
+//
+// 同一条兜底渠道、同一个原分组：蒸馏要切到兜底渠道自己的分组，
+// 拒答降级必须留在原分组。谁把这两条合并成「兜底就换分组」的通用逻辑，
+// 这条会立刻红 —— 用户明确要求拒答兜底的价格按原渠道算，不许动。
+func TestDistillAndRefusalPickDifferentGroupsForTheSameChannel(t *testing.T) {
+	withDistillGroupRatios(t, `{"default":1,"premium":5,"backup":3}`)
+	// 兜底渠道绑的组里没有用户的原分组 default。
+	ch := &model.Channel{Id: 7, Group: "premium,backup"}
+	c, _ := newDistillTestContext(http.MethodPost, "/v1/chat/completions", `{}`)
+
+	distillGroup, ok := pickDistillFallbackGroup(c, ch, "default")
+	if !ok || distillGroup != "premium" {
+		t.Fatalf("distill must bill at the fallback channel's own group, got %q ok=%v", distillGroup, ok)
+	}
+
+	refusalGroup := pickFallbackChannelGroup(ch, "default")
+	if refusalGroup != "default" {
+		t.Fatalf("refusal demote must keep the original group, got %q", refusalGroup)
+	}
+
+	if distillGroup == refusalGroup {
+		t.Fatal("the distill and refusal billing policies must not collapse into one shared rule")
+	}
+}

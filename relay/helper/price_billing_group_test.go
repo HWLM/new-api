@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -99,5 +100,80 @@ func TestHandleGroupRatioRecomputesTheSpecialRatioForTheNewGroup(t *testing.T) {
 	got := HandleGroupRatio(ctx, info)
 	if !got.HasSpecialRatio || got.GroupRatio != 0.5 {
 		t.Fatalf("the special ratio must be resolved for the new group, got %+v", got)
+	}
+}
+
+// ── 蒸馏 vs 拒答：两条口径必须并排存在（规格 §15.2）──────────────────────
+//
+// ⛔ 用户口径：**拒答降级命中后仍按原渠道原分组计费，一个字不动**；只有蒸馏
+// 重导改分组。谁把这两条合并成「兜底就换分组」的通用逻辑，下面两个测试会立刻红。
+
+func distillBillingTestInfo() *relaycommon.RelayInfo {
+	return &relaycommon.RelayInfo{
+		UsingGroup:  "default",
+		UserGroup:   "default",
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+}
+
+// ① 蒸馏重导后：group_ratio = 兜底分组倍率，日志里两个分组字段齐全。
+func TestDistillRedirectBillsAtTheFallbackGroupRatio(t *testing.T) {
+	withGroupRatios(t, `{"default":1,"backup":3}`)
+
+	ctx := newBillingTestContext(t)
+	info := distillBillingTestInfo()
+	// Distribute 在蒸馏兜底时写入的键。
+	common.SetContextKey(ctx, constant.ContextKeyAutoGroup, "backup")
+	common.SetContextKey(ctx, constant.ContextKeyDistillFallbackChannelId, 42)
+	common.SetContextKey(ctx, constant.ContextKeyDistillOriginGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyDistillFallbackGroup, "backup")
+
+	priceData := HandleGroupRatio(ctx, info)
+	other := service.GenerateTextOtherInfo(ctx, info, 0.5, priceData.GroupRatio, 1, 0, 1, 0, -1)
+
+	if got := other["group_ratio"]; got != float64(3) {
+		t.Fatalf("a distill redirect must be billed at the fallback group ratio, got %v", got)
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("admin_info must be present")
+	}
+	if adminInfo["distill_origin_group"] != "default" {
+		t.Fatalf("distill_origin_group must be the pre-redirect group, got %v", adminInfo["distill_origin_group"])
+	}
+	if adminInfo["distill_fallback_group"] != "backup" {
+		t.Fatalf("distill_fallback_group must be the billed group, got %v", adminInfo["distill_fallback_group"])
+	}
+}
+
+// ② 拒答降级命中后：group_ratio 仍是原分组倍率，且 other 里没有那两个新字段。
+//
+// ⛔ 这是**产品口径**，不是漏改：拒答降级沿用用户原分组，避免用户看到的价格
+// 因风控降级而漂移。把分组替换做成通用行为会破坏这条，测试必须挡住。
+func TestRefusalDemoteKeepsTheOriginalGroupRatio(t *testing.T) {
+	withGroupRatios(t, `{"default":1,"backup":3}`)
+
+	ctx := newBillingTestContext(t)
+	info := distillBillingTestInfo()
+	// 拒答降级：Distribute 保留原分组（pickFallbackChannelGroup），
+	// 所以 auto_group 仍然是 default。
+	common.SetContextKey(ctx, constant.ContextKeyAutoGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyRefusalDemoted, true)
+	common.SetContextKey(ctx, constant.ContextKeyFallbackFromChannelId, 11)
+	common.SetContextKey(ctx, constant.ContextKeyFallbackFromGroup, "default")
+
+	priceData := HandleGroupRatio(ctx, info)
+	other := service.GenerateTextOtherInfo(ctx, info, 0.5, priceData.GroupRatio, 1, 0, 1, 0, -1)
+
+	if got := other["group_ratio"]; got != float64(1) {
+		t.Fatalf("a refusal demotion must keep billing at the original group ratio, got %v", got)
+	}
+	if adminInfo, ok := other["admin_info"].(map[string]interface{}); ok {
+		if _, exists := adminInfo["distill_fallback_group"]; exists {
+			t.Fatal("a refusal demotion must not carry the distill billing group fields")
+		}
+		if _, exists := adminInfo["distill_origin_group"]; exists {
+			t.Fatal("a refusal demotion must not carry the distill billing group fields")
+		}
 	}
 }
