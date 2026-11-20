@@ -222,6 +222,17 @@ type DistillDetectSetting struct {
 	// 「蒸馏命中」无关，硬塞进去会让运营在两处维护同一份 webhook。
 	WeComWebhookUrl string `json:"wecom_webhook_url"`
 
+	// DetectChannelIds 检测渠道白名单（规格 §16）：只有本次请求**分发到的渠道**
+	// 在列表里，才进入检测链路（计数、时间桶、去重、判定、hits、告警）。
+	// 不在列表里的渠道零开销 —— 连每分钟请求量都不累加。
+	//
+	// ⛔ 空列表 = 关闭检测，等价于 Enabled=false。不是「对所有渠道生效」：
+	// 那会让「开了检测却什么都没配」看起来像在跑，实际一条都没判。
+	//
+	// ⛔ 与 FallbackChannelId 互斥：同一个渠道不能既当检测渠道又当兜底渠道，
+	// 保存时由 CheckDistillChannelConflict 拒绝。
+	DetectChannelIds []int `json:"detect_channel_ids"`
+
 	// FallbackChannelId 蒸馏兜底渠道（全局单选）。0 = 未配置，兜底不可用。
 	// ⛔ 与各渠道自己的 FallbackChannelId、以及拒答降级的兜底完全独立。
 	FallbackChannelId int `json:"fallback_channel_id"`
@@ -262,6 +273,67 @@ func init() {
 // GetDistillDetectSetting 返回当前全局配置指针；上层只读。
 func GetDistillDetectSetting() *DistillDetectSetting {
 	return &distillDetectSetting
+}
+
+// DetectsChannel 判断「本次请求分发到的渠道」是否在检测白名单里（规格 §16）。
+//
+// ⛔ 只看白名单，不看 Enabled / 用户三态：那两个条件由
+// service.IsDistillDetectEffectiveForUser 管，混进来的话用户级强制启用
+// （override>0）会被全局开关悄悄抹掉。
+//
+// ⛔ 空列表 = 一个渠道都不检测：配置项没填时检测整体关闭，这是明确语义，
+// 不是「对所有渠道生效」。
+func (s *DistillDetectSetting) DetectsChannel(channelID int) bool {
+	if s == nil || channelID <= 0 || len(s.DetectChannelIds) == 0 {
+		return false
+	}
+	for _, id := range s.DetectChannelIds {
+		if id == channelID {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeDistillDetectChannelIds 去重并丢掉非正数，返回可落库的副本。
+// 保持运营选择时的顺序，管理页回显才稳定。
+func NormalizeDistillDetectChannelIds(ids []int) []int {
+	out := make([]int, 0, len(ids))
+	seen := make(map[int]bool, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// DistillChannelConflictError 表示同一个渠道被同时配成检测渠道和兜底渠道。
+//
+// ⛔ 这两种角色必须互斥：检测渠道的请求会被判定并可能被切到兜底渠道，
+// 兜底渠道自己再进判定就成了自环（判定 → 切到自己 → 再判定）。
+type DistillChannelConflictError struct {
+	ChannelID int
+}
+
+func (e *DistillChannelConflictError) Error() string {
+	return fmt.Sprintf("渠道 %d 不能同时作为检测渠道和兜底渠道", e.ChannelID)
+}
+
+// CheckDistillChannelConflict 校验检测渠道与兜底渠道互斥。
+// 返回 nil 表示没有冲突。
+func CheckDistillChannelConflict(detectChannelIds []int, fallbackChannelId int) error {
+	if fallbackChannelId <= 0 {
+		return nil
+	}
+	for _, id := range detectChannelIds {
+		if id == fallbackChannelId {
+			return &DistillChannelConflictError{ChannelID: id}
+		}
+	}
+	return nil
 }
 
 // distillLegacyQuestionKeys 是题库改数据化之前的四个布尔开关在 option 表里的键。

@@ -87,6 +87,12 @@ const (
 	// 只在真的换了渠道时写；分组没变（例如原分组在兜底渠道里也有）时两者相同。
 	ContextKeyDistillOriginGroup   ContextKey = "distill_origin_group"
 	ContextKeyDistillFallbackGroup ContextKey = "distill_fallback_group"
+	// ContextKeyDistillRequestBody 是蒸馏检测中间件在 Distribute 之前抄下来的
+	// 请求正文副本（[]byte）。检测要等渠道选出来才知道该不该跑（规格 §16 白名单），
+	// 而正文到那时可能已经被 relay 读走，所以在中间件里先存一份。
+	//
+	// ⛔ 只存副本，不改 c.Request.Body：后面的 relay 还要正常读原正文。
+	ContextKeyDistillRequestBody ContextKey = "distill_request_body"
 	// ContextKeyConcurrencyCount / ContextKeyConcurrencyLimit 记录并发超限命中
 	// 时的 in-flight 计数和上限，供 Distribute 中间件在决定「重导兜底/429」后
 	// 异步发 TG 时拼消息用。

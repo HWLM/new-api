@@ -1,10 +1,12 @@
 package operation_setting
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/config"
 )
 
 // 题库校验（规格 §14.1）。这里的每一条都是后端**强制**的：前端也会挡，
@@ -191,5 +193,93 @@ func TestMigrateLegacyTogglesRestoresDefaultsWhenEverythingWasOff(t *testing.T) 
 
 	if len(distillDetectSetting.EnabledDistillQuestions()) == 0 {
 		t.Fatal("an all-disabled legacy bank must fall back to the default bank")
+	}
+}
+
+// ── 检测渠道白名单（规格 §16）────────────────────────────────────────
+
+// 白名单是「本次请求分发到的渠道」是否要检测的唯一判据。
+// ⛔ 空列表必须一个都不检测：早期语义含混时，运营「开了检测却没配渠道」
+// 会以为在跑，实际全放过。
+func TestDetectsChannelRequiresAnExplicitWhitelist(t *testing.T) {
+	s := &DistillDetectSetting{}
+	if s.DetectsChannel(7) {
+		t.Fatal("an empty whitelist must detect nothing")
+	}
+	s.DetectChannelIds = []int{7, 9}
+	if !s.DetectsChannel(7) || !s.DetectsChannel(9) {
+		t.Fatal("a whitelisted channel must be detected")
+	}
+	if s.DetectsChannel(8) {
+		t.Fatal("a channel outside the whitelist must be skipped")
+	}
+	if s.DetectsChannel(0) || s.DetectsChannel(-1) {
+		t.Fatal("a non-positive channel id is never detected")
+	}
+}
+
+// 归一化：去重、丢非正数、保持运营选择顺序（管理页回显要稳定）。
+func TestNormalizeDistillDetectChannelIds(t *testing.T) {
+	got := NormalizeDistillDetectChannelIds([]int{9, 0, 7, 9, -3, 7, 11})
+	want := []int{9, 7, 11}
+	if len(got) != len(want) {
+		t.Fatalf("want %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("want %v, got %v", want, got)
+		}
+	}
+}
+
+// ⛔ 检测渠道与兜底渠道互斥：同一渠道既被判定又当兜底，就是
+// 「判定 → 切到自己 → 再判定」的自环。
+func TestCheckDistillChannelConflict(t *testing.T) {
+	if err := CheckDistillChannelConflict([]int{3, 5}, 0); err != nil {
+		t.Fatalf("no fallback configured means no conflict: %v", err)
+	}
+	if err := CheckDistillChannelConflict([]int{3, 5}, 9); err != nil {
+		t.Fatalf("a fallback outside the whitelist must pass: %v", err)
+	}
+	err := CheckDistillChannelConflict([]int{3, 5}, 5)
+	if err == nil {
+		t.Fatal("a channel in both lists must be rejected")
+	}
+	var conflict *DistillChannelConflictError
+	if !errors.As(err, &conflict) || conflict.ChannelID != 5 {
+		t.Fatalf("conflict must name channel 5, got %v", err)
+	}
+}
+
+// 白名单也要跟着配置走：这是 config 包里按 json tag 展开成 kv 的字段，
+// 名字一旦拼错，保存成功但重启后失效。
+func TestDetectChannelIdsSurvivesConfigRoundTrip(t *testing.T) {
+	cm := config.NewConfigManager()
+	s := &DistillDetectSetting{DetectChannelIds: []int{4, 8}}
+	cm.Register("test_distill_detect", s)
+
+	saved := map[string]string{}
+	if err := cm.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+	raw, ok := saved["test_distill_detect.detect_channel_ids"]
+	if !ok {
+		t.Fatalf("detect_channel_ids must be persisted, got keys %v", saved)
+	}
+	if !strings.Contains(raw, "4") || !strings.Contains(raw, "8") {
+		t.Fatalf("persisted value lost the ids: %s", raw)
+	}
+
+	restored := &DistillDetectSetting{}
+	cm2 := config.NewConfigManager()
+	cm2.Register("test_distill_detect", restored)
+	if err := cm2.LoadFromDB(map[string]string{"test_distill_detect.detect_channel_ids": "[4,8]"}); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	if len(restored.DetectChannelIds) != 2 || restored.DetectChannelIds[0] != 4 || restored.DetectChannelIds[1] != 8 {
+		t.Fatalf("round trip lost the whitelist: %+v", restored.DetectChannelIds)
 	}
 }

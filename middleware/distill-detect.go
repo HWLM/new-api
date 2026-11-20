@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -46,25 +47,23 @@ func isDistillTextClassPath(path string) bool {
 	return false
 }
 
-// DistillDetect 在分发前对请求做一次「蒸馏用途」抽样判定。
+// DistillDetect 在分发前抄一份请求正文，供 Distribute 选完渠道后再决定要不要判。
 //
-// 两种模式，边界很清楚：
+// ⛔ 为什么不在这里直接判（规格 §16）：判定范围是「本次请求**分发到的渠道**」，
+// 而渠道要到 Distribute 里才选出来。这里只做便宜的配置级预筛（全局开关、
+// 白名单非空、指定渠道、文本类路径），命中预筛就抄一份正文副本放上下文，
+// 真正的判定在 runDistillDetection 里、拿到渠道之后才跑。
 //
-//   - 观察模式（ObserveOnly=true，默认）：判定在**后台 goroutine** 里跑，
-//     不阻塞用户请求、不改路由，只写 hits 与告警。
-//   - 重导模式（ObserveOnly=false）：判定必须在 Distribute **之前同步**跑完，
-//     因为「凑够确认次数的那一次请求」本身就要立刻走兜底 —— 若放到
-//     c.Next() 之后，这一条已经走原渠道回完了，等于漏掉。
+// ⛔ 用户三态（豁免 / 强制启用）不在这里查：那是一次用户缓存读取，放在每个
+// relay 请求的热路径上不划算，而 runDistillDetection 与 EvaluateDistill 都会查。
 //
-// ⛔ 重导模式下判定只花在「可能真的命中」的请求上：先看该用户是否已在降级态
-// （直接标记，不再调 Jev），再看阈值/抽样/去重，与观察模式同一套口径。
-//
-// ⛔ 不判的情形全部短路，一次外部调用都不发（含：全局关闭、用户豁免、非文本类
-// relay、未达激活阈值、本轮未抽中、已在降级中、正文去重命中）。
+// ⛔ 预筛必须尽可能严：抄正文是按请求计的内存开销，没可能被检测的请求不该抄。
 func DistillDetect() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		s := operation_setting.GetDistillDetectSetting()
-		if s == nil || !s.Enabled {
+		// 白名单为空 = 检测整体关闭：连正文都不抄。这条要在最前面，比任何
+		// 每请求查询都便宜。
+		if s == nil || !s.Enabled || len(s.DetectChannelIds) == 0 {
 			c.Next()
 			return
 		}
@@ -77,74 +76,111 @@ func DistillDetect() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		userID := c.GetInt("id")
-		if userID <= 0 {
+		if c.GetInt("id") <= 0 {
 			c.Next()
 			return
 		}
-		if !service.IsDistillDetectEffectiveForUser(userID) {
-			c.Next()
-			return
-		}
-		body, ok := readBodyForDistill(c)
-		if !ok {
-			c.Next()
-			return
-		}
-
-		requestID := c.GetString(common.RequestIdKey)
-		modelName := distillModelNameFromBody(body)
-
-		if s.ObserveOnly {
-			// 这些值必须在 c 还活着的时候取出来：gin.Context 在请求结束后会被复用，
-			// 后台 goroutine 不能再回读它。
-			if modelName == "" {
-				modelName = c.GetString("original_model")
-				if modelName == "" {
-					modelName = c.GetString("model")
-				}
-			}
-			c.Next()
-			gopool.Go(func() {
-				hit := service.EvaluateDistill(userID, requestID, modelName, body)
-				service.RecordDistillHit(hit)
-			})
-			return
-		}
-
-		// ── 重导模式 ────────────────────────────────────────────────
-		// 已在降级态：不再判定（一轮只花一次 Jev），直接标记本次请求走兜底。
-		if service.IsUserDistillDemoted(c.Request.Context(), userID) {
-			common.SetContextKey(c, constant.ContextKeyDistillDemoted, true)
-			c.Next()
-			return
-		}
-
-		hit := service.EvaluateDistill(userID, requestID, modelName, body)
-		if hit == nil {
-			c.Next()
-			return
-		}
-		// 命中记录先落库：运营要靠 request_id 去追这次请求，不能等响应结束。
-		service.PersistDistillHitSync(hit)
-		if hit.DemoteUntil != nil {
-			// 本条的命中让确认次数达标 ⇒ 降级从**这一条**开始生效。
-			common.SetContextKey(c, constant.ContextKeyDistillDemoted, true)
-			common.SetContextKey(c, constant.ContextKeyDistillDemotedScore, hit.Score)
+		if body, ok := readBodyForDistill(c); ok {
+			common.SetContextKey(c, constant.ContextKeyDistillRequestBody, body)
 		}
 		c.Next()
-
-		// 路由结果此时才确定：回填「原渠道 → 兜底渠道」，供运营对账。
-		served := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
-		fallbackServed := common.GetContextKeyInt(c, constant.ContextKeyDistillFallbackChannelId)
-		original := served
-		fallbackID := 0
-		if fallbackServed > 0 {
-			original = common.GetContextKeyInt(c, constant.ContextKeyFallbackFromChannelId)
-			fallbackID = fallbackServed
-		}
-		service.UpdateDistillHitRouting(hit, original, fallbackID)
 	}
+}
+
+// runDistillDetection 在 Distribute 选完渠道、做兜底重导之前执行（规格 §16）。
+//
+// 两条模式，边界很清楚：
+//
+//   - 观察模式（ObserveOnly=true，默认）：判定在后台 goroutine 里跑，不阻塞
+//     用户请求、不改路由，只写 hits 与告警。
+//   - 重导模式（ObserveOnly=false）：判定必须在这里**同步**跑完，因为「凑够
+//     确认次数的那一次请求」本身就要立刻走兜底 —— 若放到响应之后，这一条
+//     已经走原渠道回完了，等于漏掉。
+//
+// 返回本次新落库的命中记录（观察模式、未命中、没判一律 nil），调用方在重导
+// 完成后用它回填「原渠道 → 兜底渠道」。
+//
+// ⛔ 白名单渠道之外一律零开销：不累加每分钟请求量、不抢时间桶、不去重、不调
+// Jev、不写 hits、不告警。计数一旦提前做，非白名单渠道就会蹭掉白名单渠道的
+// 激活阈值，白名单也就白配了。
+func runDistillDetection(c *gin.Context, channel *model.Channel, modelName string) *model.DistillDetectHit {
+	if channel == nil {
+		return nil
+	}
+	s := operation_setting.GetDistillDetectSetting()
+	if s == nil || !s.DetectsChannel(channel.Id) {
+		return nil
+	}
+	userID := c.GetInt("id")
+	if userID <= 0 {
+		return nil
+	}
+	// 用户三态（豁免 / 跟随全局 / 强制启用）在这里判，而不是在中间件里：
+	// 中间件在每个 relay 请求上都会跑，那次用户缓存读取放那儿不划算；
+	// 而这里只在「渠道命中白名单」之后才走到，频率低一个数量级。
+	// ⛔ 必须排在降级态判断之前：被豁免的用户连已确认的降级标记也不该生效。
+	if !service.IsDistillDetectEffectiveForUser(userID) {
+		return nil
+	}
+	requestID := c.GetString(common.RequestIdKey)
+
+	if s.ObserveOnly {
+		body, ok := distillBodyFromContext(c)
+		if !ok {
+			return nil
+		}
+		if modelName == "" {
+			modelName = distillModelNameFromBody(body)
+		}
+		// 这些值必须在 c 还活着的时候取出来：gin.Context 在请求结束后会被复用，
+		// 后台 goroutine 不能再回读它。
+		gopool.Go(func() {
+			hit := service.EvaluateDistill(userID, requestID, modelName, body)
+			service.RecordDistillHit(hit)
+		})
+		return nil
+	}
+
+	// ── 重导模式 ────────────────────────────────────────────────
+	// 已在降级态：不再判定（一轮只花一次 Jev），直接标记本次请求走兜底。
+	// 这一步不需要正文，正文读失败也不该让已确认的用户逃掉。
+	if service.IsUserDistillDemoted(c.Request.Context(), userID) {
+		common.SetContextKey(c, constant.ContextKeyDistillDemoted, true)
+		return nil
+	}
+
+	body, ok := distillBodyFromContext(c)
+	if !ok {
+		return nil
+	}
+	if modelName == "" {
+		modelName = distillModelNameFromBody(body)
+	}
+	hit := service.EvaluateDistill(userID, requestID, modelName, body)
+	if hit == nil {
+		return nil
+	}
+	// 命中记录先落库：运营要靠 request_id 去追这次请求，不能等响应结束。
+	service.PersistDistillHitSync(hit)
+	if hit.DemoteUntil != nil {
+		// 本条的命中让确认次数达标 ⇒ 降级从**这一条**开始生效。
+		common.SetContextKey(c, constant.ContextKeyDistillDemoted, true)
+		common.SetContextKey(c, constant.ContextKeyDistillDemotedScore, hit.Score)
+	}
+	return hit
+}
+
+// distillBodyFromContext 取中间件抄下来的正文副本。
+func distillBodyFromContext(c *gin.Context) ([]byte, bool) {
+	raw, ok := common.GetContextKey(c, constant.ContextKeyDistillRequestBody)
+	if !ok {
+		return nil, false
+	}
+	body, ok := raw.([]byte)
+	if !ok || len(body) == 0 {
+		return nil, false
+	}
+	return body, true
 }
 
 // distillModelNameFromBody 从请求正文里取模型名。

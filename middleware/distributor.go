@@ -163,6 +163,20 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
+				// 蒸馏检测（规格 §16）：只有本次分发到的渠道在检测白名单里才跑，
+				// 其余渠道连每分钟请求量都不累加。
+				// ⛔ 必须在下面的兜底重导之前：命中并确认的那一条要立刻改走兜底渠道。
+				servedChannelID := channel.Id
+				distillHit := runDistillDetection(c, channel, modelRequest.Model)
+				if distillHit != nil {
+					// 命中记录回填路由：原渠道 = 重导前选中的渠道，兜底渠道 id 看后面
+					// 到底有没有真切（429 拒绝时为 0）。defer 是为了两条结局都覆盖到。
+					defer func(hit *model.DistillDetectHit, originID int) {
+						service.UpdateDistillHitRouting(hit, originID,
+							common.GetContextKeyInt(c, constant.ContextKeyDistillFallbackChannelId))
+					}(distillHit, servedChannelID)
+				}
+
 				// 蒸馏检测兜底：用户命中蒸馏判定后，整段流量切到「蒸馏检测」卡片里
 				// 配置的**全局**兜底渠道。⛔ 与渠道自配的 FallbackChannelId、以及拒答
 				// 降级的兜底都不是同一条链路，两者同时命中时蒸馏优先。

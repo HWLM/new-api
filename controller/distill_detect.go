@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -50,8 +51,10 @@ type DistillSettingView struct {
 	TgChatId             string                              `json:"tg_chat_id"`
 	AlertThrottleSeconds int                                 `json:"alert_throttle_seconds"`
 	WeComWebhookUrl      string                              `json:"wecom_webhook_url"`
-	FallbackChannelId    int                                 `json:"fallback_channel_id"`
-	DedupSeconds         int                                 `json:"dedup_seconds"`
+	// DetectChannelIds 检测渠道白名单（规格 §16）。空数组 = 检测关闭。
+	DetectChannelIds  []int `json:"detect_channel_ids"`
+	FallbackChannelId int   `json:"fallback_channel_id"`
+	DedupSeconds      int   `json:"dedup_seconds"`
 }
 
 // GetDistillDetectSetting 返回当前配置。
@@ -81,6 +84,7 @@ func GetDistillDetectSetting(c *gin.Context) {
 			TgChatId:             s.TgChatId,
 			AlertThrottleSeconds: s.AlertThrottleSeconds,
 			WeComWebhookUrl:      s.WeComWebhookUrl,
+			DetectChannelIds:     s.DetectChannelIds,
 			FallbackChannelId:    s.FallbackChannelId,
 			DedupSeconds:         s.DedupSeconds,
 		},
@@ -113,8 +117,10 @@ type DistillSettingUpdateRequest struct {
 	TgChatId             *string                              `json:"tg_chat_id"`
 	AlertThrottleSeconds *int                                 `json:"alert_throttle_seconds"`
 	WeComWebhookUrl      *string                              `json:"wecom_webhook_url"`
-	FallbackChannelId    *int                                 `json:"fallback_channel_id"`
-	DedupSeconds         *int                                 `json:"dedup_seconds"`
+	// DetectChannelIds 全量替换数组；传空数组 = 关闭检测（规格 §16）。
+	DetectChannelIds  *[]int `json:"detect_channel_ids"`
+	FallbackChannelId *int   `json:"fallback_channel_id"`
+	DedupSeconds      *int   `json:"dedup_seconds"`
 }
 
 // UpdateDistillDetectSetting 写配置。
@@ -214,6 +220,40 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 			common.ApiErrorMsg(c, "去重窗口必须在 0 ~ 86400 秒之间")
 			return
 		}
+	}
+	// 检测渠道白名单（规格 §16）：非正数由 Normalize 丢掉，这里只校验渠道真的存在。
+	// 保存后再被删除的渠道 id 会在运行时被忽略（DetectsChannel 只比 id），不报错 ——
+	// 删渠道是另一件事，不该把整张配置卡住不让改。
+	if req.DetectChannelIds != nil {
+		for _, id := range operation_setting.NormalizeDistillDetectChannelIds(*req.DetectChannelIds) {
+			if _, err := model.GetChannelById(id, false); err != nil {
+				common.ApiErrorMsg(c, fmt.Sprintf("检测渠道 %d 不存在", id))
+				return
+			}
+		}
+	}
+	// ⛔ 检测渠道与兜底渠道互斥：同一渠道既被判定又当兜底，就是「判定 → 切到自己
+	// → 再判定」的自环。按**合并后**的最终配置校验，而不是只看本次提交的字段 ——
+	// 否则先存检测渠道、再单独存兜底渠道就能绕过。
+	effectiveDetect := s.DetectChannelIds
+	if req.DetectChannelIds != nil {
+		effectiveDetect = operation_setting.NormalizeDistillDetectChannelIds(*req.DetectChannelIds)
+	}
+	effectiveFallback := s.FallbackChannelId
+	if req.FallbackChannelId != nil {
+		effectiveFallback = *req.FallbackChannelId
+	}
+	if err := operation_setting.CheckDistillChannelConflict(effectiveDetect, effectiveFallback); err != nil {
+		msg := err.Error()
+		var conflict *operation_setting.DistillChannelConflictError
+		if errors.As(err, &conflict) {
+			// 带上渠道名，运营才知道是哪一个；取名失败就退回只给 id。
+			if ch, chErr := model.GetChannelById(conflict.ChannelID, false); chErr == nil && ch != nil && ch.Name != "" {
+				msg = fmt.Sprintf("渠道 %d（%s）不能同时作为检测渠道和兜底渠道，请先从一端移除", conflict.ChannelID, ch.Name)
+			}
+		}
+		common.ApiErrorMsg(c, msg)
+		return
 	}
 	if req.AlertThrottleSeconds != nil {
 		if *req.AlertThrottleSeconds < 0 || *req.AlertThrottleSeconds > 86400 {
@@ -317,6 +357,9 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 	}
 	if req.WeComWebhookUrl != nil {
 		s.WeComWebhookUrl = strings.TrimSpace(*req.WeComWebhookUrl)
+	}
+	if req.DetectChannelIds != nil {
+		s.DetectChannelIds = operation_setting.NormalizeDistillDetectChannelIds(*req.DetectChannelIds)
 	}
 	if req.FallbackChannelId != nil {
 		s.FallbackChannelId = *req.FallbackChannelId
