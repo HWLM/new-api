@@ -166,7 +166,7 @@ func UserConcurrencyLimit() func(c *gin.Context) {
 			defer release()
 		}
 
-		decision := decideConcurrencyAction(totalLimit, count, hasGroupCfg, groupCfg, groupLimited, groupCount)
+		decision := decideConcurrencyAction(totalLimit, count, groupLimited, groupCfg, groupCount)
 		overTotal, overGroup := decision.OverTotal, decision.OverGroup
 		common.SysLog(fmt.Sprintf("[concurrency] user=%d path=%s group=%q count=%d limit=%d groupCount=%d groupLimit=%d overTotal=%v overGroup=%v",
 			userID, c.Request.URL.Path, group, count, totalLimit, groupCount, groupCfg.Limit, overTotal, overGroup))
@@ -284,7 +284,7 @@ type concurrencyDecision struct {
 	LegacyOverload bool
 }
 
-func decideConcurrencyAction(totalLimit, count int, hasGroupCfg bool, cfg groupRateLimitConfig, groupLimited bool, groupCount int) concurrencyDecision {
+func decideConcurrencyAction(totalLimit, count int, groupLimited bool, cfg groupRateLimitConfig, groupCount int) concurrencyDecision {
 	d := concurrencyDecision{
 		OverTotal: totalLimit > 0 && count > totalLimit,
 		OverGroup: groupLimited && groupCount > cfg.Limit,
@@ -293,10 +293,13 @@ func decideConcurrencyAction(totalLimit, count int, hasGroupCfg bool, cfg groupR
 	if !d.Over {
 		return d
 	}
+	// ⛔ 判据是 groupLimited（limit > 0），不是「map 里有这个分组的条目」：
+	// 配了 {"limit":0,"fallback":false} 或 limit=-1 等于**没配分组速率**，
+	// 只超总并发时必须走旧行为，不能被无脑 429 / 走全局兜底。
 	switch {
-	case hasGroupCfg && !cfg.Fallback:
+	case groupLimited && !cfg.Fallback:
 		d.Reject = true
-	case hasGroupCfg:
+	case groupLimited:
 		d.RateLimitFallback = true
 	default:
 		d.LegacyOverload = true

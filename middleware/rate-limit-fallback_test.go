@@ -17,21 +17,20 @@ func TestDecideConcurrencyActionPicksTheRightExit(t *testing.T) {
 	cfgReject := groupRateLimitConfig{Limit: 2, Fallback: false}
 
 	cases := []struct {
-		name        string
-		totalLimit  int
-		count       int
-		hasGroupCfg bool
-		cfg         groupRateLimitConfig
-		groupLimit  bool
-		groupCount  int
-		wantOver    bool
-		wantReject  bool
-		wantRateFB  bool
-		wantLegacy  bool
+		name       string
+		totalLimit int
+		count      int
+		cfg        groupRateLimitConfig
+		groupLimit bool
+		groupCount int
+		wantOver   bool
+		wantReject bool
+		wantRateFB bool
+		wantLegacy bool
 	}{
 		{
 			name:       "within every limit passes through",
-			totalLimit: 10, count: 3, hasGroupCfg: true, cfg: cfgFallback, groupLimit: true, groupCount: 1,
+			totalLimit: 10, count: 3, cfg: cfgFallback, groupLimit: true, groupCount: 1,
 		},
 		{
 			name:       "not configured and within total limit is untouched",
@@ -39,22 +38,22 @@ func TestDecideConcurrencyActionPicksTheRightExit(t *testing.T) {
 		},
 		{
 			name:       "group over limit with fallback goes to the rate-limit fallback",
-			totalLimit: 10, count: 3, hasGroupCfg: true, cfg: cfgFallback, groupLimit: true, groupCount: 3,
+			totalLimit: 10, count: 3, cfg: cfgFallback, groupLimit: true, groupCount: 3,
 			wantOver: true, wantRateFB: true,
 		},
 		{
 			name:       "group over limit without fallback is rejected outright",
-			totalLimit: 10, count: 3, hasGroupCfg: true, cfg: cfgReject, groupLimit: true, groupCount: 3,
+			totalLimit: 10, count: 3, cfg: cfgReject, groupLimit: true, groupCount: 3,
 			wantOver: true, wantReject: true,
 		},
 		{
 			name:       "total over with a fallback-enabled group also uses the rate-limit fallback",
-			totalLimit: 5, count: 6, hasGroupCfg: true, cfg: cfgFallback, groupLimit: true, groupCount: 1,
+			totalLimit: 5, count: 6, cfg: cfgFallback, groupLimit: true, groupCount: 1,
 			wantOver: true, wantRateFB: true,
 		},
 		{
 			name:       "total over with a fallback-disabled group is rejected",
-			totalLimit: 5, count: 6, hasGroupCfg: true, cfg: cfgReject, groupLimit: true, groupCount: 1,
+			totalLimit: 5, count: 6, cfg: cfgReject, groupLimit: true, groupCount: 1,
 			wantOver: true, wantReject: true,
 		},
 		{
@@ -64,16 +63,17 @@ func TestDecideConcurrencyActionPicksTheRightExit(t *testing.T) {
 			wantOver: true, wantLegacy: true,
 		},
 		{
-			// 分组配置写了但 limit<=0（不单独限制）：不参与判定，也不改变总并发的出口。
-			name:       "a group entry without its own limit does not change the legacy exit",
-			totalLimit: 5, count: 6, hasGroupCfg: true, cfg: groupRateLimitConfig{Limit: 0, Fallback: false},
-			wantOver: true, wantReject: true,
+			// 分组条目写了但 limit<=0 = 没配分组速率：只超总并发必须走旧行为。
+			// ⛔ 这里曾经写成 wantReject，把 Reviewer 抓到的 bug 固化进了测试。
+			name:       "a group entry without its own limit keeps the legacy exit",
+			totalLimit: 5, count: 6, cfg: groupRateLimitConfig{Limit: 0, Fallback: false},
+			wantOver: true, wantLegacy: true,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := decideConcurrencyAction(tc.totalLimit, tc.count, tc.hasGroupCfg, tc.cfg, tc.groupLimit, tc.groupCount)
+			got := decideConcurrencyAction(tc.totalLimit, tc.count, tc.groupLimit, tc.cfg, tc.groupCount)
 			if got.Over != tc.wantOver || got.Reject != tc.wantReject ||
 				got.RateLimitFallback != tc.wantRateFB || got.LegacyOverload != tc.wantLegacy {
 				t.Fatalf("decision mismatch: got %+v, want over=%v reject=%v rateFB=%v legacy=%v",
