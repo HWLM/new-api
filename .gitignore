@@ -49,12 +49,9 @@ go.work.sum
 __pycache__/
 *.pyc
 
-# 3101 验收副本的本地凭据（Hermes 脚本生成，不入库）
-test/distill_acceptance/.env3101.sh
-test/distill_acceptance/env3101.json
-test/distill_acceptance/env3101.json
-test/distill_acceptance/.env3101.sh
-test/distill_acceptance/run*.log
-test/rate_limit_acceptance/.env_rl.sh
-test/rate_limit_acceptance/run*.log
-test/rate_limit_acceptance/__pycache__/
+# 验收脚本的本地凭据/输出（Hermes 生成，一律不入库）：
+# 任何 .env* / env*.json / run*.log 都可能含 token、密码、relay key
+test/*/.env*
+test/*/env*.json
+test/*/run*.log
+test/*/__pycache__/
