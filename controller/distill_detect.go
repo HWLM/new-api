@@ -390,19 +390,22 @@ func persistDistillSetting() error {
 
 // DistillHitView 是命中记录的对外形状。
 type DistillHitView struct {
-	Id          int64   `json:"id"`
-	UserId      int     `json:"user_id"`
-	Username    string  `json:"username"`
-	RequestId   string  `json:"request_id"`
-	Model       string  `json:"model"`
-	ChannelId   int     `json:"channel_id"`
-	FallbackId  int     `json:"fallback_id"`
-	Score       float64 `json:"score"`
-	Categories  string  `json:"categories"`
-	DocChars    int     `json:"doc_chars"`
-	SampledAt   string  `json:"sampled_at"`
-	DemoteUntil string  `json:"demote_until"`
-	AlertSent   bool    `json:"alert_sent"`
+	Id         int64   `json:"id"`
+	UserId     int     `json:"user_id"`
+	Username   string  `json:"username"`
+	RequestId  string  `json:"request_id"`
+	Model      string  `json:"model"`
+	ChannelId  int     `json:"channel_id"`
+	FallbackId int     `json:"fallback_id"`
+	Score      float64 `json:"score"`
+	Categories string  `json:"categories"`
+	// QuestionResults 逐题快照（规格 §18）：`[{id,name,score,hit}]`。
+	// 题目改名/删除后仍显示当时的名字；老记录为空时用 categories 兜底。
+	QuestionResults []service.DistillQuestionResult `json:"question_results"`
+	DocChars        int                             `json:"doc_chars"`
+	SampledAt       string                          `json:"sampled_at"`
+	DemoteUntil     string                          `json:"demote_until"`
+	AlertSent       bool                            `json:"alert_sent"`
 }
 
 // DistillHitUserView 是**普通用户**看到的命中记录形状（规格 §17.1）。
@@ -411,12 +414,15 @@ type DistillHitView struct {
 // （categories）、告警状态都是运营视角 —— 逐题分数露出去等于把判定口径交给
 // 被判定的人，绕法立刻就有了。
 type DistillHitUserView struct {
-	Id          int64   `json:"id"`
-	RequestId   string  `json:"request_id"`
-	Model       string  `json:"model"`
-	Score       float64 `json:"score"`
-	SampledAt   string  `json:"sampled_at"`
-	DemoteUntil string  `json:"demote_until"`
+	Id        int64   `json:"id"`
+	RequestId string  `json:"request_id"`
+	Model     string  `json:"model"`
+	Score     float64 `json:"score"`
+	// QuestionResults 用户自己也要看「命中了哪些题、各多少分」（规格 §18）。
+	// 只给题名与分数：真实题面（prompt）永远不出管理端。
+	QuestionResults []service.DistillQuestionResult `json:"question_results"`
+	SampledAt       string                          `json:"sampled_at"`
+	DemoteUntil     string                          `json:"demote_until"`
 }
 
 // ListDistillHits 按用户 / 时间 / 请求编号查命中记录。
@@ -484,31 +490,33 @@ func ListDistillHits(c *gin.Context) {
 	items := make([]any, 0, len(rows))
 	for _, r := range rows {
 		if !isAdmin {
-			// ⛔ 渠道 id、逐题分数（categories）、告警状态都是运营视角：逐题分数
-			// 一旦露出去，等于把判定口径交给被判定的人，绕法立刻就有了。
+			// ⛔ 渠道 id、告警状态都是运营视角：告警发没发出去对用户没有意义，
+			// 渠道 id 只会暴露内部拓扑。题名/分数按 §18 的要求给。
 			items = append(items, DistillHitUserView{
-				Id:          r.Id,
-				RequestId:   r.RequestId,
-				Model:       r.Model,
-				Score:       r.Score,
-				SampledAt:   r.SampledAt.Format(time.RFC3339),
-				DemoteUntil: distillHitDemoteUntil(r),
+				Id:              r.Id,
+				RequestId:       r.RequestId,
+				Model:           r.Model,
+				Score:           r.Score,
+				QuestionResults: distillHitQuestionResults(r),
+				SampledAt:       r.SampledAt.Format(time.RFC3339),
+				DemoteUntil:     distillHitDemoteUntil(r),
 			})
 			continue
 		}
 		view := DistillHitView{
-			Id:          r.Id,
-			UserId:      r.UserId,
-			RequestId:   r.RequestId,
-			Model:       r.Model,
-			ChannelId:   r.ChannelId,
-			FallbackId:  r.FallbackId,
-			Score:       r.Score,
-			Categories:  r.Categories,
-			DocChars:    r.DocChars,
-			SampledAt:   r.SampledAt.Format(time.RFC3339),
-			DemoteUntil: distillHitDemoteUntil(r),
-			AlertSent:   r.AlertSent,
+			Id:              r.Id,
+			UserId:          r.UserId,
+			RequestId:       r.RequestId,
+			Model:           r.Model,
+			ChannelId:       r.ChannelId,
+			FallbackId:      r.FallbackId,
+			Score:           r.Score,
+			Categories:      r.Categories,
+			QuestionResults: distillHitQuestionResults(r),
+			DocChars:        r.DocChars,
+			SampledAt:       r.SampledAt.Format(time.RFC3339),
+			DemoteUntil:     distillHitDemoteUntil(r),
+			AlertSent:       r.AlertSent,
 		}
 		if cache, err := model.GetUserCache(r.UserId); err == nil && cache != nil {
 			view.Username = cache.Username
@@ -546,6 +554,25 @@ func distillHitUserScope(role, selfID int, rawUserID string) (int, error) {
 		return 0, fmt.Errorf("user_id 不是数字")
 	}
 	return id, nil
+}
+
+// distillHitQuestionResults 取逐题快照（规格 §18）。
+//
+// 新记录直接解析写入时存下的快照；老记录这一列为空，才用 categories 配当前
+// 题库名与当前阈值兜底 —— 那时没有存题名，只能这样近似。
+//
+// ⛔ 兜底用**全部**题目而不是「启用中的题目」：某道题后来被关掉，历史记录
+// 里它的名字还得对得上，不能突然退化成 id。
+func distillHitQuestionResults(r model.DistillDetectHit) []service.DistillQuestionResult {
+	if results := service.ParseDistillQuestionResults(r.QuestionResults); len(results) > 0 {
+		return results
+	}
+	s := operation_setting.GetDistillDetectSetting()
+	if s == nil {
+		return nil
+	}
+	fallback := service.BuildDistillQuestionResults(r.Categories, s.Questions, s.Threshold)
+	return service.ParseDistillQuestionResults(fallback)
 }
 
 // distillHitDemoteUntil 格式化降级截止时间；为空返回空串。

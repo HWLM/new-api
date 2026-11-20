@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -483,6 +484,100 @@ func UpdateDistillHitRouting(hit *model.DistillDetectHit, channelID, fallbackID 
 	}
 }
 
+// DistillQuestionResult 是一条命中记录里某道题的**快照**（规格 §18）。
+//
+// ⛔ 题名与 hit 都在写入时定死：题目以后改名/删除、阈值以后调整，历史记录
+// 仍然显示当时判定时看到的东西 —— 拿现在的配置去解释历史记录，等于改判。
+type DistillQuestionResult struct {
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	Score float64 `json:"score"`
+	Hit   bool    `json:"hit"`
+}
+
+// BuildDistillQuestionResults 把 categories（`{题目id: 分数}`）配上题名与阈值，
+// 生成逐题快照 JSON。
+//
+// 同一函数两处用：
+//   - 写入命中时：传**当时**的题库与阈值，结果落进 hits.question_results；
+//   - 老记录展示时（这一列为空）：传**当前**题库与阈值，用 categories 兜底 ——
+//     那时候没有快照，只能这样近似，并在前端注明是老记录。
+//
+// 输出顺序：先按题库顺序（运营看惯的顺序），题库里已经没有的题（被删了）
+// 排在后面、按 id 排序，名字退回 id。
+func BuildDistillQuestionResults(categories string, questions []operation_setting.DistillQuestion, threshold float64) string {
+	scores, ok := parseDistillCategoryScores(categories)
+	if !ok || len(scores) == 0 {
+		return ""
+	}
+	order := make(map[string]int, len(questions))
+	names := make(map[string]string, len(questions))
+	for i, q := range questions {
+		order[q.ID] = i
+		names[q.ID] = q.Name
+	}
+	ids := make([]string, 0, len(scores))
+	for id := range scores {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		oi, iKnown := order[ids[i]]
+		oj, jKnown := order[ids[j]]
+		switch {
+		case iKnown && jKnown:
+			return oi < oj
+		case iKnown != jKnown:
+			return iKnown
+		default:
+			return ids[i] < ids[j]
+		}
+	})
+
+	results := make([]DistillQuestionResult, 0, len(ids))
+	for _, id := range ids {
+		name := names[id]
+		if strings.TrimSpace(name) == "" {
+			name = id
+		}
+		score := scores[id]
+		results = append(results, DistillQuestionResult{
+			ID:    id,
+			Name:  name,
+			Score: score,
+			Hit:   score >= threshold,
+		})
+	}
+	buf, err := common.Marshal(results)
+	if err != nil {
+		return ""
+	}
+	return string(buf)
+}
+
+// ParseDistillQuestionResults 解析落库的逐题快照；空或坏数据都返回 nil。
+func ParseDistillQuestionResults(raw string) []DistillQuestionResult {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var results []DistillQuestionResult
+	if err := common.UnmarshalJsonStr(raw, &results); err != nil || len(results) == 0 {
+		return nil
+	}
+	return results
+}
+
+// parseDistillCategoryScores 解析 `{题目id: 分数}`。
+func parseDistillCategoryScores(categories string) (map[string]float64, bool) {
+	if strings.TrimSpace(categories) == "" {
+		return nil, false
+	}
+	scores := map[string]float64{}
+	if err := common.UnmarshalJsonStr(categories, &scores); err != nil {
+		return nil, false
+	}
+	return scores, true
+}
+
 // EvaluateDistill 是请求路径上的入口：决定要不要判、判、然后记账。
 //
 // 返回命中信息（未命中返回 nil）。**观察模式下不写降级标记**，因此不会影响路由。
@@ -546,8 +641,11 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 		Score:      verdict.Score,
 		BankId:     "train",
 		Categories: verdict.Categories,
-		DocChars:   verdict.DocChars,
-		SampledAt:  time.Now(),
+		// 逐题快照（规格 §18）：题名与 hit 在这里定死，后面改名/改阈值都不影响
+		// 这条历史记录的解释。
+		QuestionResults: BuildDistillQuestionResults(verdict.Categories, s.EnabledDistillQuestions(), s.Threshold),
+		DocChars:        verdict.DocChars,
+		SampledAt:       time.Now(),
 	}
 	// ⛔ 只记录「这一条命中是否让确认数达到阈值」，不记录累计值 —— 累计是
 	// 滑动窗口的中间态，落库只会变成一份难对账的流水。

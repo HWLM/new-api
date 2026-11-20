@@ -429,3 +429,74 @@ func TestDistillAlertThrottleReopensAfterTheWindow(t *testing.T) {
 		t.Fatal("an expired throttle window must let the next alert through")
 	}
 }
+
+// ── 逐题快照（规格 §18）────────────────────────────────────────────────
+
+// ⭐ 快照就是「当时看到的东西」：题名来自写入时的题库，hit 按写入时的阈值算。
+// 题目以后改名、阈值以后调整，历史记录都不能被改判。
+func TestBuildDistillQuestionResultsSnapshotsNamesAndVerdicts(t *testing.T) {
+	bank := []operation_setting.DistillQuestion{
+		{ID: "corpus_farm", Name: "批量语料生产", Prompt: "p", Enabled: true},
+		{ID: "reward_rl", Name: "RM / RL 偏好数据", Prompt: "p", Enabled: true},
+		{ID: "judge_eval", Name: "LLM-as-judge 评测", Prompt: "p", Enabled: true},
+	}
+	raw := BuildDistillQuestionResults(`{"judge_eval":0.62,"corpus_farm":0.85}`, bank, 0.6)
+	results := ParseDistillQuestionResults(raw)
+	if len(results) != 2 {
+		t.Fatalf("want 2 scored questions, got %+v", results)
+	}
+	// 顺序跟题库走（运营看惯的顺序），不跟 JSON 里的键序走。
+	if results[0].ID != "corpus_farm" || results[1].ID != "judge_eval" {
+		t.Fatalf("results must follow the bank order, got %+v", results)
+	}
+	if results[0].Name != "批量语料生产" || results[0].Score != 0.85 || !results[0].Hit {
+		t.Fatalf("corpus_farm snapshot is wrong: %+v", results[0])
+	}
+	if results[1].Score != 0.62 || !results[1].Hit {
+		t.Fatalf("judge_eval snapshot is wrong: %+v", results[1])
+	}
+}
+
+// hit 是写入时按当时阈值算好的，不是展示时再算一遍。
+func TestBuildDistillQuestionResultsFreezesTheVerdictAtTheThresholdUsed(t *testing.T) {
+	bank := []operation_setting.DistillQuestion{{ID: "corpus_farm", Name: "批量语料生产", Prompt: "p", Enabled: true}}
+	low := ParseDistillQuestionResults(BuildDistillQuestionResults(`{"corpus_farm":0.55}`, bank, 0.6))
+	if len(low) != 1 || low[0].Hit {
+		t.Fatalf("0.55 under a 0.60 threshold must not be a hit: %+v", low)
+	}
+	high := ParseDistillQuestionResults(BuildDistillQuestionResults(`{"corpus_farm":0.55}`, bank, 0.5))
+	if len(high) != 1 || !high[0].Hit {
+		t.Fatalf("the same score under a 0.50 threshold is a hit: %+v", high)
+	}
+}
+
+// 题目被删掉之后，历史记录里那一题仍然要能显示：名字退回 id，排在最后。
+func TestBuildDistillQuestionResultsKeepsDeletedQuestionsWithTheirID(t *testing.T) {
+	bank := []operation_setting.DistillQuestion{{ID: "corpus_farm", Name: "批量语料生产", Prompt: "p", Enabled: true}}
+	results := ParseDistillQuestionResults(BuildDistillQuestionResults(`{"gone_q":0.7,"corpus_farm":0.8}`, bank, 0.6))
+	if len(results) != 2 {
+		t.Fatalf("a deleted question must still show up, got %+v", results)
+	}
+	if results[0].ID != "corpus_farm" {
+		t.Fatalf("known questions come first, got %+v", results)
+	}
+	if results[1].ID != "gone_q" || results[1].Name != "gone_q" || !results[1].Hit {
+		t.Fatalf("a deleted question keeps its id as the name: %+v", results[1])
+	}
+}
+
+// 没有逐题分数（上游没回、或判定失败）时快照为空，不造一条假记录。
+func TestBuildDistillQuestionResultsIsEmptyWithoutScores(t *testing.T) {
+	bank := operation_setting.DefaultDistillQuestions()
+	for _, cats := range []string{"", "  ", "not json", "{}"} {
+		if raw := BuildDistillQuestionResults(cats, bank, 0.6); raw != "" {
+			t.Fatalf("categories %q must produce an empty snapshot, got %s", cats, raw)
+		}
+	}
+	if results := ParseDistillQuestionResults("oops"); results != nil {
+		t.Fatalf("a malformed snapshot must parse to nil, got %+v", results)
+	}
+	if results := ParseDistillQuestionResults(""); results != nil {
+		t.Fatalf("an empty snapshot must parse to nil, got %+v", results)
+	}
+}

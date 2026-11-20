@@ -29,6 +29,12 @@ type DistillDetectHit struct {
 	BankId string `json:"bank_id" gorm:"type:varchar(32);not null"`
 	// Categories 是四题逐题分数，JSON 文本；解析失败时留空，不影响主分数。
 	Categories string `json:"categories" gorm:"type:text"`
+	// QuestionResults 是逐题快照（规格 §18）：`[{id,name,score,hit}]`，JSON 文本。
+	//
+	// ⛔ 题名与 hit 都在**写入时**定死：题目以后改名/删除、阈值以后调整，
+	// 历史记录仍然显示当时判定时看到的东西，不会被现在的配置改判。
+	// 老行这一列为空，展示时用 Categories + 当前题库名兜底。
+	QuestionResults string `json:"question_results" gorm:"type:text"`
 	// DocChars 实际送判定的正文字符数，用于核对采样是否生效。
 	DocChars int `json:"doc_chars"`
 	// SampledAt 判定发生的时刻。
