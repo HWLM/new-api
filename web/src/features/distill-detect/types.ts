@@ -168,3 +168,18 @@ export type ApiResponse<T> = {
   message: string
   data: T
 }
+
+/** §20 POST /api/distill_detect/clear_cache 请求体。 */
+export type DistillClearCacheRequest =
+  | { scope: 'all' }
+  | { scope: 'user'; user_id: number }
+
+/** §20 清空结果：只清运行态，不删命中记录。 */
+export type DistillClearCacheResult = {
+  /** 实际删除 / 清理的键数 */
+  cleared: number
+  /** 本次清理所用的后端 */
+  backend: 'redis' | 'memory' | (string & {})
+  /** 被解除降级的用户数（字段名按 §20.2 契约） */
+  upgraded_users: number
+}

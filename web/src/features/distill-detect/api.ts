@@ -21,6 +21,8 @@ import { api } from '@/lib/api'
 import type {
   ApiResponse,
   DistillAlertTestResult,
+  DistillClearCacheRequest,
+  DistillClearCacheResult,
   DistillHitsPage,
   DistillHitsQuery,
   DistillSetting,
@@ -70,6 +72,14 @@ export async function testDistillAlert() {
 export async function testDistill(input: { text?: string; body?: string }) {
   const res = await api.post<ApiResponse<DistillTestResult>>(
     '/api/distill_detect/test',
+    input
+  )
+  return res.data
+}
+
+export async function clearDistillCache(input: DistillClearCacheRequest) {
+  const res = await api.post<ApiResponse<DistillClearCacheResult>>(
+    '/api/distill_detect/clear_cache',
     input
   )
   return res.data

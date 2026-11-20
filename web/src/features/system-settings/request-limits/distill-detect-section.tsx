@@ -82,6 +82,7 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
+import { DistillClearCachePanel } from './distill-clear-cache-panel'
 import { DistillQuestionsEditor } from './distill-questions-editor'
 
 // 校验范围与 controller/distill_detect.go 的 UpdateDistillDetectSetting 一致：
@@ -789,6 +790,8 @@ export function DistillDetectSection() {
       </Form>
 
       <DistillTestPanel questions={saved.questions ?? []} />
+
+      <DistillClearCachePanel />
     </SettingsSection>
   )
 }

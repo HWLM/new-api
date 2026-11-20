@@ -6254,6 +6254,17 @@
     "Hit questions": "命中题目",
     "Show all question scores": "展开全部题目分数",
     "Reused previous judgment": "复用前次判定",
-    "Same request text within the dedup window: the judge service was not called again; the previous score was reused and counted as a confirmation hit.": "去重窗口内的相同正文：未再次调用判定服务，复用了上次的分数，并计为一次确认命中。"
+    "Same request text within the dedup window: the judge service was not called again; the previous score was reused and counted as a confirmation hit.": "去重窗口内的相同正文：未再次调用判定服务，复用了上次的分数，并计为一次确认命中。",
+    "Cleared {{cleared}} keys, released {{users}} demoted users": "已清理 {{cleared}} 个键，解除 {{users}} 个用户的降级",
+    "all users": "全部用户",
+    "user #{{id}}": "用户 #{{id}}",
+    "Clear detection state": "清空检测状态",
+    "Use this when users were misjudged because of a configuration problem. Clears demotion flags, confirmation counts, time buckets, dedup windows and alert throttling in both Redis and the in-memory fallback. Hit records are NOT deleted.": "配置问题导致用户被误判时使用。会同时清除 Redis 和内存兜底中的降级标记、确认计数、时间桶、去重窗口和告警节流；不会删除命中记录。",
+    "User ID (leave empty for all users)": "用户 ID（留空表示全部用户）",
+    "Clear state for all users": "清空全部用户的检测状态",
+    "Clear state for this user": "清空该用户的检测状态",
+    "Last clear ({{scope}}): {{cleared}} keys removed, {{users}} demoted users released, backend {{backend}}.": "上次清理（{{scope}}）：删除 {{cleared}} 个键，解除 {{users}} 个用户的降级，后端 {{backend}}。",
+    "Clear distillation detection state?": "确认清空蒸馏检测状态？",
+    "This clears the demotion, confirmation-count, dedup and alert-throttle state for {{scope}}. Demoted users go back to their normal channels immediately. Hit records are not deleted.": "将清除{{scope}}的降级、确认计数、去重和告警节流状态，被降级的用户会立即回到正常渠道。不会删除命中记录。"
   }
 }
