@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,6 +70,9 @@ type DistillVerdict struct {
 	Score float64
 	// Categories 逐题分数，JSON 文本；只用于落库与排查。
 	Categories string
+	// QuestionResults 逐题快照 JSON（题名 + 分值 + 当时的 hit），
+	// 在判定成功后就地生成；去重复用时直接搬这一份，不重算。
+	QuestionResults string
 	// DocChars 实际送判定的正文字符数。
 	DocChars int
 	// Skipped 非空表示没有真的调用判定服务，值是原因。
@@ -233,42 +237,104 @@ func distillDedupKey(userID int, doc string) string {
 	return fmt.Sprintf("%s{user:%d}:%s", distillDedupKeyPrefix, userID, hex.EncodeToString(sum[:12]))
 }
 
-// distillDedupSeen 返回 true 表示这份正文在窗口内**已经判定成功过**，可以跳过。
+// distillDedupVerdict 是去重窗口里缓存的那次判定结果（规格 §19）。
 //
-// ⛔ 只读不写。写键由 distillDedupMark 在拿到分值之后单独做 —— 早期版本在这里
-// 直接 SetNX 写键，等于「一开始判就算判过」：Jev 抖一下（超时 / 5xx），同一份
-// 正文在 DedupSeconds（默认 600s）内再也不会被重判，故障恢复后整整十分钟的
-// 召回都是哑的。判分失败不该产生任何副作用。
-func distillDedupSeen(userID int, doc string) bool {
+// ⛔ 缓存的是**判定当时的结论**，不只是「判过」这个事实：蒸馏用户通常反复发同一段
+// prompt，去重只该省掉 Jev 调用，不该省掉命中计数 —— 否则同一段正文无论重发多少次，
+// 4 次确认永远凑不齐，正好把最容易抓的那类用户放过去。
+type distillDedupVerdict struct {
+	Hit             bool    `json:"hit"`
+	Score           float64 `json:"score"`
+	Categories      string  `json:"categories"`
+	QuestionResults string  `json:"question_results"`
+	DocChars        int     `json:"doc_chars"`
+}
+
+// distillDedupLookup 查这份正文在窗口内的上次判定结果。
+//
+// 返回 seen=true 表示窗口内判过；prior 为 nil 表示**判过但结果不可用**
+// （升级前写的老值 "1"、或者解析失败）—— 那种情况按老行为静默跳过，
+// 只影响升级那一刻还在窗口里的正文（最长 DedupSeconds）。
+func distillDedupLookup(userID int, doc string) (prior *distillDedupVerdict, seen bool) {
 	key := distillDedupKey(userID, doc)
+	raw := ""
 	if common.RedisEnabled && common.RDB != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), distillRedisTimeoutMs*time.Millisecond)
 		defer cancel()
-		n, err := common.RDB.Exists(ctx, key).Result()
+		value, err := common.RDB.Get(ctx, key).Result()
 		if err == nil {
-			return n > 0
+			raw = value
+			seen = true
 		}
 	}
-	return distillMemoryRPM.dedupAlive(key)
+	if !seen {
+		raw, seen = distillMemoryRPM.dedupValue(key)
+	}
+	if !seen {
+		return nil, false
+	}
+	var record distillDedupVerdict
+	if err := common.UnmarshalJsonStr(raw, &record); err != nil {
+		return nil, true
+	}
+	return &record, true
 }
 
 // distillDedupMark 记下「这份正文刚判定成功」，窗口内不再重复打分。
 //
 // ⛔ 只在 JudgeDistill 返回了真实分值之后调用（命中与未命中都算判定成功）；
 // Skipped 非空意味着压根没判成，绝不能写。
-func distillDedupMark(userID int, doc string, ttlSeconds int) {
+func distillDedupMark(userID int, doc string, ttlSeconds int, verdict DistillVerdict) {
 	if ttlSeconds <= 0 {
 		return
 	}
 	key := distillDedupKey(userID, doc)
+	record := distillDedupVerdict{
+		Hit:             verdict.Hit,
+		Score:           verdict.Score,
+		Categories:      verdict.Categories,
+		QuestionResults: verdict.QuestionResults,
+		DocChars:        verdict.DocChars,
+	}
+	payload, err := common.Marshal(record)
+	if err != nil {
+		return
+	}
 	if common.RedisEnabled && common.RDB != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), distillRedisTimeoutMs*time.Millisecond)
 		defer cancel()
-		if err := common.RDB.Set(ctx, key, "1", time.Duration(ttlSeconds)*time.Second).Err(); err == nil {
+		if err := common.RDB.Set(ctx, key, string(payload), time.Duration(ttlSeconds)*time.Second).Err(); err == nil {
 			return
 		}
 	}
-	distillMemoryRPM.dedupMark(key, ttlSeconds)
+	distillMemoryRPM.dedupMark(key, ttlSeconds, string(payload))
+}
+
+// distillResolveVerdict 在「同一正文已经在去重窗口内判过」时决定本次怎么走（规格 §19）。
+//
+//   - 上次**没命中**：没有新信息，静默跳过（skip=true）—— 不调 Jev、不写 hits、
+//     不计数；
+//   - 上次**命中**：不调 Jev，复用当时的分数与逐题快照（reused=true），
+//     照常记一次确认命中。⛔ 复用的是判定当时的结论，不按现在的阈值重算。
+//
+// 没有上次记录时交给 judge。
+//
+// 抽成纯函数是为了能直接断言「窗口内不再调 Jev」与「命中照样累加」，
+// 不必为了测一条判定顺序去搭 Redis 和库。
+func distillResolveVerdict(prior *distillDedupVerdict, seen bool, judge func() DistillVerdict) (verdict DistillVerdict, reused bool, skip bool) {
+	if !seen {
+		return judge(), false, false
+	}
+	if prior == nil || !prior.Hit {
+		return DistillVerdict{}, false, true
+	}
+	return DistillVerdict{
+		Hit:             true,
+		Score:           prior.Score,
+		Categories:      prior.Categories,
+		QuestionResults: prior.QuestionResults,
+		DocChars:        prior.DocChars,
+	}, true, false
 }
 
 // ParseDistillAnswers 从上游响应里取每题分数，返回最高分与逐题 JSON。
@@ -408,7 +474,13 @@ func JudgeDistill(ctx context.Context, doc string) DistillVerdict {
 	if err != nil {
 		return DistillVerdict{Skipped: "client"}
 	}
-	resp, err := GetHttpClient().Do(req)
+	// ⛔ 没跑过 InitHttpClient（单测、极早期启动）时 httpClient 是 nil，
+	// 直接调 Do 会空指针把整个请求打挂。判定是旁路能力，退回默认客户端即可。
+	client := GetHttpClient()
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogWarn(ctx, "distill_detect: 判定请求失败: "+err.Error())
 		return DistillVerdict{Skipped: "network"}
@@ -587,9 +659,9 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 	if userID <= 0 {
 		return nil
 	}
-	if !IsDistillDetectEffectiveForUser(userID) {
-		return nil
-	}
+	// ⛔ 用户三态（豁免 / 跟随全局 / 强制启用）由**调用方**判：它要读用户缓存，
+	// 而这里每判一次都要走一遍，放在调用方还能顺手省掉重复查询。
+	// 唯一调用方 middleware.runDistillDetection 已经在白名单之后判过了。
 	s := operation_setting.GetDistillDetectSetting()
 	ctx := context.Background()
 
@@ -603,6 +675,9 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 		return nil
 	}
 	// 时间桶：同一用户在一个判定间隔内只有首条会走到判定。
+	//
+	// ⛔ 去重不影响上面两步（规格 §19）：每分钟请求量该累加照样累加，
+	// 否则「反复发同一段蒸馏正文」的用户永远到不了激活阈值。
 	if !distillTakeBucket(userID, s.JudgeIntervalSeconds) {
 		return nil
 	}
@@ -611,18 +686,30 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 	if strings.TrimSpace(doc) == "" {
 		return nil
 	}
-	// ⛔ 这里只读。写 dedup 键必须等到判定真的返回了分值 —— 见 distillDedupMark。
-	if distillDedupSeen(userID, doc) {
+
+	// ⛔ 去重只省 Jev 调用，不省命中计数（规格 §19）：
+	//   - 窗口内上次**未命中** → 静默跳过；
+	//   - 窗口内上次**命中** → 不调 Jev，复用当时的分数与逐题快照，照记一次确认命中。
+	// 否则同一段正文重发多少次都只算一次，4 次确认永远凑不齐 —— 而蒸馏用户
+	// 恰恰最常反复发同一段 prompt。
+	prior, seen := distillDedupLookup(userID, doc)
+	verdict, reused, skip := distillResolveVerdict(prior, seen, func() DistillVerdict {
+		return JudgeDistill(ctx, doc)
+	})
+	if skip {
 		return nil
 	}
-
-	verdict := JudgeDistill(ctx, doc)
 	if verdict.Skipped != "" {
 		// 判定没跑成（超时 / 5xx / 响应不合协议）：一个字都不记，下一轮同正文
 		// 还要能重判。这是 dedup 时序反了会造成的最严重的后果。
 		return nil
 	}
-	distillDedupMark(userID, doc, s.DedupSeconds)
+	if !reused {
+		// 逐题快照（规格 §18）：题名与 hit 在这里定死，后面改名/改阈值都不影响
+		// 这条历史记录的解释。快照同时进缓存，复用时原样搬走（§19）。
+		verdict.QuestionResults = BuildDistillQuestionResults(verdict.Categories, s.EnabledDistillQuestions(), s.Threshold)
+		distillDedupMark(userID, doc, s.DedupSeconds, verdict)
+	}
 	if !verdict.Hit {
 		return nil
 	}
@@ -641,9 +728,9 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 		Score:      verdict.Score,
 		BankId:     "train",
 		Categories: verdict.Categories,
-		// 逐题快照（规格 §18）：题名与 hit 在这里定死，后面改名/改阈值都不影响
-		// 这条历史记录的解释。
-		QuestionResults: BuildDistillQuestionResults(verdict.Categories, s.EnabledDistillQuestions(), s.Threshold),
+		// 复用前次判定的那几行要标明，运营才看得懂同一条正文为什么连续命中。
+		DedupReused:     reused,
+		QuestionResults: verdict.QuestionResults,
 		DocChars:        verdict.DocChars,
 		SampledAt:       time.Now(),
 	}
@@ -684,7 +771,9 @@ type distillMemoryTracker struct {
 		count  int
 	}
 	demoteUntil map[int]time.Time
-	dedup       map[string]time.Time
+	// dedup 缓存「(user, 正文哈希) → 上次判定结果」；payload 是判定快照 JSON，
+	// 去重跳过时靠它复用分数与 hit，而不是只知道「判过」（规格 §19）。
+	dedup map[string]distillDedupEntry
 	// buckets 记录每个用户在哪个时间槽已经判过（Redis SETNX 的等价物）。
 	buckets map[int]int64
 	// confirms 是确认窗口内每次命中的时刻，滑动计数用。
@@ -697,7 +786,7 @@ var distillMemoryRPM = &distillMemoryTracker{
 		count  int
 	}),
 	demoteUntil: make(map[int]time.Time),
-	dedup:       make(map[string]time.Time),
+	dedup:       make(map[string]distillDedupEntry),
 	buckets:     make(map[int]int64),
 	confirms:    make(map[int][]time.Time),
 }
@@ -731,11 +820,21 @@ func (t *distillMemoryTracker) markDemoted(userID int, until time.Time) {
 }
 
 // dedupAlive 报告这份正文在窗口内是否判定成功过（只读）。
-func (t *distillMemoryTracker) dedupAlive(key string) bool {
+// distillDedupEntry 是内存版去重表的一条：过期时刻 + 上次判定快照。
+type distillDedupEntry struct {
+	until   time.Time
+	payload string
+}
+
+// dedupValue 返回窗口内缓存的上次判定快照；过期视为不存在。
+func (t *distillMemoryTracker) dedupValue(key string) (string, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	until, ok := t.dedup[key]
-	return ok && time.Now().Before(until)
+	entry, ok := t.dedup[key]
+	if !ok || !time.Now().Before(entry.until) {
+		return "", false
+	}
+	return entry.payload, true
 }
 
 // dedupMark 记录一次判定成功。
@@ -743,18 +842,18 @@ func (t *distillMemoryTracker) dedupAlive(key string) bool {
 // ⛔ 顺手做过期清理：这张表只在 Redis 长期不可用时长出来，键是
 // (user, 正文哈希)，每个新正文一条，不清理就是无界增长。清理成本 O(n)，
 // 但只在写入时做、且 n 是十分钟窗口内的正文数，可以接受。
-func (t *distillMemoryTracker) dedupMark(key string, ttlSeconds int) {
+func (t *distillMemoryTracker) dedupMark(key string, ttlSeconds int, payload string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := time.Now()
 	if len(t.dedup) > 0 {
-		for k, until := range t.dedup {
-			if !now.Before(until) {
+		for k, entry := range t.dedup {
+			if !now.Before(entry.until) {
 				delete(t.dedup, k)
 			}
 		}
 	}
-	t.dedup[key] = now.Add(time.Duration(ttlSeconds) * time.Second)
+	t.dedup[key] = distillDedupEntry{until: now.Add(time.Duration(ttlSeconds) * time.Second), payload: payload}
 }
 
 // takeBucket 是 Redis SETNX 的进程内等价物：同一时间槽只有第一个调用返回 true。

@@ -346,29 +346,33 @@ func TestDefaultDistillQuestionsMirrorHwGatewayTrainBank(t *testing.T) {
 // JudgeDistill 返回了真实分值之后调用。
 func TestDistillDedupIsOnlyWrittenAfterASuccessfulVerdict(t *testing.T) {
 	const uid = 9101
-	distillMemoryRPM.dedup = map[string]time.Time{}
+	distillMemoryRPM.dedup = map[string]distillDedupEntry{}
 	doc := "batch corpus payload #1"
 
-	if distillDedupSeen(uid, doc) {
+	if _, seen := distillDedupLookup(uid, doc); seen {
 		t.Fatal("a body never judged must not be reported as already judged")
 	}
 	// 判定失败：不写键。再问一次必须仍然是「没判过」。
-	if distillDedupSeen(uid, doc) {
+	if _, seen := distillDedupLookup(uid, doc); seen {
 		t.Fatal("a failed verdict must not poison the dedup window")
 	}
 
-	distillDedupMark(uid, doc, 600)
-	if !distillDedupSeen(uid, doc) {
+	distillDedupMark(uid, doc, 600, DistillVerdict{Hit: true, Score: 0.9, Categories: `{"corpus_farm":0.9}`})
+	prior, seen := distillDedupLookup(uid, doc)
+	if !seen || prior == nil {
 		t.Fatal("after a successful verdict the body must be deduplicated")
+	}
+	if !prior.Hit || prior.Score != 0.9 {
+		t.Fatalf("the cached verdict must carry the original result: %+v", prior)
 	}
 }
 
 // dedup 按用户隔离：两个用户发同样的正文，各自都要判。
 func TestDistillDedupIsPerUser(t *testing.T) {
-	distillMemoryRPM.dedup = map[string]time.Time{}
+	distillMemoryRPM.dedup = map[string]distillDedupEntry{}
 	doc := "identical corpus payload"
-	distillDedupMark(9201, doc, 600)
-	if distillDedupSeen(9202, doc) {
+	distillDedupMark(9201, doc, 600, DistillVerdict{Hit: true, Score: 0.9})
+	if _, seen := distillDedupLookup(9202, doc); seen {
 		t.Fatal("dedup must not leak across users")
 	}
 }
@@ -376,13 +380,13 @@ func TestDistillDedupIsPerUser(t *testing.T) {
 // dedupMark 顺手清理过期条目：Redis 长期不可用时长出来的表是无界的，
 // 键是 (user, 正文哈希)，每个新正文一条。
 func TestDistillMemoryDedupEvictsExpiredEntries(t *testing.T) {
-	distillMemoryRPM.dedup = map[string]time.Time{}
+	distillMemoryRPM.dedup = map[string]distillDedupEntry{}
 	now := time.Now()
 	// 塞两条已过期的陈旧记录。
-	distillMemoryRPM.dedup["stale-a"] = now.Add(-time.Minute)
-	distillMemoryRPM.dedup["stale-b"] = now.Add(-time.Hour)
+	distillMemoryRPM.dedup["stale-a"] = distillDedupEntry{until: now.Add(-time.Minute)}
+	distillMemoryRPM.dedup["stale-b"] = distillDedupEntry{until: now.Add(-time.Hour)}
 
-	distillMemoryRPM.dedupMark("fresh", 600)
+	distillMemoryRPM.dedupMark("fresh", 600, "{}")
 
 	if _, ok := distillMemoryRPM.dedup["stale-a"]; ok {
 		t.Fatal("expired dedup entries must be evicted on write")

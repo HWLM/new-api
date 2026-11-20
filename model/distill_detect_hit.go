@@ -35,6 +35,11 @@ type DistillDetectHit struct {
 	// 历史记录仍然显示当时判定时看到的东西，不会被现在的配置改判。
 	// 老行这一列为空，展示时用 Categories + 当前题库名兜底。
 	QuestionResults string `json:"question_results" gorm:"type:text"`
+	// DedupReused 这条命中是「复用前次判定」补记的（规格 §19）：同一正文在去重
+	// 窗口内已经判过且命中，这次不再调 Jev，直接记一次确认命中。
+	// ⛔ 去重只省 Jev 调用，不省命中计数 —— 否则反复发同一段蒸馏正文的用户
+	// 永远凑不齐确认次数。
+	DedupReused bool `json:"dedup_reused"`
 	// DocChars 实际送判定的正文字符数，用于核对采样是否生效。
 	DocChars int `json:"doc_chars"`
 	// SampledAt 判定发生的时刻。

@@ -402,10 +402,12 @@ type DistillHitView struct {
 	// QuestionResults 逐题快照（规格 §18）：`[{id,name,score,hit}]`。
 	// 题目改名/删除后仍显示当时的名字；老记录为空时用 categories 兜底。
 	QuestionResults []service.DistillQuestionResult `json:"question_results"`
-	DocChars        int                             `json:"doc_chars"`
-	SampledAt       string                          `json:"sampled_at"`
-	DemoteUntil     string                          `json:"demote_until"`
-	AlertSent       bool                            `json:"alert_sent"`
+	// DedupReused 这条命中是复用前次判定补记的（规格 §19）。
+	DedupReused bool   `json:"dedup_reused"`
+	DocChars    int    `json:"doc_chars"`
+	SampledAt   string `json:"sampled_at"`
+	DemoteUntil string `json:"demote_until"`
+	AlertSent   bool   `json:"alert_sent"`
 }
 
 // DistillHitUserView 是**普通用户**看到的命中记录形状（规格 §17.1）。
@@ -421,8 +423,10 @@ type DistillHitUserView struct {
 	// QuestionResults 用户自己也要看「命中了哪些题、各多少分」（规格 §18）。
 	// 只给题名与分数：真实题面（prompt）永远不出管理端。
 	QuestionResults []service.DistillQuestionResult `json:"question_results"`
-	SampledAt       string                          `json:"sampled_at"`
-	DemoteUntil     string                          `json:"demote_until"`
+	// DedupReused 同上：同一条正文连续命中时，标一下哪几行是复用的。
+	DedupReused bool   `json:"dedup_reused"`
+	SampledAt   string `json:"sampled_at"`
+	DemoteUntil string `json:"demote_until"`
 }
 
 // ListDistillHits 按用户 / 时间 / 请求编号查命中记录。
@@ -498,6 +502,7 @@ func ListDistillHits(c *gin.Context) {
 				Model:           r.Model,
 				Score:           r.Score,
 				QuestionResults: distillHitQuestionResults(r),
+				DedupReused:     r.DedupReused,
 				SampledAt:       r.SampledAt.Format(time.RFC3339),
 				DemoteUntil:     distillHitDemoteUntil(r),
 			})
@@ -513,6 +518,7 @@ func ListDistillHits(c *gin.Context) {
 			Score:           r.Score,
 			Categories:      r.Categories,
 			QuestionResults: distillHitQuestionResults(r),
+			DedupReused:     r.DedupReused,
 			DocChars:        r.DocChars,
 			SampledAt:       r.SampledAt.Format(time.RFC3339),
 			DemoteUntil:     distillHitDemoteUntil(r),
