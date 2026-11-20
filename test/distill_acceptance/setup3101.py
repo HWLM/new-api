@@ -4,7 +4,7 @@
 import json, os, secrets, sys, urllib.request, urllib.error
 
 BASE = os.environ.get("BASE", "http://127.0.0.1:3101").rstrip("/")
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "env3101.json")
+OUT = os.environ.get("DISTILL_ENV_OUT") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "env3101.json")
 
 
 def http(method, path, body=None, token=None, timeout=30):

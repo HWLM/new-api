@@ -102,6 +102,38 @@ E5 必须用「新正文 + 原正文」两步分开验：降级态下根本不�
 - token 列表接口只回脱敏 key，真 key 只能从 SQLite 里取（`DISTILL_SQLITE` 指库文件）；
 - 空库没给测试模型配价格，不开自用模式 relay 直接 400「模型价格未配置」。
 
+## Redis 模式用例 distill_acceptance_cluster.py（§20 清缓存 + 跨实例共享）
+
+上生产前必须验的两条：清缓存走 Redis、以及多实例共用一个 Redis 时降级状态共享。
+
+```bash
+export DISTILL_BASE_URL_A=http://127.0.0.1:3101
+export DISTILL_ADMIN_TOKEN_A=...      DISTILL_RELAY_KEY_A=...
+export DISTILL_BASE_URL_B=http://127.0.0.1:3103
+export DISTILL_ADMIN_TOKEN_B=...      DISTILL_RELAY_KEY_B=...
+export DISTILL_REDIS_ADDR=127.0.0.1:6380  DISTILL_REDIS_DB=5
+export DISTILL_JEV_URL=http://127.0.0.1:18098/v1/systemone
+python3 distill_acceptance_cluster.py            # R1 + R2
+python3 distill_acceptance_cluster.py --case R2
+```
+
+脚本自带一个最小 RESP 客户端（socket 直连，不依赖 redis-py / redis-cli），所以能自己
+`SCAN MATCH distill:*` 数键。前提：A、B 指向**同一个 Redis 的同一个 db**。
+
+| 编号 | 断言 |
+|---|---|
+| R1 | 运行态确实落在 Redis（跑两次命中后 `distill:*` 键出现、`distill:demote:{user:N}` EXISTS=1）；`clear_cache` 返回 `backend="redis"`；SCAN 后剩余 0 个键；hits 行数不变；清后换新正文能重新调 Jev（降级解除） |
+| R2 | 跨实例共享：控制组先证明 B 自己工作正常（调 1 次 Jev、200）；A 连发两次命中降级后，B 发全新正文**不调 Jev 直接 429**；再反向验一次（B 降级 → A 立刻 429） |
+
+R2 的判别点是 `confirm_hits=2`：单次命中不降级，所以「B 有没有调 Jev」能区分「状态共享」与
+「各实例各存一份」——各存一份时 B 会自己调一次 Jev 然后 200。
+
+### Redis 模式下建渠道的坑
+
+开了 `REDIS_CONN_STRING` 的实例，新建渠道后 distributor 仍报「模型无可用渠道」，因为 abilities
+缓存没重建。脚本建完渠道会调一次 `POST /api/channel/fix`（`FixChannelsAbilities`）再断言，
+否则一上来全是 503。这不是蒸馏功能的问题，是环境缓存行为。
+
 ## 已知限制
 
 - T3/T6 用 `judge_interval_seconds=1`、`confirm_hits=1` 加速，验的是“计数与降级时机”逻辑；线上默认 30s/4 次的行为由 T2 的桶计数覆盖。
