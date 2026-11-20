@@ -67,6 +67,9 @@ func TestInitChannelCacheKeepsOldCacheWhenAbilitiesQueryFails(t *testing.T) {
 	after := group2model2channels["default"]["claude-3-5-sonnet"]
 	channelSyncLock.RUnlock()
 	require.Equal(t, before, after, "the old cache must stay untouched when the sync query fails")
+	// ⛔ 只比内容不够：重建出「内容相同的新 slice」也能过。这里钉死同一个底层数组，
+	// 证明查询失败时确实走了提前 return、根本没重建缓存。
+	require.Same(t, &before[0], &after[0], "the cached slice must be the very same one, not a rebuilt copy")
 }
 
 // abilities 与 channels 短暂不一致：abilities 里没有该分组，channels 却已有，
