@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 )
 
 // 命中记录的作用域（规格 §17.1）。
@@ -48,10 +49,19 @@ func TestDistillHitUserScopeLetsAdminsFilterAnyone(t *testing.T) {
 	}
 }
 
-// 普通用户的返回体里不能出现运营视角的字段：逐题分数（categories）一旦露出去，
-// 等于把判定口径交给被判定的人。
-func TestDistillHitUserViewHidesOperatorFields(t *testing.T) {
-	raw, err := json.Marshal(DistillHitUserView{Id: 1, RequestId: "req", Model: "m", Score: 0.9})
+// 普通用户的返回体里不能出现运营视角的字段，但**逐题结果要给**（规格 §18）：
+// 用户就是要知道自己命中了哪几道题、各多少分。拿走的只有原始 id 键值
+// （categories）和题面（prompt 本来就不出管理端）。
+func TestDistillHitUserViewHidesOperatorFieldsButKeepsQuestionResults(t *testing.T) {
+	raw, err := json.Marshal(DistillHitUserView{
+		Id:        1,
+		RequestId: "req",
+		Model:     "m",
+		Score:     0.9,
+		QuestionResults: []service.DistillQuestionResult{
+			{ID: "corpus_farm", Name: "批量语料生产", Score: 0.9, Hit: true},
+		},
+	})
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -60,7 +70,8 @@ func TestDistillHitUserViewHidesOperatorFields(t *testing.T) {
 			t.Fatalf("the user-facing view must not expose %q: %s", banned, raw)
 		}
 	}
-	for _, wanted := range []string{"request_id", "model", "score", "sampled_at"} {
+	// ⛔ 题名必须来自快照里的 name，而不是让前端拿 id 去查（普通用户没有设置接口）。
+	for _, wanted := range []string{"request_id", "model", "score", "sampled_at", "question_results", `"name":"批量语料生产"`, `"hit":true`} {
 		if !strings.Contains(string(raw), wanted) {
 			t.Fatalf("the user-facing view should keep %q: %s", wanted, raw)
 		}
