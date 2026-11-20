@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
@@ -160,8 +162,14 @@ func TestDistillDemotedOverLimitRejectsInsteadOfHopping(t *testing.T) {
 // 不能和蒸馏兜底不可用那句「无可用兜底渠道」混用（两种 429 运营要能一眼分开）。
 func TestRejectDistillDemotedConcurrencyCarriesTheRateLimitCode(t *testing.T) {
 	c, rec := newDistillTestContext(http.MethodPost, "/v1/chat/completions", `{}`)
+	// 模拟蒸馏兜底已经写好「实际落到哪个渠道」——被 429 之后这行命中记录
+	// 不能留着这个 id，否则对账看起来像请求已经切过去了。
+	common.SetContextKey(c, constant.ContextKeyDistillFallbackChannelId, 5)
 	rejectDistillDemotedConcurrency(c)
 
+	if got := common.GetContextKeyInt(c, constant.ContextKeyDistillFallbackChannelId); got != 0 {
+		t.Fatalf("a rejected request must not claim a distill redirect, got fallback channel %d", got)
+	}
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("want 429, got %d", rec.Code)
 	}

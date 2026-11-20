@@ -323,7 +323,12 @@ func distillDemotedOverLimit(distillRedirected, concurrencyOverloaded bool) bool
 // rejectDistillDemotedConcurrency 写 429：降级态下并发超限。
 // 错误码固定 rate_limit_exceeded；文案只讲并发，不与蒸馏兜底的
 // distill_fallback_unavailable（「无可用兜底渠道」）混用。
+//
+// ⛔ 必须先把「实际落到哪个兜底渠道」归零：这条请求被拒了，并没有真的重导。
+// 不归零的话，Distribute 里那个 defer UpdateDistillHitRouting 会把命中行的
+// fallback_id 记成蒸馏兜底渠道，事后对账看起来像已经切过去了。
 func rejectDistillDemotedConcurrency(c *gin.Context) {
+	common.SetContextKey(c, constant.ContextKeyDistillFallbackChannelId, 0)
 	abortWithOpenAiMessage(c, http.StatusTooManyRequests,
 		"您账号并发请求数已超限，请联系管理员",
 		types.ErrorCodeRateLimitExceeded)
