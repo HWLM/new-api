@@ -107,10 +107,10 @@ func TestParseGroupRateLimits(t *testing.T) {
 	if vip := got["vip"]; vip.Limit != 20 || !vip.Fallback {
 		t.Fatalf("vip config parsed wrong: %+v", vip)
 	}
-	// 缺省 fallback 的语义是「走兜底」——但 JSON 零值是 false，所以这里显式
-	// 断言解析结果，提醒调用方：默认 true 必须由写入端保证（前端默认开）。
-	if def := got["default"]; def.Limit != 5 || def.Fallback {
-		t.Fatalf("default config parsed wrong: %+v", def)
+	// ⛔ 缺省 fallback 的语义是「走兜底」：库里手写没写 fallback 也不能被
+	// 当成关掉（Opus 实测指出的坑）。
+	if def := got["default"]; def.Limit != 5 || !def.Fallback {
+		t.Fatalf("default config parsed wrong (missing fallback must default to true): %+v", def)
 	}
 }
 

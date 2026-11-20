@@ -49,7 +49,13 @@ func parseGroupRateLimits(raw string) map[string]groupRateLimitConfig {
 	if strings.TrimSpace(raw) == "" {
 		return out
 	}
-	var parsed map[string]groupRateLimitConfig
+	// ⛔ fallback 用 *bool 解析：缺省必须是 true（规格 §21.3「默认走兜底」）。
+	// 用普通 bool 的话，库里手写 `{"vip":{"limit":5}}` 会被读成 false，
+	// 到顶直接 429 —— 明明是没写，却被当成「关掉了兜底」。
+	var parsed map[string]struct {
+		Limit    int   `json:"limit"`
+		Fallback *bool `json:"fallback"`
+	}
 	if err := common.UnmarshalJsonStr(raw, &parsed); err != nil {
 		common.SysLog("UserConcurrencyLimit: 解析 group_rate_limits 失败，按未配置处理: " + err.Error())
 		return out
@@ -58,7 +64,11 @@ func parseGroupRateLimits(raw string) map[string]groupRateLimitConfig {
 		if strings.TrimSpace(group) == "" {
 			continue
 		}
-		out[group] = cfg
+		normalized := groupRateLimitConfig{Limit: cfg.Limit, Fallback: true}
+		if cfg.Fallback != nil {
+			normalized.Fallback = *cfg.Fallback
+		}
+		out[group] = normalized
 	}
 	return out
 }
