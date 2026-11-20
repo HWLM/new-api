@@ -16,19 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 
 import { DistillHits } from '@/features/distill-detect'
-import { ROLE } from '@/lib/roles'
-import { useAuthStore } from '@/stores/auth-store'
 
-// 管理员可见：后端 /api/distill_detect 走 AdminAuth，运营也要能查命中记录。
+// §17：个人中心页面，所有登录用户可进。数据范围由后端 UserAuth + 控制器
+// 按角色收窄（非管理员强制只看自己），前端不承担鉴权。
 export const Route = createFileRoute('/_authenticated/distill-hits/')({
-  beforeLoad: () => {
-    const { auth } = useAuthStore.getState()
-    if (!auth.user || auth.user.role < ROLE.ADMIN) {
-      throw redirect({ to: '/403' })
-    }
-  },
   component: DistillHits,
 })

@@ -42,6 +42,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getDistillSetting, listDistillHits } from './api'
 import { parseCategories, questionLabel } from './lib'
@@ -73,6 +75,10 @@ function formatTime(value: string): string {
 
 export function DistillHits() {
   const { t } = useTranslation()
+  // §17：同一页面按角色分流。非管理员只看自己（后端强制），这里只决定显示哪些列。
+  const isAdmin = useAuthStore(
+    (state) => (state.auth.user?.role ?? 0) >= ROLE.ADMIN
+  )
   const [page, setPage] = useState(1)
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS)
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS)
@@ -80,7 +86,7 @@ export function DistillHits() {
   const query: DistillHitsQuery = {
     p: page,
     page_size: PAGE_SIZE,
-    user_id: applied.userId.trim() || undefined,
+    user_id: isAdmin ? applied.userId.trim() || undefined : undefined,
     request_id: applied.requestId.trim() || undefined,
     from: localToRFC3339(applied.from),
     to: localToRFC3339(applied.to),
@@ -92,10 +98,12 @@ export function DistillHits() {
     placeholderData: keepPreviousData,
   })
   // 只用来把 categories 里的题目 id 换成题名；拿不到就直接显示 id。
+  // 设置接口仍是 AdminAuth，普通用户不调，题目直接显示 id。
   const settingQuery = useQuery({
     queryKey: ['distill-detect', 'setting'],
     queryFn: getDistillSetting,
     staleTime: 60_000,
+    enabled: isAdmin,
   })
   const questions = settingQuery.data?.success
     ? (settingQuery.data.data.questions ?? [])
@@ -106,7 +114,7 @@ export function DistillHits() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const applyFilters = () => {
-    if (draft.userId.trim() && !/^\d+$/.test(draft.userId.trim())) {
+    if (isAdmin && draft.userId.trim() && !/^\d+$/.test(draft.userId.trim())) {
       toast.error(t('User ID must be a number'))
       return
     }
@@ -143,16 +151,20 @@ export function DistillHits() {
       <SectionPageLayout.Content>
         <div className='flex h-full min-h-0 flex-col gap-3'>
           <div className='border-border/70 bg-muted/20 flex shrink-0 flex-wrap items-end gap-2 rounded-md border p-3'>
-            <label className='flex flex-col gap-1 text-xs'>
-              <span className='text-muted-foreground'>{t('User ID')}</span>
-              <Input
-                className='w-32'
-                inputMode='numeric'
-                value={draft.userId}
-                onChange={(e) => setDraft({ ...draft, userId: e.target.value })}
-                onKeyDown={onEnter}
-              />
-            </label>
+            {isAdmin ? (
+              <label className='flex flex-col gap-1 text-xs'>
+                <span className='text-muted-foreground'>{t('User ID')}</span>
+                <Input
+                  className='w-32'
+                  inputMode='numeric'
+                  value={draft.userId}
+                  onChange={(e) =>
+                    setDraft({ ...draft, userId: e.target.value })
+                  }
+                  onKeyDown={onEnter}
+                />
+              </label>
+            ) : null}
             <label className='flex flex-col gap-1 text-xs'>
               <span className='text-muted-foreground'>{t('Request ID')}</span>
               <Input
@@ -211,9 +223,15 @@ export function DistillHits() {
               <EmptyState
                 icon={ShieldAlert}
                 title={t('No distillation hits')}
-                description={t(
-                  'Hits appear here once a high-volume user scores at or above the threshold.'
-                )}
+                description={
+                  isAdmin
+                    ? t(
+                        'Hits appear here once a high-volume user scores at or above the threshold.'
+                      )
+                    : t(
+                        'Requests from your account that were flagged by distillation detection appear here.'
+                      )
+                }
               />
             ) : null}
             {items.length > 0 ? (
@@ -221,18 +239,23 @@ export function DistillHits() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t('Time')}</TableHead>
-                    <TableHead>{t('User')}</TableHead>
+                    {isAdmin ? <TableHead>{t('User')}</TableHead> : null}
                     <TableHead>{t('Request ID')}</TableHead>
                     <TableHead>{t('Model')}</TableHead>
                     <TableHead className='text-right'>{t('Score')}</TableHead>
-                    <TableHead>{t('Rerouted')}</TableHead>
+                    {isAdmin ? <TableHead>{t('Rerouted')}</TableHead> : null}
                     <TableHead>{t('Demoted until')}</TableHead>
-                    <TableHead>{t('Alert')}</TableHead>
+                    {isAdmin ? <TableHead>{t('Alert')}</TableHead> : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.map((hit) => (
-                    <HitRow key={hit.id} hit={hit} questions={questions} />
+                    <HitRow
+                      key={hit.id}
+                      hit={hit}
+                      questions={questions}
+                      isAdmin={isAdmin}
+                    />
                   ))}
                 </TableBody>
               </Table>
@@ -273,7 +296,11 @@ export function DistillHits() {
   )
 }
 
-function HitRow(props: { hit: DistillHit; questions: DistillQuestion[] }) {
+function HitRow(props: {
+  hit: DistillHit
+  questions: DistillQuestion[]
+  isAdmin: boolean
+}) {
   const { t } = useTranslation()
   const hit = props.hit
   const scores = parseCategories(hit.categories)
@@ -292,12 +319,14 @@ function HitRow(props: { hit: DistillHit; questions: DistillQuestion[] }) {
       <TableCell className='whitespace-nowrap'>
         {formatTime(hit.sampled_at)}
       </TableCell>
-      <TableCell className='whitespace-nowrap'>
-        {hit.username || '-'}
-        <span className='text-muted-foreground ml-1 text-xs'>
-          #{hit.user_id}
-        </span>
-      </TableCell>
+      {props.isAdmin ? (
+        <TableCell className='whitespace-nowrap'>
+          {hit.username || '-'}
+          <span className='text-muted-foreground ml-1 text-xs'>
+            #{hit.user_id}
+          </span>
+        </TableCell>
+      ) : null}
       <TableCell>
         <div className='flex items-center gap-1'>
           <code
@@ -325,23 +354,27 @@ function HitRow(props: { hit: DistillHit; questions: DistillQuestion[] }) {
       >
         {hit.score.toFixed(3)}
       </TableCell>
-      <TableCell>
-        {hit.fallback_id > 0 ? (
-          <Badge variant='warning'>#{hit.fallback_id}</Badge>
-        ) : (
-          <span className='text-muted-foreground'>{t('No')}</span>
-        )}
-      </TableCell>
+      {props.isAdmin ? (
+        <TableCell>
+          {hit.fallback_id > 0 ? (
+            <Badge variant='warning'>#{hit.fallback_id}</Badge>
+          ) : (
+            <span className='text-muted-foreground'>{t('No')}</span>
+          )}
+        </TableCell>
+      ) : null}
       <TableCell className='whitespace-nowrap'>
         {hit.demote_until ? formatTime(hit.demote_until) : '-'}
       </TableCell>
-      <TableCell>
-        {hit.alert_sent ? (
-          <Badge variant='secondary'>{t('Sent')}</Badge>
-        ) : (
-          <span className='text-muted-foreground'>{t('Not sent')}</span>
-        )}
-      </TableCell>
+      {props.isAdmin ? (
+        <TableCell>
+          {hit.alert_sent ? (
+            <Badge variant='secondary'>{t('Sent')}</Badge>
+          ) : (
+            <span className='text-muted-foreground'>{t('Not sent')}</span>
+          )}
+        </TableCell>
+      ) : null}
     </TableRow>
   )
 }
