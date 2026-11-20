@@ -6250,6 +6250,8 @@
     "Detection channels cannot be selected as the fallback.": "已选为检测渠道的不能再设为兜底渠道。",
     "Users see their own interception records; admins see everyone.": "普通用户查看自己的拦截记录，管理员可查看所有人。",
     "Your distillation interception records": "我的蒸馏拦截记录",
-    "Requests from your account that were flagged by distillation detection appear here.": "您账号下被蒸馏检测标记的请求会显示在这里。"
+    "Requests from your account that were flagged by distillation detection appear here.": "您账号下被蒸馏检测标记的请求会显示在这里。",
+    "Hit questions": "命中题目",
+    "Show all question scores": "展开全部题目分数"
   }
 }

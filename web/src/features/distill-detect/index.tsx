@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clipboard,
@@ -46,7 +47,7 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getDistillSetting, listDistillHits } from './api'
-import { parseCategories, questionLabel } from './lib'
+import { resolveQuestionResults } from './lib'
 import type { DistillHit, DistillHitsQuery, DistillQuestion } from './types'
 
 const PAGE_SIZE = 20
@@ -238,11 +239,15 @@ export function DistillHits() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className='w-8' />
                     <TableHead>{t('Time')}</TableHead>
                     {isAdmin ? <TableHead>{t('User')}</TableHead> : null}
                     <TableHead>{t('Request ID')}</TableHead>
                     <TableHead>{t('Model')}</TableHead>
                     <TableHead className='text-right'>{t('Score')}</TableHead>
+                    <TableHead className='min-w-[14rem]'>
+                      {t('Hit questions')}
+                    </TableHead>
                     {isAdmin ? <TableHead>{t('Rerouted')}</TableHead> : null}
                     <TableHead>{t('Demoted until')}</TableHead>
                     {isAdmin ? <TableHead>{t('Alert')}</TableHead> : null}
@@ -303,10 +308,10 @@ function HitRow(props: {
 }) {
   const { t } = useTranslation()
   const hit = props.hit
-  const scores = parseCategories(hit.categories)
-  const scoreTitle = scores
-    .map(([k, v]) => `${questionLabel(k, props.questions)}: ${v.toFixed(3)}`)
-    .join('\n')
+  const [open, setOpen] = useState(false)
+  const results = resolveQuestionResults(hit, props.questions)
+  const hitResults = results.filter((r) => r.hit)
+  const columnCount = props.isAdmin ? 10 : 7
 
   const copyRequestId = async () => {
     if (await copyToClipboard(hit.request_id)) {
@@ -315,66 +320,121 @@ function HitRow(props: {
   }
 
   return (
-    <TableRow>
-      <TableCell className='whitespace-nowrap'>
-        {formatTime(hit.sampled_at)}
-      </TableCell>
-      {props.isAdmin ? (
-        <TableCell className='whitespace-nowrap'>
-          {hit.username || '-'}
-          <span className='text-muted-foreground ml-1 text-xs'>
-            #{hit.user_id}
-          </span>
-        </TableCell>
-      ) : null}
-      <TableCell>
-        <div className='flex items-center gap-1'>
-          <code
-            className='max-w-[18rem] truncate font-mono text-xs'
-            title={hit.request_id}
-          >
-            {hit.request_id}
-          </code>
+    <>
+      <TableRow>
+        <TableCell className='w-8 px-1'>
           <Button
             size='icon'
             variant='ghost'
-            className='size-7 shrink-0'
-            onClick={copyRequestId}
-            title={t('Copy request ID')}
-            aria-label={t('Copy request ID')}
+            className='size-7'
+            onClick={() => setOpen(!open)}
+            disabled={results.length === 0}
+            aria-expanded={open}
+            title={open ? t('Collapse') : t('Show all question scores')}
+            aria-label={open ? t('Collapse') : t('Show all question scores')}
           >
-            <Clipboard className='size-3.5' />
+            {open ? (
+              <ChevronDown className='size-4' />
+            ) : (
+              <ChevronRight className='size-4' />
+            )}
           </Button>
-        </div>
-      </TableCell>
-      <TableCell className='font-mono text-xs'>{hit.model || '-'}</TableCell>
-      <TableCell
-        className='text-right font-mono tabular-nums'
-        title={scoreTitle || undefined}
-      >
-        {hit.score.toFixed(3)}
-      </TableCell>
-      {props.isAdmin ? (
-        <TableCell>
-          {hit.fallback_id > 0 ? (
-            <Badge variant='warning'>#{hit.fallback_id}</Badge>
-          ) : (
-            <span className='text-muted-foreground'>{t('No')}</span>
-          )}
         </TableCell>
-      ) : null}
-      <TableCell className='whitespace-nowrap'>
-        {hit.demote_until ? formatTime(hit.demote_until) : '-'}
-      </TableCell>
-      {props.isAdmin ? (
-        <TableCell>
-          {hit.alert_sent ? (
-            <Badge variant='secondary'>{t('Sent')}</Badge>
-          ) : (
-            <span className='text-muted-foreground'>{t('Not sent')}</span>
-          )}
+        <TableCell className='whitespace-nowrap'>
+          {formatTime(hit.sampled_at)}
         </TableCell>
+        {props.isAdmin ? (
+          <TableCell className='whitespace-nowrap'>
+            {hit.username || '-'}
+            <span className='text-muted-foreground ml-1 text-xs'>
+              #{hit.user_id}
+            </span>
+          </TableCell>
+        ) : null}
+        <TableCell>
+          <div className='flex items-center gap-1'>
+            <code
+              className='max-w-[18rem] truncate font-mono text-xs'
+              title={hit.request_id}
+            >
+              {hit.request_id}
+            </code>
+            <Button
+              size='icon'
+              variant='ghost'
+              className='size-7 shrink-0'
+              onClick={copyRequestId}
+              title={t('Copy request ID')}
+              aria-label={t('Copy request ID')}
+            >
+              <Clipboard className='size-3.5' />
+            </Button>
+          </div>
+        </TableCell>
+        <TableCell className='font-mono text-xs'>{hit.model || '-'}</TableCell>
+        <TableCell className='text-right font-mono tabular-nums'>
+          {hit.score.toFixed(3)}
+        </TableCell>
+        {/* §18.2：证据列，折行不截断。 */}
+        <TableCell className='text-sm break-words whitespace-normal'>
+          {hitResults.length > 0
+            ? hitResults
+                .map((r) => `${r.name || r.id} ${r.score.toFixed(2)}`)
+                .join('、')
+            : '—'}
+        </TableCell>
+        {props.isAdmin ? (
+          <TableCell>
+            {hit.fallback_id > 0 ? (
+              <Badge variant='warning'>#{hit.fallback_id}</Badge>
+            ) : (
+              <span className='text-muted-foreground'>{t('No')}</span>
+            )}
+          </TableCell>
+        ) : null}
+        <TableCell className='whitespace-nowrap'>
+          {hit.demote_until ? formatTime(hit.demote_until) : '-'}
+        </TableCell>
+        {props.isAdmin ? (
+          <TableCell>
+            {hit.alert_sent ? (
+              <Badge variant='secondary'>{t('Sent')}</Badge>
+            ) : (
+              <span className='text-muted-foreground'>{t('Not sent')}</span>
+            )}
+          </TableCell>
+        ) : null}
+      </TableRow>
+      {open ? (
+        <TableRow className='bg-muted/30 hover:bg-muted/30'>
+          <TableCell />
+          <TableCell colSpan={columnCount - 1}>
+            <ul className='grid gap-1 py-1 text-sm sm:grid-cols-2 lg:grid-cols-3'>
+              {results.map((r) => (
+                <li
+                  key={r.id}
+                  className={
+                    r.hit
+                      ? 'flex items-baseline gap-2'
+                      : 'text-muted-foreground flex items-baseline gap-2 opacity-60'
+                  }
+                >
+                  <span className='font-mono tabular-nums'>
+                    {r.score.toFixed(3)}
+                  </span>
+                  <span className='break-words'>{r.name || r.id}</span>
+                  {r.hit ? (
+                    <Badge variant='destructive'>{t('Hit')}</Badge>
+                  ) : null}
+                  <code className='text-muted-foreground font-mono text-xs'>
+                    {r.id}
+                  </code>
+                </li>
+              ))}
+            </ul>
+          </TableCell>
+        </TableRow>
       ) : null}
-    </TableRow>
+    </>
   )
 }

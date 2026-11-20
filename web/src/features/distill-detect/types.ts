@@ -83,6 +83,15 @@ export const DISTILL_QUESTION_LIMITS = {
   promptMax: 8000,
 } as const
 
+export type DistillQuestionResult = {
+  id: string
+  /** 写入时的题名快照 */
+  name: string
+  score: number
+  /** 写入时是否 ≥ 当时的阈值 */
+  hit: boolean
+}
+
 export type DistillHit = {
   id: number
   user_id: number
@@ -95,6 +104,11 @@ export type DistillHit = {
   score: number
   /** 逐题分数的 JSON 文本 {题目id: 分数}，可能为空串。 */
   categories: string
+  /**
+   * §18 写入时的逐题快照（题名、是否命中按当时阈值算好）。
+   * 老记录可能为 null，后端会用 categories + 当前题库名兜底。
+   */
+  question_results?: DistillQuestionResult[] | null
   doc_chars: number
   /** RFC3339 */
   sampled_at: string

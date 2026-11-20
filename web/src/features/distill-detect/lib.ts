@@ -17,7 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import type { DistillAlertChannelResult, DistillQuestion } from './types'
+import type {
+  DistillAlertChannelResult,
+  DistillHit,
+  DistillQuestion,
+  DistillQuestionResult,
+} from './types'
 
 export type AlertOutcome = {
   kind: 'sent' | 'disabled' | 'not_configured' | 'failed'
@@ -35,6 +40,28 @@ export function describeAlertResult(
     return { kind: 'not_configured', detail: '' }
   }
   return { kind: 'failed', detail: raw?.error || status }
+}
+
+/**
+ * 一行命中记录的逐题结果，按分数降序。
+ * 优先用 question_results 快照；为空时（老记录且后端没兜底）从 categories
+ * 拼：题名取当前题库，「命中」只能推断为最高分那题（该行之所以存在，是最高分过了阈值）。
+ */
+export function resolveQuestionResults(
+  hit: DistillHit,
+  questions: DistillQuestion[] | undefined
+): DistillQuestionResult[] {
+  if (hit.question_results && hit.question_results.length > 0) {
+    return [...hit.question_results].sort((a, b) => b.score - a.score)
+  }
+  const scores = parseCategories(hit.categories)
+  const top = scores[0]?.[1]
+  return scores.map(([id, score]) => ({
+    id,
+    name: questionLabel(id, questions),
+    score,
+    hit: top !== undefined && score === top,
+  }))
 }
 
 /** 题目 id → 展示名；题库里找不到（已删除的题）就显示 id 本身。 */
