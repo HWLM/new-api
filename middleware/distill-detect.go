@@ -134,9 +134,17 @@ func runDistillDetection(c *gin.Context, channel *model.Channel, modelName strin
 		}
 		// 这些值必须在 c 还活着的时候取出来：gin.Context 在请求结束后会被复用，
 		// 后台 goroutine 不能再回读它。
+		channelID := channel.Id
 		gopool.Go(func() {
 			hit := service.EvaluateDistill(userID, requestID, modelName, body)
-			service.RecordDistillHit(hit)
+			if hit == nil {
+				return
+			}
+			// ⛔ 观察模式的记录也要能看出「这次落在哪个渠道」：判定挪到选完渠道
+			// 之后，这个信息已经拿得到，以前恒为 0。用同步落库拿到自增 id 再回填
+			// ——这里本来就在后台 goroutine 里，不影响请求延迟。
+			service.PersistDistillHitSync(hit)
+			service.UpdateDistillHitRouting(hit, channelID, 0)
 		})
 		return nil
 	}

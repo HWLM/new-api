@@ -827,8 +827,17 @@ func (t *distillMemoryTracker) clearState(userID int) (cleared int, demoted int)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if userID <= 0 {
-		cleared = len(t.rpm) + len(t.buckets) + len(t.dedup) + len(t.confirms)
-		demoted = len(t.demoteUntil)
+		now := time.Now()
+		// ⛔ 两个数分开算：
+		//   cleared = 实际清掉的条目数，降级标记也要算进去（与「单用户」分支对称）；
+		//   demoted = **仍在生效**的降级数 —— 内存里的 demoteUntil 过期不自动删，
+		//   把过期条目算进去会让「解除了几个用户」系统性高估。
+		cleared = len(t.rpm) + len(t.buckets) + len(t.dedup) + len(t.confirms) + len(t.demoteUntil)
+		for _, until := range t.demoteUntil {
+			if now.Before(until) {
+				demoted++
+			}
+		}
 		t.rpm = map[int]struct {
 			minute int64
 			count  int
