@@ -1,7 +1,12 @@
 package middleware
 
 import (
+	"encoding/json"
+	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 // 速率限制兜底与拒答降级的拆分（规格 §21）。
@@ -122,5 +127,63 @@ func TestUserGroupConcurrencyKeyIsSeparateFromTheTotalKey(t *testing.T) {
 	}
 	if group != "concurrency:user:7:group:vip" {
 		t.Fatalf("unexpected group key: %s", group)
+	}
+}
+
+// 降级态 + 并发超限 → 直接 429，不再跳第二次兜底。
+// ⛔ 这里曾经漏判：蒸馏降级一置 distillRedirected，Distribute 里「渠道兜底」
+// 与「速率兜底」两段全被跳过，降级用户等于不受并发约束，超限请求照样 200
+// 打到蒸馏兜底渠道上（用户实测 limit=1 并发 5，全 200）。
+func TestDistillDemotedOverLimitRejectsInsteadOfHopping(t *testing.T) {
+	cases := []struct {
+		name                  string
+		distillRedirected     bool
+		concurrencyOverloaded bool
+		wantReject            bool
+	}{
+		{"demoted and over the limit rejects instead of a second hop", true, true, true},
+		{"demoted but within the limit flows to the distill fallback", true, false, false},
+		{"over the limit without demotion keeps the normal exits", false, true, false},
+		{"neither demoted nor over the limit", false, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := distillDemotedOverLimit(tc.distillRedirected, tc.concurrencyOverloaded); got != tc.wantReject {
+				t.Fatalf("distillDemotedOverLimit(%v, %v) = %v, want %v",
+					tc.distillRedirected, tc.concurrencyOverloaded, got, tc.wantReject)
+			}
+		})
+	}
+}
+
+// 这条 429 必须带 rate_limit_exceeded，且文案只讲并发 ——
+// 不能和蒸馏兜底不可用那句「无可用兜底渠道」混用（两种 429 运营要能一眼分开）。
+func TestRejectDistillDemotedConcurrencyCarriesTheRateLimitCode(t *testing.T) {
+	c, rec := newDistillTestContext(http.MethodPost, "/v1/chat/completions", `{}`)
+	rejectDistillDemotedConcurrency(c)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("want 429, got %d", rec.Code)
+	}
+	if !c.IsAborted() {
+		t.Fatal("the rejection must abort the chain, otherwise the relay still runs")
+	}
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+			Code    string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad JSON body: %v (%s)", err, rec.Body.String())
+	}
+	if body.Error.Code != string(types.ErrorCodeRateLimitExceeded) {
+		t.Fatalf("want code %q, got %q", types.ErrorCodeRateLimitExceeded, body.Error.Code)
+	}
+	if !strings.Contains(body.Error.Message, "并发") {
+		t.Fatalf("the message must talk about concurrency, got %q", body.Error.Message)
+	}
+	if strings.Contains(body.Error.Message, "无可用兜底渠道") {
+		t.Fatalf("rate-limit rejection must not reuse the distill fallback wording, got %q", body.Error.Message)
 	}
 }

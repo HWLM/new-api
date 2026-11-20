@@ -225,6 +225,20 @@ func Distribute() func(c *gin.Context) {
 					common.SysLog(fmt.Sprintf("[distribute] user=%d model=%q selected channel=%d (fallback_channel_id=%d) overloaded=%v",
 						c.GetInt("id"), modelRequest.Model, channel.Id, channel.FallbackChannelId, overloaded))
 				}
+				// ⛔ 蒸馏降级不等于豁免并发限制：降级用户照样计数、照样判超限，
+				// 超限就直接 429，绝不再跳第二次兜底（否则「蒸馏兜底 → 速率/渠道兜底」
+				// 两跳，运维对账根本看不出流量最后去了哪）。
+				// 判据只用 ContextKeyConcurrencyOverloaded —— 它由 UserConcurrencyLimit
+				// 在「确实超限」时写；拒答降级只写 UserOverloaded，碰不到这条分支。
+				if channel != nil && distillDemotedOverLimit(distillRedirected,
+					common.GetContextKeyBool(c, constant.ContextKeyConcurrencyOverloaded)) {
+					common.SysLog(fmt.Sprintf("[distribute] user=%d rejected: distill demoted and concurrency exceeded (count=%d limit=%d), no second fallback hop",
+						c.GetInt("id"),
+						common.GetContextKeyInt(c, constant.ContextKeyConcurrencyCount),
+						common.GetContextKeyInt(c, constant.ContextKeyConcurrencyLimit)))
+					rejectDistillDemotedConcurrency(c)
+					return
+				}
 				if overloaded && channel != nil && !distillRedirected {
 					originalChannelID := channel.Id
 					if fb := redirectToFallbackChannel(c, channel, modelRequest.Model, selectGroup); fb != nil {
@@ -294,6 +308,25 @@ func Distribute() func(c *gin.Context) {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
+}
+
+// distillDemotedOverLimit 报告：蒸馏降级已经把流量切走、且本次请求并发/分组速率
+// 确实超限。命中时不能再跳第二次兜底，必须直接 429（见 rejectDistillDemotedConcurrency）。
+//
+// ⛔ 漏掉这条判定曾经让降级用户完全不受并发约束：distillRedirected 一置，
+// 下面「渠道兜底」与「速率兜底」两段全被跳过，超限请求照样 200 打到兜底渠道，
+// 等于给了降级用户一个绕过并发上限的后门。
+func distillDemotedOverLimit(distillRedirected, concurrencyOverloaded bool) bool {
+	return distillRedirected && concurrencyOverloaded
+}
+
+// rejectDistillDemotedConcurrency 写 429：降级态下并发超限。
+// 错误码固定 rate_limit_exceeded；文案只讲并发，不与蒸馏兜底的
+// distill_fallback_unavailable（「无可用兜底渠道」）混用。
+func rejectDistillDemotedConcurrency(c *gin.Context) {
+	abortWithOpenAiMessage(c, http.StatusTooManyRequests,
+		"您账号并发请求数已超限，请联系管理员",
+		types.ErrorCodeRateLimitExceeded)
 }
 
 // channelSupportsRequestPath reports whether a channel can serve the request path.
