@@ -650,3 +650,56 @@ func TestDistillAlert(c *gin.Context) {
 		"data":    results,
 	})
 }
+
+// DistillClearCacheRequest 是清空检测运行态的请求体（规格 §20.2）。
+type DistillClearCacheRequest struct {
+	// Scope "all" 清全部用户，"user" 只清 user_id 这一个。
+	Scope  string `json:"scope"`
+	UserId int    `json:"user_id"`
+}
+
+// ClearDistillCache 一键清空蒸馏检测的运行态（降级标记、确认计数、时间桶、
+// 去重窗口、告警节流），Redis 与内存兜底两份都清。
+//
+// ⛔ 不删 distill_detect_hits：那是判定证据，误判之后运营要拿它复盘。
+func ClearDistillCache(c *gin.Context) {
+	var req DistillClearCacheRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "参数格式错误")
+		return
+	}
+	scope := strings.TrimSpace(req.Scope)
+	scopeUserID := 0
+	scopeLabel := "全部用户"
+	switch scope {
+	case "all":
+		scopeUserID = 0
+	case "user":
+		if req.UserId <= 0 {
+			common.ApiErrorMsg(c, "请指定要清理的用户 ID")
+			return
+		}
+		if _, err := model.GetUserById(req.UserId, false); err != nil {
+			common.ApiErrorMsg(c, fmt.Sprintf("用户 %d 不存在", req.UserId))
+			return
+		}
+		scopeUserID = req.UserId
+		scopeLabel = fmt.Sprintf("用户 %d", req.UserId)
+	default:
+		common.ApiErrorMsg(c, `scope 只能是 "all" 或 "user"`)
+		return
+	}
+
+	result := service.ClearDistillRuntimeState(c.Request.Context(), scopeUserID)
+
+	// 操作日志：谁、什么范围、清了多少。误判之后要靠这条回溯是谁解的。
+	model.RecordLog(c.GetInt("id"), model.LogTypeSystem,
+		fmt.Sprintf("清空蒸馏检测运行态：范围=%s，清理 %d 项，解除 %d 个用户的降级（后端 %s）",
+			scopeLabel, result.Cleared, result.UpgradedUsers, result.Backend))
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    result,
+	})
+}

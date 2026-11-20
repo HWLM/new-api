@@ -118,6 +118,25 @@ func distillAlertTakeThrottle(userID, windowSeconds int) bool {
 	return true
 }
 
+// distillAlertClearThrottle 清掉进程内的告警节流记录（规格 §20），返回清理条数。
+// userID <= 0 表示清全部用户。
+//
+// ⛔ Redis 那份由 clearDistillRedisState 按 `distill:*` 一起删；这里只管内存。
+func distillAlertClearThrottle(userID int) int {
+	distillAlertThrottleMu.Lock()
+	defer distillAlertThrottleMu.Unlock()
+	if userID <= 0 {
+		n := len(distillAlertThrottle)
+		distillAlertThrottle = map[int]time.Time{}
+		return n
+	}
+	if _, ok := distillAlertThrottle[userID]; !ok {
+		return 0
+	}
+	delete(distillAlertThrottle, userID)
+	return 1
+}
+
 // DistillAlertChannelResult 是一个告警通道的测试结果。
 //
 // Status 取值：

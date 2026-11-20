@@ -303,6 +303,8 @@ func SetApiRouter(router *gin.Engine) {
 				distillSettingRoute.PUT("/setting", controller.UpdateDistillDetectSetting)
 				distillSettingRoute.POST("/test", controller.TestDistill)
 				distillSettingRoute.POST("/alert_test", controller.TestDistillAlert)
+				// 一键清空运行态（规格 §20）：误判后立刻解除，不用等 TTL。
+				distillSettingRoute.POST("/clear_cache", controller.ClearDistillCache)
 			}
 		}
 

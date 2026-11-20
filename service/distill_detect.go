@@ -820,6 +820,53 @@ func (t *distillMemoryTracker) markDemoted(userID int, until time.Time) {
 }
 
 // dedupAlive 报告这份正文在窗口内是否判定成功过（只读）。
+// clearState 清掉进程内的运行态（规格 §20），返回清理条目数与解除降级人数。
+//
+// userID <= 0 表示清全部用户。
+func (t *distillMemoryTracker) clearState(userID int) (cleared int, demoted int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if userID <= 0 {
+		cleared = len(t.rpm) + len(t.buckets) + len(t.dedup) + len(t.confirms)
+		demoted = len(t.demoteUntil)
+		t.rpm = map[int]struct {
+			minute int64
+			count  int
+		}{}
+		t.demoteUntil = map[int]time.Time{}
+		t.dedup = map[string]distillDedupEntry{}
+		t.buckets = map[int]int64{}
+		t.confirms = map[int][]time.Time{}
+		return cleared, demoted
+	}
+	if _, ok := t.rpm[userID]; ok {
+		delete(t.rpm, userID)
+		cleared++
+	}
+	if until, ok := t.demoteUntil[userID]; ok && time.Now().Before(until) {
+		demoted++
+	}
+	if _, ok := t.demoteUntil[userID]; ok {
+		delete(t.demoteUntil, userID)
+		cleared++
+	}
+	if _, ok := t.buckets[userID]; ok {
+		delete(t.buckets, userID)
+		cleared++
+	}
+	if _, ok := t.confirms[userID]; ok {
+		delete(t.confirms, userID)
+		cleared++
+	}
+	for key := range t.dedup {
+		if distillKeyBelongsToUser(key, userID) {
+			delete(t.dedup, key)
+			cleared++
+		}
+	}
+	return cleared, demoted
+}
+
 // distillDedupEntry 是内存版去重表的一条：过期时刻 + 上次判定快照。
 type distillDedupEntry struct {
 	until   time.Time
