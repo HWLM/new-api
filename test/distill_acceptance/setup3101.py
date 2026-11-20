@@ -84,6 +84,11 @@ def main():
 
     code, txt = http("GET", "/api/user/self", None, tok)
     uid = ((json.loads(txt).get("data") or {}).get("id")) if code == 200 else None
+
+    # 空库没给 distill-a/distill-b 配价格，自用模式最省事（否则 relay 回 400「价格未配置」）
+    code, txt = http("PUT", "/api/option/", {"key": "SelfUseModeEnabled", "value": "true"}, tok)
+    print("开启自用模式 ->", code, txt[:120])
+
     env.update({"base_url": BASE, "relay_key": key, "user_id": uid})
     json.dump(env, open(OUT, "w"), indent=2)
     try:

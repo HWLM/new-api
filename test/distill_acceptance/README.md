@@ -64,6 +64,44 @@ python3 distill_acceptance.py --jev-error     # 只跑判定失败那组（T8）
 | 设置卡片 PUT | `activate_rpm` 1→21 PUT 200，回读 21；再还原 1，回读 1 |
 | 命中记录页 | `GET /api/distill_detect/hits?p=1&page_size=3` 200，返回真实命中行（id=24 起） |
 
+## 扩展用例 distill_acceptance_ext.py（§15/§16/§19/§20 运行时路径）
+
+跑在同一个打桩上（复用 `distill_acceptance.py` 的假 Jev / 假上游 / 报告函数），环境变量一致。
+
+```bash
+python3 distill_acceptance_ext.py            # 全跑 E1–E5
+python3 distill_acceptance_ext.py --case E4,E5
+```
+
+脚本自己建三个渠道，跑完删除（`--keep-channels` 保留）。**检测渠道必须给最高优先级**，否则
+兜底渠道也服务同一模型时会抢走常规流量，白名单形同失效：
+
+| 渠道 | 模型 | 优先级 | 用途 |
+|---|---|---|---|
+| `hermes-acc-detect` | `distill-a` | 100 | 进 `detect_channel_ids`，常规流量落这里 |
+| `hermes-acc-plain` | `distill-b` | 0 | 永不在白名单，证零开销 |
+| `hermes-acc-fb` | `distill-a` | 0 | 只作显式兜底目标，不参与常规选路 |
+
+| 编号 | 断言 |
+|---|---|
+| E1 | 白名单渠道命中 → 重导：请求 200、hits 的 `channel_id`=检测渠道、`fallback_id`=兜底渠道 |
+| E2 | 非白名单渠道零开销：假 Jev 0 次调用 **且** hits 0 行（只看其中一个会误判） |
+| E3 | 白名单命中 + 兜底不可用 → 429 + `distill_fallback_unavailable`；两种形态各一次：未配兜底(0)、配了但渠道不支持该模型 |
+| E4 | 同一正文连发 4 次：Jev 只调 1 次、hits 4 行、后 3 行 `dedup_reused=true`、第 4 行带 `demote_until`（§19） |
+| E5 | 清缓存：`cleared>0`/`upgraded_users≥1`、hits 不删、换新正文能重调 Jev（降级解除）、再发原正文也能重调 Jev（去重窗口一起清）、非法 scope 被拒（§20） |
+
+E5 必须用「新正文 + 原正文」两步分开验：降级态下根本不调 Jev，只看同一段正文无法区分
+「降级没清」和「去重窗口没清」。
+
+用例之间的状态重置改用 `clear_cache` 接口，不再依赖 redis-cli。
+
+### 空库实例的一次性初始化
+
+`setup3101.py`：`POST /api/setup` 建 root → 登录拿管理员令牌 → 建不限额 relay token →
+开自用模式。两个坑：
+- token 列表接口只回脱敏 key，真 key 只能从 SQLite 里取（`DISTILL_SQLITE` 指库文件）；
+- 空库没给测试模型配价格，不开自用模式 relay 直接 400「模型价格未配置」。
+
 ## 已知限制
 
 - T3/T6 用 `judge_interval_seconds=1`、`confirm_hits=1` 加速，验的是“计数与降级时机”逻辑；线上默认 30s/4 次的行为由 T2 的桶计数覆盖。
