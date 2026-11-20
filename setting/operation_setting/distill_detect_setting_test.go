@@ -1,6 +1,7 @@
 package operation_setting
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -229,6 +230,21 @@ func TestNormalizeDistillDetectChannelIds(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("want %v, got %v", want, got)
 		}
+	}
+}
+
+// ⛔ nil 必须归一成**空数组**而不是 nil：接口约定这个字段是数组，
+// 返回 null 会让每个调用方都得写一次 `?? []`（Deploy 实测就是这么踩到的）。
+func TestNormalizeDistillDetectChannelIdsTurnsNilIntoAnEmptyArray(t *testing.T) {
+	got := NormalizeDistillDetectChannelIds(nil)
+	if got == nil {
+		t.Fatal("nil whitelist must normalize to an empty array, not nil")
+	}
+	if len(got) != 0 {
+		t.Fatalf("want an empty array, got %v", got)
+	}
+	if raw, err := json.Marshal(got); err != nil || string(raw) != "[]" {
+		t.Fatalf("must serialize as [], got %s err=%v", raw, err)
 	}
 }
 

@@ -84,7 +84,7 @@ func GetDistillDetectSetting(c *gin.Context) {
 			TgChatId:             s.TgChatId,
 			AlertThrottleSeconds: s.AlertThrottleSeconds,
 			WeComWebhookUrl:      s.WeComWebhookUrl,
-			DetectChannelIds:     s.DetectChannelIds,
+			DetectChannelIds:     operation_setting.NormalizeDistillDetectChannelIds(s.DetectChannelIds),
 			FallbackChannelId:    s.FallbackChannelId,
 			DedupSeconds:         s.DedupSeconds,
 		},
