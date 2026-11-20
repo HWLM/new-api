@@ -32,6 +32,7 @@ const defaultSecuritySettings: SecuritySettings = {
   ModelRequestRateLimitGroup: '',
   MaxConcurrentRequestsPerUserEnabled: false,
   MaxConcurrentRequestsPerUser: 10,
+  RateLimitFallbackChannelId: 0,
   'refusal_demote_setting.enabled': false,
   'refusal_demote_setting.window_size': 100,
   'refusal_demote_setting.min_samples': 20,

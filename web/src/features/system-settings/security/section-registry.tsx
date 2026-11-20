@@ -42,6 +42,7 @@ const SECURITY_SECTIONS = [
           MaxConcurrentRequestsPerUserEnabled:
             settings.MaxConcurrentRequestsPerUserEnabled,
           MaxConcurrentRequestsPerUser: settings.MaxConcurrentRequestsPerUser,
+          RateLimitFallbackChannelId: settings.RateLimitFallbackChannelId ?? 0,
         }}
       />
     ),

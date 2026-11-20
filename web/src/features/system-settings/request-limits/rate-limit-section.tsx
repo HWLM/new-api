@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
 import { Code2, Palette } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
@@ -35,7 +36,16 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { getChannels } from '@/features/channels/api'
 
 import {
   SettingsForm,
@@ -80,6 +90,7 @@ const createRateLimitSchema = (t: (key: string) => string) =>
       }),
     MaxConcurrentRequestsPerUserEnabled: z.boolean(),
     MaxConcurrentRequestsPerUser: z.number().int().min(-1).max(100000),
+    RateLimitFallbackChannelId: z.number().int().min(0),
   })
 
 type RateLimitFormValues = z.infer<ReturnType<typeof createRateLimitSchema>>
@@ -94,6 +105,19 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
   const [useVisualEditor, setUseVisualEditor] = useState(true)
 
   const rateLimitSchema = createRateLimitSchema(t)
+
+  const channelsQuery = useQuery({
+    queryKey: ['channels', 'for-fallback'],
+    queryFn: () => getChannels({ p: 1, page_size: 1000, id_sort: true }),
+    staleTime: 60_000,
+  })
+  const channelOptions = useMemo(() => {
+    const items = channelsQuery.data?.data?.items ?? []
+    return items.map((channel) => ({
+      value: String(channel.id),
+      label: `#${channel.id} ${channel.name || ''}`.trim(),
+    }))
+  }, [channelsQuery.data])
 
   const form = useForm<RateLimitFormValues>({
     resolver: zodResolver(rateLimitSchema),
@@ -331,7 +355,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                   </FormLabel>
                   <FormDescription>
                     {t(
-                      'When a user exceeds this limit, new requests are routed to the fallback channel configured on their selected channel.'
+                      'When a user exceeds the concurrency limit, new requests go to the rate-limit fallback channel below (separate from refusal demotion).'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -389,6 +413,51 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                 </FormItem>
               )
             }}
+          />
+
+          <FormField
+            control={form.control}
+            name='RateLimitFallbackChannelId'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Rate-limit fallback channel')}</FormLabel>
+                <FormControl>
+                  <Select
+                    items={[
+                      { value: '0', label: t('None') },
+                      ...channelOptions,
+                    ]}
+                    value={String(field.value ?? 0)}
+                    onValueChange={(value) =>
+                      field.onChange(Number(value) || 0)
+                    }
+                  >
+                    <SelectTrigger className='w-full md:w-96'>
+                      <SelectValue placeholder={t('None')} />
+                    </SelectTrigger>
+                    <SelectContent
+                      alignItemWithTrigger={false}
+                      className='max-h-80'
+                    >
+                      <SelectGroup>
+                        <SelectItem value='0'>{t('None')}</SelectItem>
+                        {channelOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Global channel for requests over the total or per-group concurrency limit. Independent of the refusal-demotion fallback configured on each channel. Billing stays on the original group. If unset, disabled, or not supporting the model, requests get 429 rate_limit_exceeded.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
           />
         </SettingsForm>
       </Form>

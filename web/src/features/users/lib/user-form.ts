@@ -26,6 +26,10 @@ import { quotaUnitsToDollars } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 import { DEFAULT_GROUP } from '../constants'
 import type { UserFormData, User } from '../types'
+import {
+  parseGroupRateLimits,
+  serializeGroupRateLimits,
+} from './group-rate-limits'
 
 // ============================================================================
 // Form Schema
@@ -41,6 +45,29 @@ export const userFormSchema = z.object({
   max_concurrency: z.number().int().min(-1).optional(),
   refusal_demote_override: z.number().int().min(-1).max(1).optional(),
   distill_detect_override: z.number().int().min(-1).max(1).optional(),
+  group_rate_limits: z
+    .array(
+      z.object({
+        group: z.string().trim().min(1, 'Select a group'),
+        limit: z.number().int().min(-1),
+        fallback: z.boolean(),
+      })
+    )
+    .superRefine((rows, ctx) => {
+      const seen = new Set<string>()
+      rows.forEach((row, i) => {
+        const g = row.group.trim()
+        if (g && seen.has(g)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [i, 'group'],
+            message: 'Duplicate group',
+          })
+        }
+        seen.add(g)
+      })
+    })
+    .optional(),
   remark: z.string().optional(),
   settlement_currency: z.enum(['CNY', 'USD']).optional(),
   allow_online_topup: z.boolean().optional(),
@@ -66,6 +93,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   max_concurrency: 0,
   refusal_demote_override: 0,
   distill_detect_override: 0,
+  group_rate_limits: [],
   remark: '',
   settlement_currency: 'CNY',
   allow_online_topup: true,
@@ -114,6 +142,9 @@ export function transformFormDataToPayload(
     payload.max_concurrency = data.max_concurrency ?? 0
     payload.refusal_demote_override = data.refusal_demote_override ?? 0
     payload.distill_detect_override = data.distill_detect_override ?? 0
+    payload.group_rate_limits = serializeGroupRateLimits(
+      data.group_rate_limits ?? []
+    )
     payload.id = userId
   }
 
@@ -134,6 +165,7 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     max_concurrency: user.max_concurrency ?? 0,
     refusal_demote_override: user.refusal_demote_override ?? 0,
     distill_detect_override: user.distill_detect_override ?? 0,
+    group_rate_limits: parseGroupRateLimits(user.group_rate_limits),
     remark: user.remark || '',
     settlement_currency:
       user.settlement_currency === 'USD' ? 'USD' : 'CNY',
