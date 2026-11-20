@@ -55,3 +55,6 @@ test/distill_acceptance/env3101.json
 test/distill_acceptance/env3101.json
 test/distill_acceptance/.env3101.sh
 test/distill_acceptance/run*.log
+test/rate_limit_acceptance/.env_rl.sh
+test/rate_limit_acceptance/run*.log
+test/rate_limit_acceptance/__pycache__/
