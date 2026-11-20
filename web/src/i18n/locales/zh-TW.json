@@ -6232,6 +6232,8 @@
     "Your distillation interception records": "我的蒸馏拦截记录",
     "Requests from your account that were flagged by distillation detection appear here.": "您账号下被蒸馏检测标记的请求会显示在这里。",
     "Hit questions": "命中题目",
-    "Show all question scores": "展开全部题目分数"
+    "Show all question scores": "展开全部题目分数",
+    "Reused previous judgment": "复用前次判定",
+    "Same request text within the dedup window: the judge service was not called again; the previous score was reused and counted as a confirmation hit.": "去重窗口内的相同正文：未再次调用判定服务，复用了上次的分数，并计为一次确认命中。"
   }
 }

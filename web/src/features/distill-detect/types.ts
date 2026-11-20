@@ -115,6 +115,11 @@ export type DistillHit = {
   /** RFC3339；空串 = 未降级。 */
   demote_until: string
   alert_sent: boolean
+  /**
+   * §19：去重窗口内同一正文、上次判定为命中时，不再调判定服务，
+   * 复用上次分数并计一次确认命中。老后端没有此字段时视为 false。
+   */
+  dedup_reused?: boolean
 }
 
 export type DistillHitsPage = {

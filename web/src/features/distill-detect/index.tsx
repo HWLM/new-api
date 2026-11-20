@@ -373,7 +373,20 @@ function HitRow(props: {
         </TableCell>
         <TableCell className='font-mono text-xs'>{hit.model || '-'}</TableCell>
         <TableCell className='text-right font-mono tabular-nums'>
-          {hit.score.toFixed(3)}
+          <div className='flex flex-col items-end gap-1'>
+            {hit.score.toFixed(3)}
+            {hit.dedup_reused ? (
+              <Badge
+                variant='outline'
+                className='font-sans whitespace-nowrap'
+                title={t(
+                  'Same request text within the dedup window: the judge service was not called again; the previous score was reused and counted as a confirmation hit.'
+                )}
+              >
+                {t('Reused previous judgment')}
+              </Badge>
+            ) : null}
+          </div>
         </TableCell>
         {/* §18.2：证据列，折行不截断。 */}
         <TableCell className='text-sm break-words whitespace-normal'>
@@ -409,6 +422,13 @@ function HitRow(props: {
         <TableRow className='bg-muted/30 hover:bg-muted/30'>
           <TableCell />
           <TableCell colSpan={columnCount - 1}>
+            {hit.dedup_reused ? (
+              <p className='text-muted-foreground pt-1 text-xs'>
+                {t(
+                  'Same request text within the dedup window: the judge service was not called again; the previous score was reused and counted as a confirmation hit.'
+                )}
+              </p>
+            ) : null}
             <ul className='grid gap-1 py-1 text-sm sm:grid-cols-2 lg:grid-cols-3'>
               {results.map((r) => (
                 <li
