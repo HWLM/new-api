@@ -6274,11 +6274,11 @@
     "429 when full": "满额直接 429",
     "Add group limit": "添加分组限制",
     "Per-group concurrency": "分组并发限制",
-    "Total and per-group concurrency both apply; the stricter wins. When a group is full, requests go to the rate-limit fallback channel; with fallback off they get 429 rate_limit_exceeded.": "总并发与分组并发同时生效，取更严的一个。分组满额时请求走速率兜底渠道；关闭「走兜底渠道」则直接返回 429 rate_limit_exceeded。",
     "Each row needs a different group": "每行的分组不能重复",
     "Duplicate group": "分组重复",
-    "Rate-limit fallback channel": "速率超限兜底渠道",
-    "When a user exceeds the concurrency limit, new requests go to the rate-limit fallback channel below (separate from refusal demotion).": "用户超过并发上限时，新请求走下方的速率超限兜底渠道（与拒答降级的兜底相互独立）。",
-    "Global channel for requests over the total or per-group concurrency limit. Independent of the refusal-demotion fallback configured on each channel. Billing stays on the original group. If unset, disabled, or not supporting the model, requests get 429 rate_limit_exceeded.": "超过总并发或分组并发上限的请求统一走这个渠道，与各渠道自配的拒答降级兜底相互独立，计费仍按原分组。未配置、已禁用或不支持该模型时返回 429 rate_limit_exceeded。"
+    "When a user exceeds the concurrency limit, new requests hop once to the fallback channel configured on the request's own channel. If that channel has no usable fallback, the request gets 429 rate_limit_exceeded.": "When a user exceeds the concurrency limit, new requests hop once to the fallback channel configured on the request's own channel. If that channel has no usable fallback, the request gets 429 rate_limit_exceeded.",
+    "Total and per-group concurrency both apply; the stricter wins. With fallback on, over-limit requests hop once to the fallback channel configured on the request's own channel (429 if it has no usable fallback); with fallback off they get 429 rate_limit_exceeded immediately.": "Total and per-group concurrency both apply; the stricter wins. With fallback on, over-limit requests hop once to the fallback channel configured on the request's own channel (429 if it has no usable fallback); with fallback off they get 429 rate_limit_exceeded immediately.",
+    "On: hop once to the fallback channel of the request's own channel (429 if none usable)": "On: hop once to the fallback channel of the request's own channel (429 if none usable)",
+    "Off: 429 rate_limit_exceeded as soon as the group is full": "Off: 429 rate_limit_exceeded as soon as the group is full"
   }
 }

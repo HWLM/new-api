@@ -149,7 +149,6 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
 	common.OptionMap["MaxConcurrentRequestsPerUser"] = strconv.Itoa(setting.MaxConcurrentRequestsPerUser)
 	common.OptionMap["MaxConcurrentRequestsPerUserEnabled"] = strconv.FormatBool(setting.MaxConcurrentRequestsPerUserEnabled)
-	common.OptionMap["RateLimitFallbackChannelId"] = strconv.Itoa(setting.RateLimitFallbackChannelId)
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
@@ -574,10 +573,6 @@ func updateOptionMap(key string, value string) (err error) {
 	case "MaxConcurrentRequestsPerUser":
 		if v, convErr := strconv.Atoi(value); convErr == nil && v >= -1 {
 			setting.MaxConcurrentRequestsPerUser = v
-		}
-	case "RateLimitFallbackChannelId":
-		if v, convErr := strconv.Atoi(value); convErr == nil && v >= 0 {
-			setting.RateLimitFallbackChannelId = v
 		}
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)

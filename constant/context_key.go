@@ -71,10 +71,11 @@ const (
 	ContextKeyConcurrencyOverloaded ContextKey = "concurrency_overloaded"
 
 	// ContextKeyRateLimitExceeded 标记本次请求因「并发/分组速率超限」需要重导到
-	// **速率限制兜底渠道**（全局 RateLimitFallbackChannelId，规格 §21）。
+	// 兜底渠道（规格 §21/§22：走**请求所在渠道自配**的 FallbackChannelId，
+	// 与拒答降级共用渠道字段，原先的全局 RateLimitFallbackChannelId 已移除）。
 	//
 	// ⛔ 与拒答降级的 ContextKeyUserOverloaded 是两个独立标记：两条兜底依据不同、
-	// 渠道来源不同、失败文案不同，不许合并成一段通用逻辑。
+	// 失败文案不同，不许合并成一段通用逻辑。
 	ContextKeyRateLimitExceeded ContextKey = "rate_limit_exceeded"
 	// ContextKeyRateLimitRejected 标记「超限且该分组策略是不走兜底」——直接 429，
 	// 连跳转都不做。文案与「兜底不可用」区分开，运营一眼能看出是策略拒的。
