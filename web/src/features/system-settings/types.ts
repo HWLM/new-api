@@ -383,8 +383,6 @@ export type SecuritySettings = {
   ModelRequestRateLimitGroup: string
   MaxConcurrentRequestsPerUserEnabled: boolean
   MaxConcurrentRequestsPerUser: number
-  /** §21 速率超限全局兜底渠道，0 = 未配（超限 429 rate_limit_exceeded） */
-  RateLimitFallbackChannelId: number
   'refusal_demote_setting.enabled': boolean
   'refusal_demote_setting.window_size': number
   'refusal_demote_setting.min_samples': number

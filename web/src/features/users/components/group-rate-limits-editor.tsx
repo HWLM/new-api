@@ -78,7 +78,7 @@ export function GroupRateLimitsEditor(props: {
             ]
             return (
               <div
-                key={`${index}-${row.group}`}
+                key={row.group || 'unselected'}
                 className='grid grid-cols-1 items-center gap-2 rounded-md border p-2 md:grid-cols-[minmax(8rem,1fr)_auto_auto_auto] md:border-0 md:p-0'
               >
                 <Combobox
@@ -123,7 +123,18 @@ export function GroupRateLimitsEditor(props: {
                     }}
                   />
                 </div>
-                <label className='flex items-center gap-2 text-sm'>
+                <label
+                  className='flex items-center gap-2 text-sm'
+                  title={
+                    row.fallback
+                      ? t(
+                          "On: hop once to the fallback channel of the request's own channel (429 if none usable)"
+                        )
+                      : t(
+                          'Off: 429 rate_limit_exceeded as soon as the group is full'
+                        )
+                  }
+                >
                   <Switch
                     checked={row.fallback}
                     onCheckedChange={(checked) =>

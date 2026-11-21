@@ -79,7 +79,7 @@ func parseGroupRateLimits(raw string) map[string]groupRateLimitConfig {
 //   - 拒答降级：置 UserOverloaded + RefusalDemoted → Distribute 走**渠道自配**的
 //     FallbackChannelId（行为与 §21 之前逐字节一致）。
 //   - 分组速率超限且该分组 fallback=true：置 RateLimitExceeded → Distribute 走
-//     **全局** RateLimitFallbackChannelId。
+//     **请求所在渠道自配**的 FallbackChannelId（§22，与拒答降级共用渠道字段）。
 //   - 分组速率超限且该分组 fallback=false：置 RateLimitRejected → 直接 429，
 //     连跳转都不做。
 //   - 没配分组速率、只超总并发：旧行为（UserOverloaded → 渠道自配兜底）。
@@ -190,7 +190,7 @@ func UserConcurrencyLimit() func(c *gin.Context) {
 			common.SetContextKey(c, constant.ContextKeyRateLimitRejected, true)
 			common.SetContextKey(c, constant.ContextKeyRateLimitGroup, group)
 		case decision.RateLimitFallback:
-			// 走全局速率兜底渠道（与渠道自配的兜底不是一条链路）。
+			// 走请求所在渠道自配的兜底（§22，与拒答降级共用渠道字段）。
 			common.SetContextKey(c, constant.ContextKeyRateLimitExceeded, true)
 			common.SetContextKey(c, constant.ContextKeyRateLimitGroup, group)
 		default:
@@ -270,7 +270,7 @@ func acquireRedisConcurrencySlot(c *gin.Context, key string) (int, func(), bool)
 // concurrencyDecision 是一次超限判定的结论（规格 §21.4）。
 //
 // 抽成纯函数是为了能直接断言三条出口互不串味：
-// 分组策略拒、走全局速率兜底、旧的总并发兜底。middleware 里只负责把结论
+// 分组策略拒、走渠道自配兜底、旧的总并发兜底。middleware 里只负责把结论
 // 翻成 context 标记。
 type concurrencyDecision struct {
 	Over      bool
@@ -278,7 +278,7 @@ type concurrencyDecision struct {
 	OverGroup bool
 	// Reject 分组策略 fallback=false：直接 429。
 	Reject bool
-	// RateLimitFallback 分组策略 fallback=true：走全局速率兜底渠道。
+	// RateLimitFallback 分组策略 fallback=true：走请求所在渠道自配的兜底（§22）。
 	RateLimitFallback bool
 	// LegacyOverload 没配分组速率、只超总并发：旧行为，走渠道自配兜底。
 	LegacyOverload bool

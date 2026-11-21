@@ -20,7 +20,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -263,10 +262,15 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
-				// 速率限制兜底（规格 §21）：与上面的拒答降级是**两个独立分支**。
+				// 速率限制兜底（规格 §21/§22）：与上面的拒答降级是**两个独立分支**。
 				// ⛔ 不许合并成一段通用逻辑：依据不同（并发/分组速率 vs 拒答比）、
-				// 渠道来源不同（全局配置 vs 渠道自配）、失败文案与 code 也不同。
-				// 拒答优先：两条同时命中时上面那段已经处理，这里用 !overloaded 跳过。
+				// 失败文案与 code 也不同。拒答优先：两条同时命中时上面那段已经处理，
+				// 这里用 !overloaded 跳过。
+				//
+				// 兜底渠道自 §22 起与拒答降级共用**请求所在渠道自配**的
+				// FallbackChannelId（原先的全局 RateLimitFallbackChannelId 已废弃）：
+				// 平台同时有 Gemini / OpenAI 渠道，全局兜底会把 Gemini 请求送进
+				// OpenAI 渠道，按渠道自配才与该请求的模型/路径对得上。
 				if channel != nil && !distillRedirected && !overloaded {
 					rateLimitGroup := common.GetContextKeyString(c, constant.ContextKeyRateLimitGroup)
 					if common.GetContextKeyBool(c, constant.ContextKeyRateLimitRejected) {
@@ -280,7 +284,7 @@ func Distribute() func(c *gin.Context) {
 					}
 					if common.GetContextKeyBool(c, constant.ContextKeyRateLimitExceeded) {
 						originalChannelID := channel.Id
-						if fb := rateLimitFallbackChannel(c, channel.Id, modelRequest.Model, selectGroup); fb != nil {
+						if fb := redirectToFallbackChannel(c, channel, modelRequest.Model, selectGroup); fb != nil {
 							common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, channel.Id)
 							common.SetContextKey(c, constant.ContextKeyFallbackFromChannelName, channel.Name)
 							common.SetContextKey(c, constant.ContextKeyFallbackFromGroup, selectGroup)
@@ -290,10 +294,13 @@ func Distribute() func(c *gin.Context) {
 							common.SysLog(fmt.Sprintf("[distribute] user=%d rate limited (group=%q): channel %d -> rate limit fallback %d (billing group unchanged=%s)",
 								c.GetInt("id"), rateLimitGroup, originalChannelID, fb.channel.Id, selectGroup))
 						} else {
-							common.SysLog(fmt.Sprintf("[distribute] user=%d rejected: rate limited but fallback channel %d unusable",
-								c.GetInt("id"), setting.RateLimitFallbackChannelId))
+							// 渠道没配兜底 / 兜底禁用 / 不支持该模型或路径 / 自环 → 429。
+							// 文案只说「该渠道没有可用兜底」，不与蒸馏兜底的
+							// distill_fallback_unavailable 口径混用。
+							common.SysLog(fmt.Sprintf("[distribute] user=%d rejected: rate limited but channel %d has no usable fallback (fallback_channel_id=%d)",
+								c.GetInt("id"), channel.Id, channel.FallbackChannelId))
 							abortWithOpenAiMessage(c, http.StatusTooManyRequests,
-								"您账号并发请求数已超限，且速率限制兜底渠道不可用，请联系管理员",
+								"您账号并发请求数已超限，且该渠道未配置可用的兜底渠道，请联系管理员",
 								types.ErrorCodeRateLimitExceeded)
 							return
 						}
@@ -398,42 +405,6 @@ func redirectToFallbackChannel(c *gin.Context, original *model.Channel, modelNam
 	logger.LogInfo(c, fmt.Sprintf("overload redirect: user=%d model=%q from channel %d (group=%s) to channel %d (billing group=%s)",
 		c.GetInt("id"), modelName, original.Id, origGroup, fb.Id, group))
 	return &fallbackResolution{channel: fb, group: group}
-}
-
-// rateLimitFallbackChannel 解析速率限制专用的**全局**兜底渠道（规格 §21）。
-//
-// ⛔ 与另外两条兜底都不同，不要合并：
-//   - 渠道来源是 setting.RateLimitFallbackChannelId（全局一个），不是 channel 自配；
-//   - 兜底渠道恰好是当前渠道时视为**不可用** —— 速率超限本来就是这条渠道上的
-//     用户并发满了，留在原地等于没兜底（蒸馏那边「原地不动算成功」的语义在这里不成立）；
-//   - 计费按原分组：返回的 group 就是 origGroup，调用方不改 UsingGroup。
-func rateLimitFallbackChannel(c *gin.Context, currentChannelID int, modelName, origGroup string) *fallbackResolution {
-	fallbackID := setting.RateLimitFallbackChannelId
-	if fallbackID <= 0 {
-		return nil
-	}
-	if currentChannelID > 0 && currentChannelID == fallbackID {
-		logger.LogWarn(c, fmt.Sprintf("rate limit fallback channel %d is the current channel, treated as unavailable", fallbackID))
-		return nil
-	}
-	fb, err := model.CacheGetChannel(fallbackID)
-	if err != nil || fb == nil {
-		logger.LogWarn(c, fmt.Sprintf("rate limit fallback channel %d not found: %v", fallbackID, err))
-		return nil
-	}
-	if fb.Status != common.ChannelStatusEnabled {
-		logger.LogWarn(c, fmt.Sprintf("rate limit fallback channel %d is disabled", fb.Id))
-		return nil
-	}
-	if !channelSupportsModel(fb, modelName) {
-		logger.LogWarn(c, fmt.Sprintf("rate limit fallback channel %d does not support model %q", fb.Id, modelName))
-		return nil
-	}
-	if !channelSupportsRequestPath(fb, c.Request.URL.Path, modelName) {
-		logger.LogWarn(c, fmt.Sprintf("rate limit fallback channel %d does not support request path %q", fb.Id, c.Request.URL.Path))
-		return nil
-	}
-	return &fallbackResolution{channel: fb, group: origGroup}
 }
 
 // distillFallbackChannel 解析「蒸馏检测」卡片里配置的那个全局兜底渠道。

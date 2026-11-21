@@ -26,13 +26,9 @@ var ModelRequestRateLimitMutex sync.RWMutex
 var MaxConcurrentRequestsPerUserEnabled = false
 var MaxConcurrentRequestsPerUser = 10
 
-// RateLimitFallbackChannelId 速率超限后的**全局**兜底渠道（规格 §21）。
-//
-// ⛔ 与渠道自配的 channel.FallbackChannelId 是两套：
-//   - 配了分组速率且分组策略是「走兜底」的分组，超限后跳这里；
-//   - 没配分组速率、只超总并发的请求，仍然走渠道自配的兜底（旧行为）。
-// 0 = 未配置，超限只能 429。
-var RateLimitFallbackChannelId = 0
+// 速率超限后走**请求所在渠道自配**的 FallbackChannelId（规格 §22）。
+// 原先的全局 RateLimitFallbackChannelId 已移除：平台同时有 Gemini 与 OpenAI
+// 渠道，全局一个兜底渠道会把 Gemini 请求送进不支持它的渠道。
 
 func ModelRequestRateLimitGroup2JSONString() string {
 	ModelRequestRateLimitMutex.RLock()
