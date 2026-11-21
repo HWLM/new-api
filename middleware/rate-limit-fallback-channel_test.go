@@ -134,3 +134,47 @@ func TestRateLimitFallbackRejectsASelfLoop(t *testing.T) {
 	require.Nil(t, redirectToFallbackChannel(c, origin, "claude-3-5-sonnet", "default"),
 		"a fallback pointing at itself must be treated as unusable")
 }
+
+// 原分组为空 / auto 且兜底渠道一个分组都没配 → 无法计费，必须不重导（返回 nil，
+// 调用方据此 429）。RL12 想在 HTTP 层验这条，但构造不出来：建渠道时空 group 会被
+// 规范化成 default，用户组置空又会在分销层先 503。只能在这层直接钉死。
+func TestRateLimitFallbackWithoutAnyGroupCannotRedirect(t *testing.T) {
+	db := setupChannelFallbackTestDB(t)
+	mustCreateChannel(t, db, 51, "main", "claude-3-5-sonnet", "default", common.ChannelStatusEnabled, 52)
+	// 兜底渠道不带任何分组（模型能对上，只缺分组）。
+	// ⛔ 必须建完再 Update 置空：列上有 `default:'default'`，直接插空串会被
+	// GORM 用默认值补成 default —— 这也是接口层造不出「无分组渠道」的原因。
+	mustCreateChannel(t, db, 52, "groupless-backup", "claude-3-5-sonnet", "default", common.ChannelStatusEnabled, 0)
+	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", 52).Update("group", "").Error)
+	model.InitChannelCache()
+
+	c := newFallbackTestContext(t)
+	origin, err := model.CacheGetChannel(51)
+	require.NoError(t, err)
+
+	for _, origGroup := range []string{"", "auto"} {
+		require.Nil(t, redirectToFallbackChannel(c, origin, "claude-3-5-sonnet", origGroup),
+			"origGroup=%q with a groupless fallback channel must not redirect (nothing to bill)", origGroup)
+	}
+}
+
+// 镜像场景：原分组为空 / auto，但兜底渠道配了分组 → 解析到兜底渠道自己的分组。
+// 和上一条成对：证明 guard 卡的是「没有分组可计费」，而不是把「原分组为空」
+// 一律拒掉。
+func TestRateLimitFallbackUsesTheChannelsGroupWhenOriginGroupIsEmpty(t *testing.T) {
+	db := setupChannelFallbackTestDB(t)
+	mustCreateChannel(t, db, 61, "main", "claude-3-5-sonnet", "default", common.ChannelStatusEnabled, 62)
+	mustCreateChannel(t, db, 62, "backup", "claude-3-5-sonnet", "backup-group", common.ChannelStatusEnabled, 0)
+	model.InitChannelCache()
+
+	c := newFallbackTestContext(t)
+	origin, err := model.CacheGetChannel(61)
+	require.NoError(t, err)
+
+	for _, origGroup := range []string{"", "auto"} {
+		fb := redirectToFallbackChannel(c, origin, "claude-3-5-sonnet", origGroup)
+		require.NotNil(t, fb, "origGroup=%q must still resolve when the fallback channel has a group", origGroup)
+		require.Equal(t, 62, fb.channel.Id)
+		require.Equal(t, "backup-group", fb.group, "billing must fall back to the channel's own group")
+	}
+}
