@@ -183,3 +183,72 @@ export type DistillClearCacheResult = {
   /** 被解除降级的用户数（字段名按 §20.2 契约） */
   upgraded_users: number
 }
+
+/**
+ * Jev 判定服务调用记录（管理员专用，GET /api/distill_detect/jev_calls）。
+ * 字段对应 controller/distill_jev_calls.go 的 DistillJevCallView。
+ */
+export type DistillJevOutcome =
+  | 'success'
+  | 'http_error'
+  | 'timeout'
+  | 'network_error'
+  | 'parse_error'
+
+export const DISTILL_JEV_OUTCOMES: DistillJevOutcome[] = [
+  'success',
+  'http_error',
+  'timeout',
+  'network_error',
+  'parse_error',
+]
+
+export type DistillJevCall = {
+  id: number
+  /** 被检测的用户 */
+  user_id: number
+  username?: string
+  request_id: string
+  model: string
+  channel_id: number
+  /** 调用时该用户当前分钟的请求数 */
+  rpm: number
+  outcome: DistillJevOutcome | (string & {})
+  /** 没拿到响应（超时 / 网络错误）时为 0 */
+  http_status: number
+  /** 只有 success 才有值 */
+  score: number | null
+  /** 当时的命中阈值 */
+  threshold: number
+  duration_ms: number
+  /** 失败时的错误摘要 */
+  error: string
+  /** RFC3339 */
+  created_at: string
+}
+
+export type DistillJevCallsSummary = {
+  total: number
+  success: number
+  failed: number
+  avg_score: number | null
+  avg_duration_ms: number | null
+}
+
+export type DistillJevCallsPage = {
+  items: DistillJevCall[]
+  total: number
+  page: number
+  summary: DistillJevCallsSummary
+}
+
+export type DistillJevCallsQuery = {
+  p: number
+  page_size: number
+  user_id?: string
+  outcome?: string
+  /** RFC3339 */
+  from?: string
+  /** RFC3339 */
+  to?: string
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -433,11 +434,55 @@ func distillDecisionURL(base string) string {
 	return trimmed + "/v1/systemone"
 }
 
+// JevCallMeta 描述「这次判定属于哪个用户、哪个请求」。
+//
+// 只用于调用流水（distill_jev_calls）：判定函数本身不需要这些字段，
+// 但它们是从请求上下文一路带到判定点的、最便宜的一次传递。
+type JevCallMeta struct {
+	UserID    int
+	RequestID string
+	Model     string
+	ChannelID int
+	// RPM 发这次判定时该用户当前分钟的请求计数（激活阈值的判定依据）。
+	RPM int
+}
+
+// recordJevCall 落一行调用流水。失败只记日志，绝不影响判定结果。
+//
+// ⛔ 同步写：一次 Jev 调用本身就要几百毫秒到几秒，一条小 INSERT 的耗时是噪声；
+// 放后台反而会让「刚判完就查」的人查不到。DB 未初始化（早期启动/单测）时跳过。
+func recordJevCall(meta JevCallMeta, outcome string, httpStatus int, score *float64, threshold float64, durationMs int64, errMsg string) {
+	if model.DB == nil {
+		return
+	}
+	if len(errMsg) > 500 {
+		errMsg = errMsg[:500]
+	}
+	row := &model.DistillJevCall{
+		UserId:     meta.UserID,
+		RequestId:  meta.RequestID,
+		Model:      meta.Model,
+		ChannelId:  meta.ChannelID,
+		Rpm:        meta.RPM,
+		Outcome:    outcome,
+		HttpStatus: httpStatus,
+		Score:      score,
+		Threshold:  threshold,
+		DurationMs: durationMs,
+		Error:      errMsg,
+		CreatedAt:  time.Now(),
+	}
+	if err := model.DB.Create(row).Error; err != nil {
+		common.SysError(fmt.Sprintf("distill_detect: 写入 Jev 调用记录失败 user=%d req=%s err=%v",
+			meta.UserID, meta.RequestID, err))
+	}
+}
+
 // JudgeDistill 对一个正文做一次判定。
 //
 // ⛔ 失败一律按「未命中」返回（Skipped 说明原因），绝不阻断用户请求：
 // 判定服务是旁路增强，它挂了不该让整个网关不可用。
-func JudgeDistill(ctx context.Context, doc string) DistillVerdict {
+func JudgeDistill(ctx context.Context, doc string, meta JevCallMeta) DistillVerdict {
 	s := operation_setting.GetDistillDetectSetting()
 	if !s.Enabled {
 		return DistillVerdict{Skipped: "disabled"}
@@ -452,6 +497,11 @@ func JudgeDistill(ctx context.Context, doc string) DistillVerdict {
 	}
 	if strings.TrimSpace(doc) == "" {
 		return DistillVerdict{Skipped: "empty"}
+	}
+
+	threshold := s.Threshold
+	if threshold <= 0 {
+		threshold = 0.60
 	}
 
 	payload := map[string]any{
@@ -480,29 +530,42 @@ func JudgeDistill(ctx context.Context, doc string) DistillVerdict {
 	if client == nil {
 		client = http.DefaultClient
 	}
+	// ── 从这里开始是**真实调用**：无论成败都记一行调用流水 ──────────────
+	started := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
+		elapsed := time.Since(started).Milliseconds()
+		outcome := "network_error"
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			outcome = "timeout"
+		}
+		recordJevCall(meta, outcome, 0, nil, threshold, elapsed, err.Error())
 		logger.LogWarn(ctx, "distill_detect: 判定请求失败: "+err.Error())
 		return DistillVerdict{Skipped: "network"}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		elapsed := time.Since(started).Milliseconds()
+		recordJevCall(meta, "http_error", resp.StatusCode, nil, threshold, elapsed,
+			fmt.Sprintf("判定服务返回 HTTP %d", resp.StatusCode))
 		logger.LogWarn(ctx, fmt.Sprintf("distill_detect: 判定服务 HTTP %d", resp.StatusCode))
 		return DistillVerdict{Skipped: "http"}
 	}
 	raw, err := readAllLimited(resp.Body, 1<<20)
 	if err != nil {
+		elapsed := time.Since(started).Milliseconds()
+		recordJevCall(meta, "network_error", resp.StatusCode, nil, threshold, elapsed, "读取响应失败: "+err.Error())
 		return DistillVerdict{Skipped: "read"}
 	}
 	best, categories, ok := ParseDistillAnswers(raw)
 	if !ok {
+		elapsed := time.Since(started).Milliseconds()
+		recordJevCall(meta, "parse_error", resp.StatusCode, nil, threshold, elapsed, "响应里没有可用的 noul 分数")
 		logger.LogWarn(ctx, "distill_detect: 判定响应里没有可用的 noul 分数")
 		return DistillVerdict{Skipped: "invalid-response", DocChars: len([]rune(doc))}
 	}
-	threshold := s.Threshold
-	if threshold <= 0 {
-		threshold = 0.60
-	}
+	elapsed := time.Since(started).Milliseconds()
+	recordJevCall(meta, "success", resp.StatusCode, &best, threshold, elapsed, "")
 	return DistillVerdict{
 		Hit:        best >= threshold,
 		Score:      best,
@@ -655,7 +718,7 @@ func parseDistillCategoryScores(categories string) (map[string]float64, bool) {
 // 返回命中信息（未命中返回 nil）。**观察模式下不写降级标记**，因此不会影响路由。
 // 所有耗时的部分（判定、落库、告警）都在调用方的 goroutine 里跑，这里只做
 // 廉价的判断。
-func EvaluateDistill(userID int, requestID, modelName string, body []byte) *model.DistillDetectHit {
+func EvaluateDistill(userID int, requestID, modelName string, channelID int, body []byte) *model.DistillDetectHit {
 	if userID <= 0 {
 		return nil
 	}
@@ -694,7 +757,15 @@ func EvaluateDistill(userID int, requestID, modelName string, body []byte) *mode
 	// 恰恰最常反复发同一段 prompt。
 	prior, seen := distillDedupLookup(userID, doc)
 	verdict, reused, skip := distillResolveVerdict(prior, seen, func() DistillVerdict {
-		return JudgeDistill(ctx, doc)
+		// ⛔ 只有走到这里才是**真实调用** Jev；去重命中的复用不会进闭包，
+		// 因此调用流水天然不会记「没调 Jev」的行。
+		return JudgeDistill(ctx, doc, JevCallMeta{
+			UserID:    userID,
+			RequestID: requestID,
+			Model:     modelName,
+			ChannelID: channelID,
+			RPM:       rpm,
+		})
 	})
 	if skip {
 		return nil

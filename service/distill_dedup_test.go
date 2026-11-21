@@ -100,7 +100,7 @@ func TestDistillRepeatedBodyStillAccumulatesConfirmedHits(t *testing.T) {
 	var hits []*model.DistillDetectHit
 	for i := 0; i < 4; i++ {
 		nextDistillBucket()
-		hit := EvaluateDistill(uid, fmt.Sprintf("req-%d", i), "m", body)
+		hit := EvaluateDistill(uid, fmt.Sprintf("req-%d", i), "m", 0, body)
 		if hit == nil {
 			t.Fatalf("call %d must still count as a hit (§19)", i+1)
 		}
@@ -147,7 +147,7 @@ func TestDistillReusedVerdictKeepsTheThresholdOfThatJudgement(t *testing.T) {
 	body := []byte(`{"model":"m","messages":[{"role":"user","content":"批量生成蒸馏语料"}]}`)
 
 	nextDistillBucket()
-	first := EvaluateDistill(uid, "req-1", "m", body)
+	first := EvaluateDistill(uid, "req-1", "m", 0, body)
 	if first == nil {
 		t.Fatal("0.85 under a 0.60 threshold is a hit")
 	}
@@ -155,7 +155,7 @@ func TestDistillReusedVerdictKeepsTheThresholdOfThatJudgement(t *testing.T) {
 	// 阈值调到 0.95：真判的话 0.85 就不再命中。
 	s.Threshold = 0.95
 	nextDistillBucket()
-	second := EvaluateDistill(uid, "req-2", "m", body)
+	second := EvaluateDistill(uid, "req-2", "m", 0, body)
 	if second == nil || !second.DedupReused {
 		t.Fatal("the reused verdict must stay a hit — it was judged under 0.60")
 	}
@@ -173,11 +173,11 @@ func TestDistillDedupSkipsSilentlyWhenThePreviousVerdictMissed(t *testing.T) {
 	body := []byte(`{"model":"m","messages":[{"role":"user","content":"普通提问"}]}`)
 
 	nextDistillBucket()
-	if hit := EvaluateDistill(uid, "req-1", "m", body); hit != nil {
+	if hit := EvaluateDistill(uid, "req-1", "m", 0, body); hit != nil {
 		t.Fatalf("0.10 is below the threshold, got %+v", hit)
 	}
 	nextDistillBucket()
-	if hit := EvaluateDistill(uid, "req-2", "m", body); hit != nil {
+	if hit := EvaluateDistill(uid, "req-2", "m", 0, body); hit != nil {
 		t.Fatal("a repeated non-hit must not produce a hit")
 	}
 	if got := atomic.LoadInt32(calls); got != 1 {

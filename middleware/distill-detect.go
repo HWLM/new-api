@@ -136,7 +136,7 @@ func runDistillDetection(c *gin.Context, channel *model.Channel, modelName strin
 		// 后台 goroutine 不能再回读它。
 		channelID := channel.Id
 		gopool.Go(func() {
-			hit := service.EvaluateDistill(userID, requestID, modelName, body)
+			hit := service.EvaluateDistill(userID, requestID, modelName, channelID, body)
 			if hit == nil {
 				return
 			}
@@ -164,7 +164,7 @@ func runDistillDetection(c *gin.Context, channel *model.Channel, modelName strin
 	if modelName == "" {
 		modelName = distillModelNameFromBody(body)
 	}
-	hit := service.EvaluateDistill(userID, requestID, modelName, body)
+	hit := service.EvaluateDistill(userID, requestID, modelName, channel.Id, body)
 	if hit == nil {
 		return nil
 	}

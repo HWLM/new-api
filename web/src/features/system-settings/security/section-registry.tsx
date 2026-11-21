@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { DistillDetectSection } from '../request-limits/distill-detect-section'
+import { DistillDetectTabs } from '../request-limits/distill-detect-tabs'
 import { RateLimitSection } from '../request-limits/rate-limit-section'
 import { RefusalDemoteSection } from '../request-limits/refusal-demote-section'
 import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
@@ -72,7 +72,7 @@ const SECURITY_SECTIONS = [
     // 蒸馏检测有独立的 /api/distill_detect/setting 接口，不走 option kv 表单。
     id: 'distill-detect',
     titleKey: 'Distillation detection',
-    build: () => <DistillDetectSection />,
+    build: () => <DistillDetectTabs />,
   },
   {
     id: 'sensitive-words',
