@@ -577,7 +577,11 @@ export function DistillDetectSection() {
                   <FormLabel>{t('Judge service URL')}</FormLabel>
                   <FormControl>
                     <Input
-                      {...field}
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                      value={field.value ?? ''}
                       placeholder='https://'
                       autoComplete='off'
                     />
@@ -601,7 +605,11 @@ export function DistillDetectSection() {
                   </FormLabel>
                   <FormControl>
                     <Input
-                      {...field}
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                      value={field.value ?? ''}
                       type='password'
                       autoComplete='new-password'
                       disabled={clearKey}
@@ -715,7 +723,11 @@ export function DistillDetectSection() {
                   </FormLabel>
                   <FormControl>
                     <Input
-                      {...field}
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                      value={field.value ?? ''}
                       type='password'
                       autoComplete='new-password'
                       disabled={clearTgToken}
@@ -753,7 +765,11 @@ export function DistillDetectSection() {
                   <FormLabel>{t('Telegram chat ID')}</FormLabel>
                   <FormControl>
                     <Input
-                      {...field}
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                      value={field.value ?? ''}
                       autoComplete='off'
                       placeholder='-1001234567890'
                     />
@@ -776,7 +792,11 @@ export function DistillDetectSection() {
                 <FormLabel>{t('WeCom webhook URL')}</FormLabel>
                 <FormControl>
                   <Input
-                    {...field}
+                    name={field.name}
+                    ref={field.ref}
+                    onBlur={field.onBlur}
+                    onChange={field.onChange}
+                    value={field.value ?? ''}
                     placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key='
                     autoComplete='off'
                   />
