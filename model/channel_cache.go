@@ -31,7 +31,13 @@ func InitChannelCache() {
 	newChannelId2channel := make(map[int]*Channel)
 	newChannel2advancedCustomConfig := make(map[int]*dto.AdvancedCustomConfig)
 	var channels []*Channel
-	DB.Find(&channels)
+	// ⛔ 查询失败必须直接放弃本次同步、保留旧缓存：
+	// 拿 0 行结果去重建缓存等于把「查不到」当成「库里没有渠道」，
+	// 一瞬间的 SQLITE_BUSY / 连接抖动就会把全部渠道从缓存里抹掉。
+	if err := DB.Find(&channels).Error; err != nil {
+		common.SysLog("InitChannelCache: 读取渠道失败，保留旧缓存: " + err.Error())
+		return
+	}
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
 		if channel.Type == constant.ChannelTypeAdvancedCustom {
@@ -41,7 +47,10 @@ func InitChannelCache() {
 		}
 	}
 	var abilities []*Ability
-	DB.Find(&abilities)
+	if err := DB.Find(&abilities).Error; err != nil {
+		common.SysLog("InitChannelCache: 读取 abilities 失败，保留旧缓存: " + err.Error())
+		return
+	}
 	groups := make(map[string]bool)
 	for _, ability := range abilities {
 		groups[ability.Group] = true
@@ -58,8 +67,10 @@ func InitChannelCache() {
 		for _, group := range groups {
 			models := strings.Split(channel.Models, ",")
 			for _, model := range models {
-				if _, ok := newGroup2model2channels[group][model]; !ok {
-					newGroup2model2channels[group][model] = make([]int, 0)
+				// ⛔ abilities 里没有这个分组（两表短暂不一致）时内层 map 不存在，
+				// 直接写就是「assignment to entry in nil map」→ 整进程 panic。
+				if _, ok := newGroup2model2channels[group]; !ok {
+					newGroup2model2channels[group] = make(map[string][]int)
 				}
 				newGroup2model2channels[group][model] = append(newGroup2model2channels[group][model], channel.Id)
 			}
