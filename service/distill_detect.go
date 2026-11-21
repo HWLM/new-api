@@ -504,7 +504,15 @@ func JudgeDistill(ctx context.Context, doc string, meta JevCallMeta) DistillVerd
 		threshold = 0.60
 	}
 
+	// ⛔ model 是判定服务的**必填**字段：TypeSafe 的 /v1/systemone 少这个字段直接
+	// 422 `{"detail":[{"loc":["body","model"],"msg":"Field required"}]}`，一行判定都
+	// 跑不出去。配置里留空时按 jev-latest 发，不要让整个链路因为一个空串全 422。
+	jevModel := strings.TrimSpace(s.JevModel)
+	if jevModel == "" {
+		jevModel = "jev-latest"
+	}
 	payload := map[string]any{
+		"model":     jevModel,
 		"state":     doc,
 		"questions": questions,
 	}
@@ -546,9 +554,21 @@ func JudgeDistill(ctx context.Context, doc string, meta JevCallMeta) DistillVerd
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		elapsed := time.Since(started).Milliseconds()
-		recordJevCall(meta, "http_error", resp.StatusCode, nil, threshold, elapsed,
-			fmt.Sprintf("判定服务返回 HTTP %d", resp.StatusCode))
-		logger.LogWarn(ctx, fmt.Sprintf("distill_detect: 判定服务 HTTP %d", resp.StatusCode))
+		// ⛔ 把响应体前 500 字符一起记下来：422 这类校验错误的原因只在响应体里，
+		// 以前只记「HTTP 422」，运营看不到缺的是哪个字段，只能手打接口去复现。
+		snippet := ""
+		if body, readErr := readAllLimited(resp.Body, 1<<20); readErr == nil {
+			snippet = strings.TrimSpace(string(body))
+			if runes := []rune(snippet); len(runes) > 500 {
+				snippet = string(runes[:500]) + "…"
+			}
+		}
+		errMsg := fmt.Sprintf("判定服务返回 HTTP %d", resp.StatusCode)
+		if snippet != "" {
+			errMsg += ": " + snippet
+		}
+		recordJevCall(meta, "http_error", resp.StatusCode, nil, threshold, elapsed, errMsg)
+		logger.LogWarn(ctx, fmt.Sprintf("distill_detect: 判定服务 HTTP %d %s", resp.StatusCode, snippet))
 		return DistillVerdict{Skipped: "http"}
 	}
 	raw, err := readAllLimited(resp.Body, 1<<20)
