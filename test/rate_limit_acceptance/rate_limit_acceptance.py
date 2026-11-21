@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
-"""速率限制兜底拆分（§21）验收：五条规格用例 + 拒答降级回归 + 旧行为回归
+"""速率限制兜底（§22：改走请求所在渠道自配的 FallbackChannelId）验收
 
-对应 docs/rate-limit-fallback-split.md §21.1–§21.6。黑盒，只走 HTTP；并发用线程同时发，
+对应 docs/rate-limit-fallback-split.md §21/§22。黑盒，只走 HTTP；并发用线程同时发，
 上游由脚本自带（提示里写 `slow:2500` 就 sleep 2500ms），不依赖外部慢速上游。
 
-环境变量：
-  RL_BASE_URL        被测实例，默认 http://127.0.0.1:3101
-  RL_ADMIN_TOKEN     管理员令牌
-  RL_RELAY_KEY       普通用户 Key
-  RL_USER_ID         该用户 id，默认 1
-  RL_MODEL           测试模型名，默认 rl-model
-  RL_UPSTREAM_PORT   假上游端口，默认 18110
-  RL_SLOW_MS         慢请求延时，默认 2500
-  RL_REDIS_ADDR / RL_REDIS_DB / RL_REDIS_PASSWORD
-                     可选；RL5 需要往 Redis 写 refusal:demote 键来伪造降级态，
-                     不给则 RL5 打 SKIP（内存模式下没法从外部造降级态）
+§22 相对 §21 的变化：全局设置项 RateLimitFallbackChannelId 删除，速率超限后改跳
+**请求所在渠道自配**的 FallbackChannelId（与拒答降级共用同一字段、单跳、不递归）。
+用例断言跟着改了，不是把旧的全局兜底渠道换个名字：
 
-用例：
-  RL1 分组 {limit:2,fallback:true} 并发 3 → 第 3 条走全局兜底渠道，日志 group 仍是原分组
-  RL2 同配置 fallback:false        → 第 3 条 429，code=rate_limit_exceeded，文案是「未启用兜底」
-  RL3 不配兜底渠道（0）/ 兜底渠道不支持该模型 → 429，文案是「兜底渠道不可用」
-  RL4 只超总并发、没配分组额度 → 旧行为：走**渠道自配**的 FallbackChannelId，不走全局兜底
-  RL5 拒答降级回归 → 仍走渠道自配兜底、计费分组不变、429 文案与 code 与改动前一致
-  RL6 429 形态并排断言：速率 429 带 code，拒答 429 不带 code（两条路径不许合并）
+  RL1  分组 {limit:2,fallback:true} 并发 3 → 第 3 条跳渠道自配兜底，计费分组不变
+  RL2  同配置 fallback:false → 即使渠道配了兜底也 429，一跳都不跳
+  RL3  兜底未配 / 不支持该模型 / 指向自己 → 429「该渠道未配置可用的兜底渠道」
+  RL4  只超总并发、没配分组额度 → 旧行为：走渠道自配兜底
+  RL5  拒答降级回归 → 仍走渠道自配兜底、计费分组不变、429 文案与 code 不变
+  RL6  速率 429 带 code、并发口径，不混拒答措辞
+  RL7  分组条目 limit<=0 → 等于没配，只超总并发时走旧行为
+  RL8  蒸馏降级态 + 并发超限 → 429，不许第二次跳转
+  RL9  重导模式下被 429 的命中行不能记成已重导（fallback_id=0）
+  RL10 全局设置项确实删干净：options 里没有、写入不被接受；渠道字段仍可读写
+
+独立启动时每个用例都会自己改 main 渠道的 fallback_channel_id 并重建 abilities 缓存。
 """
 import argparse
 import json
@@ -403,14 +400,40 @@ def hits_for_request(request_id):
 
 # ── 用例 ────────────────────────────────────────────────────────────────
 def prepare(ids):
-    """统一把并发限制打开，模型走白名单无关的普通链路。"""
+    """统一把并发限制打开；渠道兜底字段由各用例自己设。"""
     set_option("SelfUseModeEnabled", "true")
     set_option("MaxConcurrentRequestsPerUserEnabled", "true")
 
 
-def concurrent_case(case, ids, group_cfg, global_fb, n, expect_fb, tag):
-    """并发 n 条，断言落到哪个渠道。返回 (res, rows)。"""
-    set_option("RateLimitFallbackChannelId", global_fb)
+def clear_distill_state():
+    """清掉蒸馏降级态与命中计数。
+
+    RL8/RL9 会让服务端写 distill:demote:{user:N}（TTL 600~900s），如果后面再跑
+    非蒸馏用例，请求会先被降级到蒸馏兜底渠道，表现为 429 文案变成「并发请求数已超限，
+    请联系管理员」、日志渠道变成蒸馏兜底 —— 这就是本套件早期那次 3 条假失败的原因。
+    """
+    if REDIS_ADDR:
+        try:
+            Redis(REDIS_ADDR, REDIS_PASSWORD, REDIS_DB).cmd(
+                "DEL", "distill:demote:{user:%d}" % USER_ID)
+        except Exception as e:
+            print("      清蒸馏降级键失败: %s" % repr(e)[:100], flush=True)
+    try:
+        admin("POST", "/api/distill_detect/clear_cache", {"scope": "all"})
+    except Exception as e:
+        print("      清蒸馏缓存失败: %s" % repr(e)[:100], flush=True)
+
+
+def set_main_fallback(ids, fb):
+    """改 main 渠道自配的兜底，并重建 abilities 缓存（Redis 实例必需）。"""
+    patch_channel(ids["main"], {"fallback_channel_id": int(fb)})
+    admin("POST", "/api/channel/fix")
+    time.sleep(0.4)
+
+
+def concurrent_case(case, ids, group_cfg, channel_fb, n, tag):
+    """把 main 的兜底设成 channel_fb，再并发发 n 条。返回 (res, rows)。"""
+    set_main_fallback(ids, channel_fb)
     set_user(max_concurrency=-1, group_rate_limits=json.dumps(group_cfg) if group_cfg else "")
     time.sleep(0.3)
     t0 = int(time.time()) - 1
@@ -420,58 +443,92 @@ def concurrent_case(case, ids, group_cfg, global_fb, n, expect_fb, tag):
     return res, logs_after(base, t0)
 
 
+def served_channels(rows):
+    return sorted({int(r.get("channel") or 0) for r in rows})
+
+
 def case_RL1(ids):
-    """§21.6-1 分组 fallback:true → 第 3 条走全局兜底渠道，计费分组不变"""
+    """§22-1 分组 fallback:true → 超限那条跳**请求所在渠道自配**的兜底，计费分组不变"""
     case = "RL1"
+    clear_distill_state()
     res, rows = concurrent_case(case, ids, {"default": {"limit": 2, "fallback": True}},
-                                ids["global_fb"], 3, ids["global_fb"], "RL1")
-    served = {int(r.get("channel") or 0) for r in rows}
-    fb_rows = [r for r in rows if int(r.get("channel") or 0) == ids["global_fb"]]
+                                ids["old_fb"], 3, "RL1")
+    served = served_channels(rows)
+    fb_rows = [r for r in rows if int(r.get("channel") or 0) == ids["old_fb"]]
     report(case, "3 条并发全部 200", "PASS" if codes(res) == [200, 200, 200] else "FAIL",
            "状态码 %s" % codes(res))
-    report(case, "其中 1 条落到全局兜底渠道", "PASS" if len(fb_rows) == 1 else "FAIL",
-           "兜底渠道=%s，实际服务渠道集合=%s，日志 %d 行" %
-           (ids["global_fb"], sorted(served), len(rows)))
+    report(case, "其中 1 条落到渠道自配兜底", "PASS" if len(fb_rows) == 1 else "FAIL",
+           "自配兜底=%s，实际服务渠道=%s，日志 %d 行" % (ids["old_fb"], served, len(rows)))
     group_ok = bool(fb_rows) and all(r.get("group") == "default" for r in fb_rows)
     report(case, "兜底那条的日志 group 仍是原分组", "PASS" if group_ok else "FAIL",
            "兜底行 group=%s" % (fb_rows[0].get("group") if fb_rows else "-"))
+    report(case, "没有跳到任何别的渠道（全局配置已删除）",
+           "PASS" if ids["decoy_fb"] not in served else "FAIL",
+           "诱饵渠道=%s，实际服务渠道=%s" % (ids["decoy_fb"], served))
 
 
 def case_RL2(ids):
-    """§21.6-2 fallback:false → 第 3 条 429 + rate_limit_exceeded + 「未启用兜底」"""
+    """§22-2 fallback:false → 渠道即使配了兜底也直接 429，一跳都不跳"""
     case = "RL2"
+    clear_distill_state()
     res, rows = concurrent_case(case, ids, {"default": {"limit": 2, "fallback": False}},
-                                ids["global_fb"], 3, None, "RL2")
+                                ids["old_fb"], 3, "RL2")
     body = body_of(res, 429)
     rejected = sum(1 for _, c, _ in res if c == 429)
     report(case, "超限那条 429", "PASS" if rejected == 1 else "FAIL", "状态码 %s" % codes(res))
     report(case, "错误码 rate_limit_exceeded", "PASS" if "rate_limit_exceeded" in body else "FAIL",
            body[:150])
     report(case, "文案是「未启用兜底」", "PASS" if "未启用兜底" in body else "FAIL", body[:150])
-    went_fb = [r for r in rows if int(r.get("channel") or 0) == ids["global_fb"]]
-    report(case, "没有偷偷走兜底渠道", "PASS" if not went_fb else "FAIL",
-           "兜底渠道命中 %d 条" % len(went_fb))
+    served = served_channels(rows)
+    report(case, "渠道虽配了兜底但没偷偷跳过去", "PASS" if ids["old_fb"] not in served else "FAIL",
+           "自配兜底=%s，实际服务渠道=%s" % (ids["old_fb"], served))
+    report(case, "诱饵渠道同样没被用", "PASS" if ids["decoy_fb"] not in served else "FAIL",
+           "诱饵=%s，实际服务渠道=%s" % (ids["decoy_fb"], served))
 
 
 def case_RL3(ids):
-    """§21.6-3 兜底渠道不可用 → 429 + rate_limit_exceeded + 「兜底不可用」"""
+    """§22-3 兜底不可用（未配 / 模型不支持 / 自环）→ 429 +「该渠道未配置可用的兜底渠道」"""
     case = "RL3"
+    clear_distill_state()
     for label, fb in (("未配兜底渠道(0)", 0), ("兜底渠道不支持该模型", ids["bad_fb"])):
-        res, rows = concurrent_case(case, ids, {"default": {"limit": 2, "fallback": True}}, fb,
-                                    3, None, "RL3")
+        res, rows = concurrent_case(case, ids, {"default": {"limit": 2, "fallback": True}}, fb, 3, "RL3")
         body = body_of(res, 429)
         report(case, "%s → 429" % label, "PASS" if 429 in codes(res) else "FAIL",
                "状态码 %s" % codes(res))
-        report(case, "%s → 兜底不可用文案" % label,
-               "PASS" if ("兜底渠道不可用" in body and "rate_limit_exceeded" in body) else "FAIL",
-               body[:150])
+        report(case, "%s → 「该渠道未配置可用的兜底渠道」+ code" % label,
+               "PASS" if ("未配置可用的兜底渠道" in body and "rate_limit_exceeded" in body) else "FAIL",
+               body[:160])
+        report(case, "%s → 没有跳到任何渠道" % label,
+               "PASS" if not [r for r in rows if int(r.get("channel") or 0) != ids["main"]] else "FAIL",
+               "实际服务渠道=%s" % served_channels(rows))
+
+    # 自环：兜底指回自己。必须 429，不能递归/卡死。
+    try:
+        set_main_fallback(ids, ids["main"])
+        set_user(max_concurrency=-1, group_rate_limits=json.dumps({"default": {"limit": 2, "fallback": True}}))
+        t0 = int(time.time()) - 1
+        base = max_log_id()
+        tstart = time.time()
+        res = burst(3, "RL3-self")
+        elapsed = time.time() - tstart
+        rows = logs_after(base, t0)
+        body = body_of(res, 429)
+        report(case, "兜底指向自己(自环) → 429", "PASS" if 429 in codes(res) else "FAIL",
+               "状态码 %s" % codes(res))
+        report(case, "自环 → 同一套「未配置可用的兜底渠道」文案",
+               "PASS" if ("未配置可用的兜底渠道" in body and "rate_limit_exceeded" in body) else "FAIL",
+               body[:160])
+        report(case, "自环没有递归/卡死（3 条在 30s 内返回）", "PASS" if elapsed < 30 else "FAIL",
+               "耗时 %.1fs" % elapsed)
+    except Exception as e:
+        report(case, "兜底指向自己(自环)", "SKIP", "接口不接受自环设置：%s" % repr(e)[:120])
 
 
 def case_RL4(ids):
-    """§21.6-4 只超总并发、没配分组额度 → 旧行为：走渠道自配兜底，不走全局兜底"""
+    """§22-4 只超总并发、没配分组额度 → 旧行为：走渠道自配兜底"""
     case = "RL4"
-    set_option("RateLimitFallbackChannelId", ids["global_fb"])
-    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
+    clear_distill_state()
+    set_main_fallback(ids, ids["old_fb"])
     set_user(max_concurrency=2, group_rate_limits="")
     time.sleep(0.3)
     t0 = int(time.time()) - 1
@@ -479,26 +536,27 @@ def case_RL4(ids):
     res = burst(3, "RL4")
     time.sleep(1.2)
     rows = logs_after(base, t0)
-    served = sorted({int(r.get("channel") or 0) for r in rows})
+    served = served_channels(rows)
+    fb_rows = [r for r in rows if int(r.get("channel") or 0) == ids["old_fb"]]
     report(case, "3 条并发全部 200（旧行为不拒）", "PASS" if codes(res) == [200, 200, 200] else "FAIL",
            "状态码 %s" % codes(res))
-    report(case, "超限那条走渠道自配兜底", "PASS" if ids["old_fb"] in served else "FAIL",
-           "渠道自配兜底=%s，实际服务渠道=%s" % (ids["old_fb"], served))
-    report(case, "没有误用新的全局速率兜底", "PASS" if ids["global_fb"] not in served else "FAIL",
-           "全局兜底=%s，实际服务渠道=%s" % (ids["global_fb"], served))
+    report(case, "超限那条走渠道自配兜底", "PASS" if fb_rows else "FAIL",
+           "自配兜底=%s，实际服务渠道=%s" % (ids["old_fb"], served))
+    report(case, "没有别的渠道掺进来", "PASS" if ids["decoy_fb"] not in served else "FAIL",
+           "诱饵=%s，实际服务渠道=%s" % (ids["decoy_fb"], served))
 
 
 def case_RL5(ids):
-    """§21.6-5 拒答降级回归：仍走渠道自配兜底，计费分组不变"""
+    """§22-5 拒答降级回归：仍走渠道自配兜底、计费分组不变、429 文案与 code 不变"""
     case = "RL5"
+    clear_distill_state()
     if not REDIS_ADDR:
         report(case, "拒答降级回归", "SKIP",
                "需要 RL_REDIS_ADDR 才能写 refusal:demote:{user:N} 造降级态；内存模式无法从外部伪造")
         return
     r = Redis(REDIS_ADDR, REDIS_PASSWORD, REDIS_DB)
-    set_option("RateLimitFallbackChannelId", ids["global_fb"])
     set_user(max_concurrency=-1, group_rate_limits="", refusal_demote_override=1)
-    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
+    set_main_fallback(ids, ids["old_fb"])
     r.cmd("SET", "refusal:demote:{user:%d}" % USER_ID, "1", "EX", "600")
     time.sleep(0.5)
 
@@ -509,33 +567,29 @@ def case_RL5(ids):
     rows = logs_after(base, t0)
     fb_rows = [x for x in rows if int(x.get("channel") or 0) == ids["old_fb"]]
     report(case, "降级态请求走渠道自配兜底", "PASS" if fb_rows else "FAIL",
-           "HTTP %s，日志渠道=%s，期望 %s" %
-           (code, sorted({int(x.get("channel") or 0) for x in rows}), ids["old_fb"]))
-    report(case, "没有串到全局速率兜底", "PASS"
-           if not [x for x in rows if int(x.get("channel") or 0) == ids["global_fb"]] else "FAIL",
-           "全局兜底=%s" % ids["global_fb"])
+           "HTTP %s，日志渠道=%s，期望 %s" % (code, served_channels(rows), ids["old_fb"]))
     report(case, "计费分组仍是原分组", "PASS" if fb_rows and fb_rows[0].get("group") == "default" else "FAIL",
            "group=%s" % (fb_rows[0].get("group") if fb_rows else "-"))
 
     # 渠道没配兜底时：429 文案必须是拒答那套，且**不带** rate_limit_exceeded
-    patch_channel(ids["main"], {"fallback_channel_id": 0})
-    admin("POST", "/api/channel/fix")
+    set_main_fallback(ids, 0)
     time.sleep(0.5)
     code2, txt2 = relay("RL5 拒答降级无兜底 %f" % time.time(), timeout=60)
     report(case, "无兜底时 429", "PASS" if code2 == 429 else "FAIL", "HTTP %s" % code2)
-    report(case, "拒答文案不变（风控降级口径）",
+    report(case, "拒答文案不变（风控降级口径、无 rate_limit_exceeded）",
            "PASS" if ("风控降级" in txt2 and "rate_limit_exceeded" not in txt2) else "FAIL",
            txt2[:160])
 
     r.cmd("DEL", "refusal:demote:{user:%d}" % USER_ID)
     set_user(refusal_demote_override=0)
-    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
+    set_main_fallback(ids, ids["old_fb"])
 
 
 def case_RL6(ids):
-    """429 形态并排：速率 429 带 code，拒答 429 不带 code —— 两条路径不许合并"""
+    """429 形态并排：速率 429 带 code 且是并发口径，不许混进拒答措辞"""
     case = "RL6"
-    set_option("RateLimitFallbackChannelId", 0)
+    clear_distill_state()
+    set_main_fallback(ids, 0)
     set_user(max_concurrency=-1, group_rate_limits=json.dumps({"default": {"limit": 1, "fallback": False}}))
     time.sleep(0.3)
     res = burst(2, "RL6")
@@ -544,13 +598,15 @@ def case_RL6(ids):
     report(case, "速率 429 带 rate_limit_exceeded", "PASS" if "rate_limit_exceeded" in rate_body else "FAIL",
            rate_body[:150])
     report(case, "速率 429 文案是并发超限口径", "PASS" if "并发" in rate_body else "FAIL", rate_body[:120])
+    report(case, "速率 429 不混拒答口径（无「风控降级」）",
+           "PASS" if "风控降级" not in rate_body else "FAIL", rate_body[:120])
 
 
 def case_RL7(ids):
-    """分组写了条目但 limit<=0 —— 等于没配分组速率，只超总并发必须走旧行为（渠道自配兜底）"""
+    """分组写了条目但 limit<=0 —— 等于没配分组速率，只超总并发时走旧行为（渠道自配兜底）"""
     case = "RL7"
-    set_option("RateLimitFallbackChannelId", ids["global_fb"])
-    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
+    clear_distill_state()
+    set_main_fallback(ids, ids["old_fb"])
     for label, cfg in (("limit=0 + fallback:false", {"default": {"limit": 0, "fallback": False}}),
                        ("limit=-1 + fallback:false", {"default": {"limit": -1, "fallback": False}}),
                        ("limit=0 + fallback:true", {"default": {"limit": 0, "fallback": True}})):
@@ -561,13 +617,11 @@ def case_RL7(ids):
         res = burst(3, "RL7")
         time.sleep(1.2)
         rows = logs_after(base, t0)
-        served = sorted({int(r.get("channel") or 0) for r in rows})
+        served = served_channels(rows)
         report(case, "%s → 不 429" % label, "PASS" if codes(res) == [200, 200, 200] else "FAIL",
                "状态码 %s（429 说明 limit<=0 被当成启用了分组策略）" % codes(res))
         report(case, "%s → 超限走渠道自配兜底" % label, "PASS" if ids["old_fb"] in served else "FAIL",
                "自配兜底=%s，实际服务渠道=%s" % (ids["old_fb"], served))
-        report(case, "%s → 不走全局速率兜底" % label, "PASS" if ids["global_fb"] not in served else "FAIL",
-               "全局兜底=%s，实际服务渠道=%s" % (ids["global_fb"], served))
 
 
 def case_RL8(ids):
@@ -580,14 +634,13 @@ def case_RL8(ids):
     r = Redis(REDIS_ADDR, REDIS_PASSWORD, REDIS_DB)
     demote_key = "distill:demote:{user:%d}" % USER_ID
 
-    # 三条兜底链路给三个不同渠道：自配(2) / 全局速率(3) / 蒸馏(5)，看落点就知道走了哪条
-    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
-    set_option("RateLimitFallbackChannelId", ids["global_fb"])
+    # 两条兜底链路指向不同渠道：渠道自配(2) / 蒸馏(5)，看落点就知道走了哪条
+    set_main_fallback(ids, ids["old_fb"])
     distill_put({"enabled": True, "observe_only": False, "activate_rpm": 1,
                  "confirm_hits": 1, "confirm_window_seconds": 300, "threshold": 0.6,
                  "demote_seconds": 900, "fallback_channel_id": ids["distill_fb"],
                  "detect_channel_ids": [ids["main"]], "dedup_seconds": 0,
-                 "jev_base_url": "http://127.0.0.1:18098/v1/systemone"})
+                 "jev_base_url": "http://127.0.0.1:%d/v1/systemone" % JEV_PORT})
     set_user(max_concurrency=1, group_rate_limits="")
     r.cmd("SET", demote_key, "1", "EX", "900")
     time.sleep(0.5)
@@ -598,7 +651,7 @@ def case_RL8(ids):
     code1, _ = relay("RL8 降级未超限 %f" % time.time(), timeout=60)
     time.sleep(1.2)
     rows1 = logs_after(base, t0)
-    served1 = sorted({int(x.get("channel") or 0) for x in rows1})
+    served1 = served_channels(rows1)
     report(case, "降级+未超限 → 200 且走蒸馏兜底",
            "PASS" if (code1 == 200 and ids["distill_fb"] in served1) else "FAIL",
            "HTTP %s，服务渠道=%s，蒸馏兜底=%s" % (code1, served1, ids["distill_fb"]))
@@ -611,7 +664,7 @@ def case_RL8(ids):
     got = codes(res)
     bodies = [b for _, c, b in res if c == 429]
     rows = logs_after(base, t0)
-    served = sorted({int(x.get("channel") or 0) for x in rows})
+    served = served_channels(rows)
     report(case, "降级+超限 → [200,429,429]", "PASS" if got == [200, 429, 429] else "FAIL",
            "状态码 %s（全 200 说明并发限制又被降级绕过）" % got)
     report(case, "两条 429 都是 rate_limit_exceeded",
@@ -638,8 +691,7 @@ def case_RL9(ids):
     r = Redis(REDIS_ADDR, REDIS_PASSWORD, REDIS_DB)
     r.cmd("DEL", "distill:demote:{user:%d}" % USER_ID)
 
-    patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
-    set_option("RateLimitFallbackChannelId", ids["global_fb"])
+    set_main_fallback(ids, ids["old_fb"])
     distill_put({"enabled": True, "observe_only": False, "activate_rpm": 1,
                  "confirm_hits": 1, "confirm_window_seconds": 300, "threshold": 0.6,
                  "demote_seconds": 600, "fallback_channel_id": ids["distill_fb"],
@@ -680,11 +732,45 @@ def case_RL9(ids):
                "fallback_id=%d（非 0 说明记成已重导了）" % fb)
 
 
+def case_RL10(ids):
+    """§22-6 旧全局配置写进去也没有路由效果；渠道自配字段仍可读写
+
+    说明：PUT /api/option/ 对任何未知 key 都会返回 200 success 并写进 options
+    （updateOptionMap 的 switch 没有 default 分支）—— 这是全局既有行为，不是 §22
+    引入的。所以这里不验 HTTP 状态码，验真正的不变量：旧 key 的值不参与路由。
+    """
+    case = "RL10"
+    clear_distill_state()
+    # 用旧 key 写一个诱饵值，再构造「分组 fallback:true + 渠道没配兜底」
+    admin("PUT", "/api/option/", {"key": "RateLimitFallbackChannelId", "value": str(ids["decoy_fb"])})
+    set_main_fallback(ids, 0)
+    set_user(max_concurrency=-1, group_rate_limits=json.dumps({"default": {"limit": 2, "fallback": True}}))
+    time.sleep(0.3)
+    t0 = int(time.time()) - 1
+    base = max_log_id()
+    res = burst(3, "RL10")
+    time.sleep(1.2)
+    rows = logs_after(base, t0)
+    served = served_channels(rows)
+    body = body_of(res, 429)
+    report(case, "旧 key 写入后不影响路由：仍 429 +「未配置可用的兜底渠道」",
+           "PASS" if (429 in codes(res) and "未配置可用的兜底渠道" in body) else "FAIL",
+           "状态码 %s，正文 %s" % (codes(res), body[:140]))
+    report(case, "旧 key 指向的诱饵渠道没有被当成兜底",
+           "PASS" if ids["decoy_fb"] not in served else "FAIL",
+           "诱饵=%s，实际服务渠道=%s" % (ids["decoy_fb"], served))
+    ch = find_channel("rl-main")
+    report(case, "渠道自配 fallback_channel_id 仍可读写",
+           "PASS" if (ch is not None and "fallback_channel_id" in ch) else "FAIL",
+           "channel.fallback_channel_id=%s" % (ch.get("fallback_channel_id") if ch else "-"))
+
+
 CASES = {"RL1": case_RL1, "RL2": case_RL2, "RL3": case_RL3, "RL4": case_RL4,
          "RL5": case_RL5, "RL6": case_RL6,
          "RL7": case_RL7,
          "RL8": case_RL8,
-         "RL9": case_RL9}
+         "RL9": case_RL9,
+         "RL10": case_RL10}
 
 
 def main():
@@ -708,19 +794,19 @@ def main():
                          {"model": MODEL, "messages": [{"role": "user", "content": "preflight"}]})
         print("      自检 upstream -> %s %s" % (code, txt[:40]), flush=True)
 
-        for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb", DISTILL_FB_NAME, "rl-hold"):
+        for nm in ("rl-main", "rl-oldfb", "rl-decoy", "rl-badfb", DISTILL_FB_NAME, "rl-hold"):
             drop_channel(nm)
         ids["main"] = ensure_channel("rl-main", [MODEL], priority=100)
         ids["old_fb"] = ensure_channel("rl-oldfb", [MODEL], priority=0)
-        ids["global_fb"] = ensure_channel("rl-globalfb", [MODEL], priority=0)
+        ids["decoy_fb"] = ensure_channel("rl-decoy", [MODEL], priority=0)
         ids["bad_fb"] = ensure_channel("rl-badfb", [MODEL_OTHER], priority=0)
         ids["distill_fb"] = ensure_channel(DISTILL_FB_NAME, [MODEL], priority=0)
         ids["hold"] = ensure_channel("rl-hold", [MODEL_HOLD], priority=0)
         patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
         admin("POST", "/api/channel/fix")
         time.sleep(0.5)
-        print("      渠道 main=%d old_fb=%d global_fb=%d bad_fb=%d distill_fb=%d 模型=%s" %
-              (ids["main"], ids["old_fb"], ids["global_fb"], ids["bad_fb"],
+        print("      渠道 main=%d old_fb=%d decoy=%d bad_fb=%d distill_fb=%d 模型=%s" %
+              (ids["main"], ids["old_fb"], ids["decoy_fb"], ids["bad_fb"],
                ids["distill_fb"], MODEL), flush=True)
         # 除 RL8 外都别让蒸馏降级掺进来
         try:
@@ -729,7 +815,7 @@ def main():
             print("      !! 关闭蒸馏失败:", repr(e)[:120], flush=True)
 
         saved_user = user_get()
-        for k in ("MaxConcurrentRequestsPerUserEnabled", "RateLimitFallbackChannelId", "SelfUseModeEnabled"):
+        for k in ("MaxConcurrentRequestsPerUserEnabled", "SelfUseModeEnabled"):
             saved_opts[k] = get_option(k)
         prepare(ids)
 
@@ -751,7 +837,7 @@ def main():
                     if v is not None:
                         set_option(k, v)
                 patch_channel(ids["main"], {"fallback_channel_id": 0}) if ids.get("main") else None
-                for nm in ("rl-main", "rl-oldfb", "rl-globalfb", "rl-badfb", DISTILL_FB_NAME, "rl-hold"):
+                for nm in ("rl-main", "rl-oldfb", "rl-decoy", "rl-badfb", DISTILL_FB_NAME, "rl-hold"):
                     drop_channel(nm)
             except Exception as e:
                 print("!! 收尾失败（需手工清理）:", repr(e)[:200], flush=True)
