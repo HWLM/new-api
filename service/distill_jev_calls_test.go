@@ -1,8 +1,10 @@
 package service
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -117,6 +119,96 @@ func TestJudgeDistillRecordsAnHttpError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, r.HttpStatus)
 	require.Nil(t, r.Score)
 	require.NotEmpty(t, r.Error)
+}
+
+// ⛔ model 是判定服务的必填字段：TypeSafe 的 /v1/systemone 少了它直接 422，
+// 整条链路一行都判不出来。线上就是这么全 422 的（生产配置页也看不到原因的
+// 那种「静默失败」）。默认值必须是 jev-latest，配置里填了就用配置的。
+func TestJudgeDistillSendsTheModelField(t *testing.T) {
+	setupJevCallTestDB(t)
+
+	for _, tc := range []struct {
+		name      string
+		configure string
+		want      string
+	}{
+		{"empty config falls back to jev-latest", "", "jev-latest"},
+		{"an explicit model is sent as configured", "jev-preview", "jev-preview"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotModel string
+			var gotKeys []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var payload map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&payload)
+				for k := range payload {
+					gotKeys = append(gotKeys, k)
+				}
+				if v, ok := payload["model"].(string); ok {
+					gotModel = v
+				}
+				_, _ = w.Write([]byte(`{"answers":{"train.corpus_farm":{"noul":0.9}}}`))
+			}))
+			t.Cleanup(srv.Close)
+			withDistillTestContext(t, srv.URL, func(s *operation_setting.DistillDetectSetting) {
+				s.JevModel = tc.configure
+			})
+
+			require.NotNil(t, EvaluateDistill(4200, "req-jev-model", "m", 1,
+				[]byte(`{"model":"m","messages":[{"role":"user","content":"蒸馏语料"}]}`)),
+				"a 0.9 verdict must be a hit")
+
+			require.Equal(t, tc.want, gotModel, "the model field must be sent")
+			require.Contains(t, gotKeys, "model", "model is required by the judge service")
+			require.Contains(t, gotKeys, "state")
+			require.Contains(t, gotKeys, "questions")
+		})
+	}
+}
+
+// 422 这类校验错误的**原因只在响应体里**。以前只记「HTTP 422」，运营看不到
+// 缺的是哪个字段，只能手打接口复现。现在响应体前 500 字符要进 error 列。
+func TestJudgeDistillRecordsTheResponseBodyOnHttpError(t *testing.T) {
+	db := setupJevCallTestDB(t)
+	const validation = `{"detail":[{"type":"missing","loc":["body","model"],"msg":"Field required"}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(validation))
+	}))
+	t.Cleanup(srv.Close)
+	withDistillTestContext(t, srv.URL, nil)
+
+	body := []byte(`{"model":"m","messages":[{"role":"user","content":"蒸馏语料批量生成"}]}`)
+	require.Nil(t, EvaluateDistill(4106, "req-jev-422", "m", 12, body))
+
+	rows := listJevCalls(t, db)
+	require.Len(t, rows, 1)
+	r := rows[0]
+	require.Equal(t, "http_error", r.Outcome)
+	require.Equal(t, http.StatusUnprocessableEntity, r.HttpStatus)
+	require.Contains(t, r.Error, "422")
+	require.Contains(t, r.Error, `"loc":["body","model"]`,
+		"the validator message must be visible without calling the service by hand")
+	require.Contains(t, r.Error, "Field required")
+}
+
+// 响应体再长也不能把 error 列撑爆：最多 500 字符（按 rune 截断，不切半个汉字）。
+func TestJudgeDistillTruncatesALongErrorBody(t *testing.T) {
+	db := setupJevCallTestDB(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(strings.Repeat("错", 2000)))
+	}))
+	t.Cleanup(srv.Close)
+	withDistillTestContext(t, srv.URL, nil)
+
+	require.Nil(t, EvaluateDistill(4107, "req-jev-long", "m", 13,
+		[]byte(`{"model":"m","messages":[{"role":"user","content":"蒸馏语料"}]}`)))
+
+	rows := listJevCalls(t, db)
+	require.Len(t, rows, 1)
+	require.LessOrEqual(t, len([]rune(rows[0].Error)), 520, "the stored error must stay bounded")
 }
 
 func TestJudgeDistillRecordsAParseError(t *testing.T) {

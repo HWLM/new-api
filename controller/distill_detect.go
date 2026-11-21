@@ -40,6 +40,7 @@ type DistillSettingView struct {
 	ObserveOnly          bool    `json:"observe_only"`
 	JevBaseURL           string  `json:"jev_base_url"`
 	JevApiKeySet         bool    `json:"jev_api_key_set"`
+	JevModel             string  `json:"jev_model"`
 	JevTimeoutMs         int     `json:"jev_timeout_ms"`
 	MaxStateChars        int     `json:"max_state_chars"`
 	HeadSampleChars      int     `json:"head_sample_chars"`
@@ -105,6 +106,7 @@ type DistillSettingUpdateRequest struct {
 	ObserveOnly          *bool    `json:"observe_only"`
 	JevBaseURL           *string  `json:"jev_base_url"`
 	JevApiKey            *string  `json:"jev_api_key"`
+	JevModel             *string  `json:"jev_model"`
 	JevTimeoutMs         *int     `json:"jev_timeout_ms"`
 	MaxStateChars        *int     `json:"max_state_chars"`
 	HeadSampleChars      *int     `json:"head_sample_chars"`
@@ -174,6 +176,14 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 	if req.JevTimeoutMs != nil {
 		if *req.JevTimeoutMs < 200 || *req.JevTimeoutMs > 60000 {
 			common.ApiErrorMsg(c, "判定超时必须在 200ms ~ 60s 之间")
+			return
+		}
+	}
+	// 判定模型名：判定服务的必填字段，留空按默认值处理（不是「不改」——
+	// 空串在这里等价于「用默认的 jev-latest」，因为它没法表达「删除」）。
+	if req.JevModel != nil {
+		if model := strings.TrimSpace(*req.JevModel); len(model) > 100 {
+			common.ApiErrorMsg(c, "判定服务模型名过长")
 			return
 		}
 	}
@@ -317,6 +327,13 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 		default:
 			s.JevApiKey = key
 		}
+	}
+	if req.JevModel != nil {
+		model := strings.TrimSpace(*req.JevModel)
+		if model == "" {
+			model = "jev-latest"
+		}
+		s.JevModel = model
 	}
 	if req.JevTimeoutMs != nil {
 		s.JevTimeoutMs = *req.JevTimeoutMs

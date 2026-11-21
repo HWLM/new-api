@@ -186,6 +186,10 @@ type DistillDetectSetting struct {
 	JevBaseURL string `json:"jev_base_url"`
 	// JevApiKey 判定服务密钥。只在管理页保存，代码与文档不留任何默认值。
 	JevApiKey string `json:"jev_api_key"`
+	// JevModel 判定服务要求的 model 字段。TypeSafe 的 /v1/systemone 把 model 列为
+	// 必填，缺了直接 422 `{"detail":[{"loc":["body","model"],"msg":"Field required"}]}`。
+	// 空 = 用默认值 jev-latest。
+	JevModel string `json:"jev_model"`
 	// JevTimeoutMs 判定调用超时（毫秒）。失败一律按未命中放行。
 	JevTimeoutMs int `json:"jev_timeout_ms"`
 
@@ -252,6 +256,7 @@ var distillDetectSetting = DistillDetectSetting{
 	ObserveOnly:          true, // 灰度：先只记录 + 告警
 	JevBaseURL:           "",
 	JevApiKey:            "",
+	JevModel:             "jev-latest",
 	JevTimeoutMs:         5000,
 	MaxStateChars:        16000,
 	HeadSampleChars:      4000,

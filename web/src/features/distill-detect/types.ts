@@ -41,6 +41,8 @@ export type DistillSetting = {
   demote_seconds: number
   observe_only: boolean
   jev_base_url: string
+  /** 判定服务要求的 model 字段；空 = 后端按 jev-latest */
+  jev_model: string
   /** 只回「是否已配置」，密钥本身永不回显。 */
   jev_api_key_set: boolean
   jev_timeout_ms: number

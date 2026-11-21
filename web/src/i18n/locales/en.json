@@ -6292,6 +6292,8 @@
     "Show error": "Show error",
     "Threshold at the time: {{value}}": "Threshold at the time: {{value}}",
     "Timeout": "Timeout",
-    "Total calls": "Total calls"
+    "Total calls": "Total calls",
+    "Judge service model": "Judge service model",
+    "Sent as the model field of every judge request; the judge service rejects requests without it (422). Valid names come from the judge service's GET /v1/models (currently jev-latest / jev-preview). Leave empty for jev-latest.": "Sent as the model field of every judge request; the judge service rejects requests without it (422). Valid names come from the judge service's GET /v1/models (currently jev-latest / jev-preview). Leave empty for jev-latest."
   }
 }
