@@ -620,7 +620,12 @@ func TestDistill(c *gin.Context) {
 		common.ApiErrorMsg(c, "请提供 text 或 body")
 		return
 	}
-	verdict := service.JudgeDistill(c.Request.Context(), doc)
+	// 试判同样是**真实调用** Jev，按运营自己的账号记一条调用流水（rpm 不累加：
+	// 这不是用户的请求；也不带模型与渠道，运营一眼能看出是手工试判）。
+	verdict := service.JudgeDistill(c.Request.Context(), doc, service.JevCallMeta{
+		UserID:    c.GetInt("id"),
+		RequestID: c.GetString(common.RequestIdKey),
+	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

@@ -295,6 +295,8 @@ func SetApiRouter(router *gin.Engine) {
 		distillRoute := apiRouter.Group("/distill_detect")
 		{
 			distillRoute.GET("/hits", middleware.UserAuth(), controller.ListDistillHits)
+			// Jev 调用流水：每次真实调用一行（失败也记），权限口径与 /hits 一致。
+			distillRoute.GET("/jev_calls", middleware.UserAuth(), controller.ListDistillJevCalls)
 
 			distillSettingRoute := distillRoute.Group("")
 			distillSettingRoute.Use(middleware.AdminAuth())

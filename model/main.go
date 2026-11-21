@@ -332,6 +332,8 @@ func migrateDB() error {
 		&UpstreamBenchmarkProfile{},
 		// 蒸馏检测命中流水，见 docs/distill-detection-plan.md §6。
 		&DistillDetectHit{},
+		// Jev 判定服务的调用流水（每次真实调用一行，失败也记）。
+		&DistillJevCall{},
 	)
 	if err != nil {
 		return err
