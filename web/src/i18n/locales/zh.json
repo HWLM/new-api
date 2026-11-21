@@ -6292,6 +6292,8 @@
     "Show error": "查看错误",
     "Threshold at the time: {{value}}": "当时阈值：{{value}}",
     "Timeout": "超时",
-    "Total calls": "总调用"
+    "Total calls": "总调用",
+    "Judge service model": "判定服务模型",
+    "Sent as the model field of every judge request; the judge service rejects requests without it (422). Use jev-latest or jev-preview. Leave empty for jev-latest.": "每次判定请求都会带上这个 model 字段，判定服务缺了会直接返回 422。可填 jev-latest 或 jev-preview，留空按 jev-latest。"
   }
 }

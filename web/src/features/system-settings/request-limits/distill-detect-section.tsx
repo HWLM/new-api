@@ -103,6 +103,7 @@ const distillSchema = z
       .refine((v) => v === '' || /^https?:\/\//.test(v), {
         message: 'Must start with http:// or https://',
       }),
+    jev_model: z.string().trim().max(100),
     jev_api_key: z.string(),
     clear_jev_api_key: z.boolean(),
     jev_timeout_ms: z.number().int().min(200).max(60000),
@@ -153,6 +154,7 @@ const PLAIN_KEYS = [
   'threshold',
   'demote_seconds',
   'jev_base_url',
+  'jev_model',
   'jev_timeout_ms',
   'max_state_chars',
   'head_sample_chars',
@@ -176,6 +178,8 @@ function toFormValues(s: DistillSetting): DistillFormValues {
     threshold: s.threshold,
     demote_seconds: s.demote_seconds,
     jev_base_url: s.jev_base_url,
+    // 旧后端没有该字段时显示空（后端按 jev-latest），不改就不会提交。
+    jev_model: s.jev_model ?? '',
     jev_api_key: '',
     clear_jev_api_key: false,
     jev_timeout_ms: s.jev_timeout_ms,
@@ -640,6 +644,38 @@ export function DistillDetectSection() {
               )}
             />
           </div>
+          <FormField
+            control={control}
+            name='jev_model'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Judge service model')}</FormLabel>
+                <FormControl>
+                  <Input
+                    name={field.name}
+                    ref={field.ref}
+                    onBlur={field.onBlur}
+                    onChange={field.onChange}
+                    value={field.value ?? ''}
+                    placeholder='jev-latest'
+                    autoComplete='off'
+                    list='distill-jev-model-options'
+                    className='md:w-96'
+                  />
+                </FormControl>
+                <datalist id='distill-jev-model-options'>
+                  <option value='jev-latest' />
+                  <option value='jev-preview' />
+                </datalist>
+                <FormDescription>
+                  {t(
+                    'Sent as the model field of every judge request; the judge service rejects requests without it (422). Use jev-latest or jev-preview. Leave empty for jev-latest.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
           <div className='grid gap-4 md:grid-cols-3'>
             <NumberField
               control={control}
