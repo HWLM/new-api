@@ -88,6 +88,12 @@ const (
 	// ⛔ 与拒答降级的 429 共用状态码但不共用文案：运营必须能一眼分清这次是蒸馏兜底
 	// 还是风控降级，所以这里是独立 code + 独立 message。
 	ErrorCodeDistillFallbackUnavailable ErrorCode = "distill_fallback_unavailable"
+	// ErrorCodeRateLimitExceeded 速率限制（总并发 / 分组并发）超限，且该分组策略
+	// 为「不走兜底」或兜底渠道不可用（规格 §21）。
+	//
+	// ⛔ 与拒答降级的 429、蒸馏兜底的 429 都是不同 code、不同文案：运营要靠它
+	// 区分是「并发打满被拒」还是「风控降级」。
+	ErrorCodeRateLimitExceeded ErrorCode = "rate_limit_exceeded"
 
 	// sql error
 	ErrorCodeQueryDataError  ErrorCode = "query_data_error"

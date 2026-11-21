@@ -93,6 +93,7 @@ import {
   transformUserToFormDefaults,
 } from '../lib'
 import type { User } from '../types'
+import { GroupRateLimitsEditor } from './group-rate-limits-editor'
 import { UserQuotaDialog } from './user-quota-dialog'
 import { useUsers } from './users-provider'
 
@@ -563,6 +564,33 @@ export function UsersMutateDrawer({
                         </FormItem>
                       )
                     }}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='group_rate_limits'
+                    render={({ field, fieldState }) => (
+                      <FormItem>
+                        <FormLabel>{t('Per-group concurrency')}</FormLabel>
+                        <FormControl>
+                          <GroupRateLimitsEditor
+                            value={field.value ?? []}
+                            onChange={field.onChange}
+                            groups={groups}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Total and per-group concurrency both apply; the stricter wins. When a group is full, requests go to the rate-limit fallback channel; with fallback off they get 429 rate_limit_exceeded.'
+                          )}
+                        </FormDescription>
+                        {fieldState.error ? (
+                          <p className='text-destructive text-sm'>
+                            {t('Each row needs a different group')}
+                          </p>
+                        ) : null}
+                      </FormItem>
+                    )}
                   />
 
                   <FormField

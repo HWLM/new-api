@@ -6245,6 +6245,20 @@
     "Clear state for this user": "清空该用户的检测状态",
     "Last clear ({{scope}}): {{cleared}} keys removed, {{users}} demoted users released, backend {{backend}}.": "上次清理（{{scope}}）：删除 {{cleared}} 个键，解除 {{users}} 个用户的降级，后端 {{backend}}。",
     "Clear distillation detection state?": "确认清空蒸馏检测状态？",
-    "This clears the demotion, confirmation-count, dedup and alert-throttle state for {{scope}}. Demoted users go back to their normal channels immediately. Hit records are not deleted.": "将清除{{scope}}的降级、确认计数、去重和告警节流状态，被降级的用户会立即回到正常渠道。不会删除命中记录。"
+    "This clears the demotion, confirmation-count, dedup and alert-throttle state for {{scope}}. Demoted users go back to their normal channels immediately. Hit records are not deleted.": "将清除{{scope}}的降级、确认计数、去重和告警节流状态，被降级的用户会立即回到正常渠道。不会删除命中记录。",
+    "No group limits: every group is only bound by the total concurrency above.": "未配置分组限制：所有分组只受上面的总并发约束。",
+    "Concurrency limit": "并发上限",
+    "Use fallback channel": "走兜底渠道",
+    "Only the total concurrency applies": "只受总并发约束",
+    "No separate limit": "不单独限制",
+    "429 when full": "满额直接 429",
+    "Add group limit": "添加分组限制",
+    "Per-group concurrency": "分组并发限制",
+    "Total and per-group concurrency both apply; the stricter wins. When a group is full, requests go to the rate-limit fallback channel; with fallback off they get 429 rate_limit_exceeded.": "总并发与分组并发同时生效，取更严的一个。分组满额时请求走速率兜底渠道；关闭「走兜底渠道」则直接返回 429 rate_limit_exceeded。",
+    "Each row needs a different group": "每行的分组不能重复",
+    "Duplicate group": "分组重复",
+    "Rate-limit fallback channel": "速率超限兜底渠道",
+    "When a user exceeds the concurrency limit, new requests go to the rate-limit fallback channel below (separate from refusal demotion).": "用户超过并发上限时，新请求走下方的速率超限兜底渠道（与拒答降级的兜底相互独立）。",
+    "Global channel for requests over the total or per-group concurrency limit. Independent of the refusal-demotion fallback configured on each channel. Billing stays on the original group. If unset, disabled, or not supporting the model, requests get 429 rate_limit_exceeded.": "超过总并发或分组并发上限的请求统一走这个渠道，与各渠道自配的拒答降级兜底相互独立，计费仍按原分组。未配置、已禁用或不支持该模型时返回 429 rate_limit_exceeded。"
   }
 }

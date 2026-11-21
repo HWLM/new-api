@@ -99,13 +99,23 @@ func appendFallbackFromInfo(ctx *gin.Context, other map[string]interface{}) {
 	}
 	refusal := common.GetContextKeyBool(ctx, constant.ContextKeyRefusalDemoted)
 	concurrency := common.GetContextKeyBool(ctx, constant.ContextKeyConcurrencyOverloaded)
+	rateLimit := common.GetContextKeyBool(ctx, constant.ContextKeyRateLimitExceeded)
+	rateRejected := common.GetContextKeyBool(ctx, constant.ContextKeyRateLimitRejected)
 	switch {
 	case refusal && concurrency:
 		info["reason"] = "refusal_demote+concurrency"
 	case refusal:
 		info["reason"] = "refusal_demote"
+	case rateRejected:
+		// 分组速率到顶且该分组不走兜底：直接拒，没有 fallback_from 渠道可记。
+		info["reason"] = "rate_limit_rejected"
+	case rateLimit:
+		info["reason"] = "rate_limit_fallback"
 	case concurrency:
 		info["reason"] = "concurrency_overload"
+	}
+	if group := common.GetContextKeyString(ctx, constant.ContextKeyRateLimitGroup); group != "" && (rateLimit || rateRejected) {
+		info["rate_limit_group"] = group
 	}
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
 	if !ok || adminInfo == nil {
