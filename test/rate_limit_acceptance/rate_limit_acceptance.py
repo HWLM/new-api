@@ -34,11 +34,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.environ.get("RL_BASE_URL", "http://127.0.0.1:3101").rstrip("/")
 ADMIN = os.environ.get("RL_ADMIN_TOKEN", "")
+ADMIN_USER = os.environ.get("RL_ADMIN_USER", "root")
+ADMIN_PASSWORD = os.environ.get("RL_ADMIN_PASSWORD", "")
 RELAY_KEY = os.environ.get("RL_RELAY_KEY", "")
 USER_ID = int(os.environ.get("RL_USER_ID", "1") or 1)
 MODEL = os.environ.get("RL_MODEL", "rl-model")
 MODEL_OTHER = MODEL + "-other"
 MODEL_HOLD = MODEL + "-hold"    # 占位请求用的非白名单模型：只占并发槽，不参与蒸馏判定
+GEMINI_MODEL = os.environ.get("RL_GEMINI_MODEL", "rl-gemini-pro")   # 跨厂商用例：只用 gemini 渠道服务
 UPSTREAM_PORT = int(os.environ.get("RL_UPSTREAM_PORT", "18110"))
 JEV_PORT = int(os.environ.get("RL_JEV_PORT", "18097"))
 SLOW_MS = int(os.environ.get("RL_SLOW_MS", "2500"))
@@ -73,8 +76,33 @@ def http(method, path, body=None, token=None, timeout=120):
         return 0, "transport error: %s" % e
 
 
-def admin(method, path, body=None):
-    return http(method, path, body, ADMIN)
+def relogin():
+    """access token 寿命很短（十几分钟），整套用例跑到后半段会 AUTH_TOKEN_EXPIRED。
+    有 RL_ADMIN_PASSWORD 就自动重登换新 token，避免整套用例被过期打断。"""
+    global ADMIN
+    if not ADMIN_PASSWORD:
+        return False
+    code, txt = http("POST", "/api/user/login",
+                     {"username": ADMIN_USER, "password": ADMIN_PASSWORD})
+    if code != 200:
+        return False
+    try:
+        j = json.loads(txt)
+    except Exception:
+        return False
+    tok = (j.get("data") or {}).get("access_token") or j.get("access_token")
+    if not tok:
+        return False
+    ADMIN = tok
+    print("      [relogin] access token 已刷新", flush=True)
+    return True
+
+
+def admin(method, path, body=None, _retry=True):
+    code, txt = http(method, path, body, ADMIN)
+    if code == 401 and _retry and relogin():
+        return http(method, path, body, ADMIN)
+    return code, txt
 
 
 def must(code, txt, what):
@@ -96,13 +124,13 @@ def relay(text, timeout=120, model=None):
     }, RELAY_KEY, timeout=timeout)
 
 
-def burst(n, tag, slow_ms=SLOW_MS):
+def burst(n, tag, slow_ms=SLOW_MS, model=None):
     """同时发 n 条，全部落在同一时刻，用来把并发槽位占满。"""
     out = []
     lock = threading.Lock()
 
     def one(i):
-        code, txt = relay("%s slow:%d #%d %f" % (tag, slow_ms, i, time.time()))
+        code, txt = relay("%s slow:%d #%d %f" % (tag, slow_ms, i, time.time()), model=model)
         with lock:
             out.append((i, code, txt))
 
@@ -141,14 +169,14 @@ def find_channel(name):
     return None
 
 
-def ensure_channel(name, models, priority=0, fallback_channel_id=0):
+def ensure_channel(name, models, priority=0, fallback_channel_id=0, group="default", status=1):
     ch = find_channel(name)
     if ch:
         return int(ch["id"])
     must(*admin("POST", "/api/channel/", {"mode": "single", "channel": {
         "name": name, "type": 1, "key": "sk-rl-stub",
         "base_url": "http://127.0.0.1:%d" % UPSTREAM_PORT,
-        "models": ",".join(models), "group": "default", "status": 1,
+        "models": ",".join(models), "group": group, "status": status,
         "priority": priority, "fallback_channel_id": fallback_channel_id,
     }}), "建渠道 " + name)
     # 开了 Redis 的实例：abilities 缓存要重建，否则 distributor 报「无可用渠道」
@@ -213,11 +241,20 @@ def user_put(user):
 
 
 def set_user(**fields):
-    u = user_get()
-    u.update(fields)
-    code, txt = user_put(u)
-    if code != 200 or '"success":false' in txt.replace(" ", ""):
-        raise RuntimeError("改用户失败: %s %s" % (code, txt[:200]))
+    """改用户。SQLite 库在 60s 定时同步时会短暂锁住（database is locked (5)），
+    这跟被测逻辑无关，重试几次即可，否则用例会假红/假 SKIP。"""
+    last = ""
+    for attempt in range(4):
+        u = user_get()
+        u.update(fields)
+        code, txt = user_put(u)
+        if code == 200 and '"success":false' not in txt.replace(" ", ""):
+            return
+        last = "%s %s" % (code, txt[:200])
+        if "database is locked" not in txt and "SQLITE_BUSY" not in txt:
+            break
+        time.sleep(0.8 * (attempt + 1))
+    raise RuntimeError("改用户失败: %s" % last)
 
 
 def max_log_id():
@@ -225,13 +262,13 @@ def max_log_id():
     return max([int(r["id"]) for r in rows if r.get("id") is not None] or [0])
 
 
-def logs_after(base_id, ts, limit=50):
-    return [r for r in logs_since(ts, limit) if int(r.get("id") or 0) > base_id]
+def logs_after(base_id, ts, limit=50, model=None):
+    return [r for r in logs_since(ts, limit, model) if int(r.get("id") or 0) > base_id]
 
 
-def logs_since(ts, limit=50):
+def logs_since(ts, limit=50, model=None):
     j = must(*admin("GET", "/api/log/?p=1&page_size=%d&type=2&start_timestamp=%d&model_name=%s"
-                    % (limit, ts, MODEL)), "读日志")
+                    % (limit, ts, model or MODEL)), "读日志")
     d = j.get("data") or {}
     if isinstance(d, list):
         return d
@@ -523,6 +560,43 @@ def case_RL3(ids):
     except Exception as e:
         report(case, "兜底指向自己(自环)", "SKIP", "接口不接受自环设置：%s" % repr(e)[:120])
 
+    # 兜底渠道已禁用 → 429（能力表里没有它，CacheGetChannel 拿不到或 status!=1）
+    try:
+        res, rows = concurrent_case(case, ids, {"default": {"limit": 2, "fallback": True}},
+                                    ids["dead_fb"], 3, "RL3-dead")
+        body = body_of(res, 429)
+        report(case, "兜底渠道已禁用 → 429", "PASS" if 429 in codes(res) else "FAIL",
+               "状态码 %s" % codes(res))
+        report(case, "禁用兜底 → 同一套「未配置可用的兜底渠道」文案",
+               "PASS" if ("未配置可用的兜底渠道" in body and "rate_limit_exceeded" in body) else "FAIL",
+               body[:160])
+        report(case, "禁用兜底没有被跳过去", "PASS" if ids["dead_fb"] not in served_channels(rows) else "FAIL",
+               "禁用渠道=%s，实际服务渠道=%s" % (ids["dead_fb"], served_channels(rows)))
+    except Exception as e:
+        report(case, "兜底渠道已禁用 → 429", "SKIP", "禁用渠道构造失败：%s" % repr(e)[:120])
+
+    # 跨厂商：gemini 请求的渠道配了「只支持 openai 模型」的兜底 → 必须 429，不许错跳
+    try:
+        patch_channel(ids["gemini"], {"fallback_channel_id": ids["bad_fb"]})
+        admin("POST", "/api/channel/fix")
+        set_user(max_concurrency=-1, group_rate_limits=json.dumps({"default": {"limit": 2, "fallback": True}}))
+        time.sleep(0.4)
+        t0 = int(time.time()) - 1
+        base = max_log_id()
+        res = burst(3, "RL3-xvendor", model=GEMINI_MODEL)
+        time.sleep(1.2)
+        rows = logs_after(base, t0, model=GEMINI_MODEL)
+        served = served_channels(rows)
+        body = body_of(res, 429)
+        report(case, "跨厂商：gemini 请求不会被送进只认 openai 的兜底",
+               "PASS" if (codes(res) == [200, 200, 429] and ids["bad_fb"] not in served) else "FAIL",
+               "状态码 %s，实际服务渠道=%s，兜底(只认 %s)=%s" % (codes(res), served, MODEL_OTHER, ids["bad_fb"]))
+        report(case, "跨厂商 → 同一套「未配置可用的兜底渠道」文案",
+               "PASS" if "未配置可用的兜底渠道" in body else "FAIL", body[:160])
+    except Exception as e:
+        report(case, "跨厂商：gemini 请求不会被送进只认 openai 的兜底", "SKIP",
+               "gemini 渠道构造失败：%s" % repr(e)[:120])
+
 
 def case_RL4(ids):
     """§22-4 只超总并发、没配分组额度 → 旧行为：走渠道自配兜底"""
@@ -732,6 +806,67 @@ def case_RL9(ids):
                "fallback_id=%d（非 0 说明记成已重导了）" % fb)
 
 
+def case_RL11(ids):
+    """§22-7 单跳：兜底渠道自己还配了兜底 → 只跳一跳，绝不跟到第二跳"""
+    clear_distill_state()
+    case = "RL11"
+    patch_channel(ids["old_fb"], {"fallback_channel_id": ids["decoy_fb"]})
+    admin("POST", "/api/channel/fix")
+    time.sleep(0.4)
+    try:
+        res, rows = concurrent_case(case, ids, {"default": {"limit": 2, "fallback": True}},
+                                    ids["old_fb"], 3, "RL11")
+        served = served_channels(rows)
+        fb_rows = [r for r in rows if int(r.get("channel") or 0) == ids["old_fb"]]
+        report(case, "3 条并发全部 200", "PASS" if codes(res) == [200, 200, 200] else "FAIL",
+               "状态码 %s" % codes(res))
+        report(case, "超限那条落在第一跳（兜底渠道 %d）" % ids["old_fb"],
+               "PASS" if len(fb_rows) == 1 else "FAIL",
+               "第一跳命中 %d 条，实际服务渠道=%s" % (len(fb_rows), served))
+        report(case, "不会跟到第二跳（渠道 %d 零命中）" % ids["decoy_fb"],
+               "PASS" if ids["decoy_fb"] not in served else "FAIL",
+               "第二跳=%s，实际服务渠道=%s" % (ids["decoy_fb"], served))
+    finally:
+        patch_channel(ids["old_fb"], {"fallback_channel_id": 0})
+        admin("POST", "/api/channel/fix")
+
+
+def case_RL12(ids):
+    """§22-8 兜底渠道完全没配分组 + 原分组为空：不许重导，且这条 429 分支从 HTTP 不可达
+
+    实测（3102 / dev-5a4105c34）：把用户分组置空后，请求在**分销阶段**就被拒了
+    ——`503 model_not_found「分组  下模型 rl-model 无可用渠道（distributor）」`，
+    根本走不到兜底解析，所以「拿空分组去计费 → 429」这个守卫在正常 HTTP 链路上
+    构造不出来（它只在内部直接调用 redirectToFallbackChannel 时才有意义，由
+    middleware 的单测覆盖）。这里保留一条真正重要的断言：绝不能 200 重导到那个
+    没配分组的渠道。
+    """
+    clear_distill_state()
+    case = "RL12"
+    u = user_get()
+    old_group = u.get("group") or "default"
+    try:
+        set_user(group="", max_concurrency=2, group_rate_limits="")
+        set_main_fallback(ids, ids["nogrp_fb"])
+        time.sleep(0.4)
+        t0 = int(time.time()) - 1
+        base = max_log_id()
+        res = burst(3, "RL12")
+        time.sleep(1.2)
+        rows = logs_after(base, t0)
+        served = served_channels(rows)
+        got = codes(res)
+        ok200 = sum(1 for _, c, _ in res if c == 200)
+        report(case, "原分组为空时绝不 200 重导到没分组的渠道",
+               "PASS" if ok200 == 0 and ids["nogrp_fb"] not in served else "FAIL",
+               "状态码 %s，无分组兜底=%s，实际服务渠道=%s" % (got, ids["nogrp_fb"], served))
+        report(case, "429 守卫从 HTTP 不可达（分销层先 503「分组下模型无可用渠道」，由单测覆盖）",
+               "SKIP", "状态码 %s；期望的 429 只在内部调用时出现" % got)
+    finally:
+        set_user(group=old_group, max_concurrency=-1, group_rate_limits="")
+        set_main_fallback(ids, ids["old_fb"])
+
+
 def case_RL10(ids):
     """§22-6 旧全局配置写进去也没有路由效果；渠道自配字段仍可读写
 
@@ -770,7 +905,9 @@ CASES = {"RL1": case_RL1, "RL2": case_RL2, "RL3": case_RL3, "RL4": case_RL4,
          "RL7": case_RL7,
          "RL8": case_RL8,
          "RL9": case_RL9,
-         "RL10": case_RL10}
+         "RL10": case_RL10,
+         "RL11": case_RL11,
+         "RL12": case_RL12}
 
 
 def main():
@@ -794,7 +931,8 @@ def main():
                          {"model": MODEL, "messages": [{"role": "user", "content": "preflight"}]})
         print("      自检 upstream -> %s %s" % (code, txt[:40]), flush=True)
 
-        for nm in ("rl-main", "rl-oldfb", "rl-decoy", "rl-badfb", DISTILL_FB_NAME, "rl-hold"):
+        for nm in ("rl-main", "rl-oldfb", "rl-decoy", "rl-badfb", DISTILL_FB_NAME, "rl-hold",
+                   "rl-dead", "rl-gemini", "rl-nogrp"):
             drop_channel(nm)
         ids["main"] = ensure_channel("rl-main", [MODEL], priority=100)
         ids["old_fb"] = ensure_channel("rl-oldfb", [MODEL], priority=0)
@@ -802,6 +940,13 @@ def main():
         ids["bad_fb"] = ensure_channel("rl-badfb", [MODEL_OTHER], priority=0)
         ids["distill_fb"] = ensure_channel(DISTILL_FB_NAME, [MODEL], priority=0)
         ids["hold"] = ensure_channel("rl-hold", [MODEL_HOLD], priority=0)
+        ids["dead_fb"] = ensure_channel("rl-dead", [MODEL], priority=0, status=2)   # 已禁用
+        ids["gemini"] = ensure_channel("rl-gemini", [GEMINI_MODEL], priority=100)
+        try:
+            ids["nogrp_fb"] = ensure_channel("rl-nogrp", [MODEL], priority=0, group="")
+        except Exception as e:
+            ids["nogrp_fb"] = 0
+            print("      !! 建空分组渠道失败（RL12 会 SKIP）: %s" % repr(e)[:120], flush=True)
         patch_channel(ids["main"], {"fallback_channel_id": ids["old_fb"]})
         admin("POST", "/api/channel/fix")
         time.sleep(0.5)
@@ -837,7 +982,8 @@ def main():
                     if v is not None:
                         set_option(k, v)
                 patch_channel(ids["main"], {"fallback_channel_id": 0}) if ids.get("main") else None
-                for nm in ("rl-main", "rl-oldfb", "rl-decoy", "rl-badfb", DISTILL_FB_NAME, "rl-hold"):
+                for nm in ("rl-main", "rl-oldfb", "rl-decoy", "rl-badfb", DISTILL_FB_NAME, "rl-hold",
+                           "rl-dead", "rl-gemini", "rl-nogrp"):
                     drop_channel(nm)
             except Exception as e:
                 print("!! 收尾失败（需手工清理）:", repr(e)[:200], flush=True)

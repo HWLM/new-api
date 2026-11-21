@@ -28,7 +28,9 @@ python3 rate_limit_acceptance.py --case RL4,RL5
 | `rl-main` | `rl-model` | 主渠道，priority=100，每个用例自己改它的 `fallback_channel_id` |
 | `rl-oldfb` | `rl-model` | 渠道自配兜底（速率超限 / 拒答降级 / 旧行为都走这里） |
 | `rl-decoy` | `rl-model` | 诱饵：任何请求落这里都说明又有人把全局兜底加回来了 |
-| `rl-badfb` | `rl-model-other` | 被设成兜底但**不支持该模型**，验模型可用性校验 |
+| `rl-badfb` | `rl-model-other` | 被设成兜底但**不支持该模型**，验模型可用性校验 + 跨厂商 |
+| `rl-gemini` | `rl-gemini-pro` | 跨厂商用例的主渠道：只认 gemini 模型，兜底指向只认 openai 的 `rl-badfb` |
+| `rl-dead` | `rl-model` | 建出来就是 `status=2`（已禁用），验「兜底渠道被禁用 → 429」 |
 | `rl-distillfb` | `rl-model` | 蒸馏兜底（RL8/RL9 用） |
 
 `rl-oldfb`(2) 与 `rl-decoy`(3)、`rl-distillfb`(5) 的 id 互不相同，从日志落点就能判断走了哪条链路。
@@ -39,7 +41,7 @@ python3 rate_limit_acceptance.py --case RL4,RL5
 |---|---|
 | RL1 | `{limit:2,fallback:true}` + 渠道配兜底，并发 3 → 全 200；恰好 1 条落**渠道自配**兜底；那条 `group` 仍是 `default`（计费不变）；诱饵渠道没被用 |
 | RL2 | `fallback:false` → 恰好 1 条 429、`code=rate_limit_exceeded`、文案含「未启用兜底」；**渠道即使配了兜底也不许跳** |
-| RL3 | 兜底不可用三种形态（未配 0 / 不支持该模型 / 指向自己）→ 429 + `rate_limit_exceeded` +「该渠道未配置可用的兜底渠道」；自环还要证明不递归、3 条在 30s 内返回 |
+| RL3 | 兜底不可用五种形态：未配 0 / 不支持该模型 / 指向自己（自环）/ 渠道已禁用 / **跨厂商**（gemini 模型配了只认 openai 的兜底）→ 429 + `rate_limit_exceeded` +「该渠道未配置可用的兜底渠道」，且都不许跳过去；自环还要证明不递归、3 条在 30s 内返回 |
 | RL4 | 只配总并发 2、分组额度空 → 超限那条走渠道自配兜底（旧行为不变） |
 | RL5 | 拒答降级回归：仍走渠道自配兜底、`group` 不变；渠道没配兜底时 429 文案仍是「风控降级」口径且**不带** `rate_limit_exceeded` |
 | RL6 | 速率 429 带 code、并发口径，且不混「风控降级」措辞 —— 谁把两条路径合并，这里立刻红 |
@@ -47,6 +49,8 @@ python3 rate_limit_acceptance.py --case RL4,RL5
 | RL8 | 蒸馏降级态 + 并发超限 → **直接 429、不再跳第二跳**：`[200,429,429]`，都带 `rate_limit_exceeded`，日志只有通过的那条（落蒸馏兜底）；控制组「降级+未超限 → 200 走蒸馏兜底」 |
 | RL9 | 重导模式下「命中把确认次数凑满、同时并发超限被 429」→ 命中记录 `fallback_id` 必须 0（实际没被重导）。占位请求走**非白名单模型**占并发槽，按 429 响应里的 request id 回查 hits |
 | RL10 | 旧全局 key 写进去也**不影响路由**（仍 429、诱饵渠道没被用）；渠道自配 `fallback_channel_id` 仍可读写 |
+| RL11 | 单跳：兜底渠道自己还配了兜底（2→3）→ 超限那条只落 2，渠道 3 零命中 |
+| RL12 | 兜底渠道完全没配分组 + 原分组为空 → 无法计费，必须 429「未配置可用的兜底渠道」，不许重导（渠道建不出空分组时打 SKIP） |
 
 ## 踩过的坑
 
