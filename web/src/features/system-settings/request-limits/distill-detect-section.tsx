@@ -669,7 +669,7 @@ export function DistillDetectSection() {
                 </datalist>
                 <FormDescription>
                   {t(
-                    'Sent as the model field of every judge request; the judge service rejects requests without it (422). Use jev-latest or jev-preview. Leave empty for jev-latest.'
+                    "Sent as the model field of every judge request; the judge service rejects requests without it (422). Valid names come from the judge service's GET /v1/models (currently jev-latest / jev-preview). Leave empty for jev-latest."
                   )}
                 </FormDescription>
                 <FormMessage />
