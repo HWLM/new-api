@@ -13,15 +13,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// ListDistillJevCalls 是 Jev 判定服务调用记录的只读查询。
+// ListDistillJevCalls 是 Jev 判定服务调用记录的只读查询（**管理员专用**）。
 //
 // 用途：运营要看「判定服务到底调了多少次、判了谁的请求、当时那个用户刷得多猛
 // （rpm）、成功还是失败、分数多少」——命中记录只覆盖「判中了」的那几条，
 // 未命中与失败的调用只有这张表能看到。
 //
-// 权限与命中记录一致：管理员看全部并可按 user_id 过滤；普通用户强制只看自己，
-// 传别人的 user_id 会被直接覆盖（不报错，不告诉对方这个参数是否有效）。
-// 普通用户看不到 channel_id（内部拓扑）。
+// 权限：AdminAuth。**不保留**「普通用户只看自己」的分支 —— 这是排查判定
+// 服务的运营工具，不是个人中心功能；管理员可以按 user_id 筛选。
 type DistillJevCallView struct {
 	Id         int64    `json:"id"`
 	UserId     int      `json:"user_id"`
@@ -36,19 +35,6 @@ type DistillJevCallView struct {
 	Threshold  float64  `json:"threshold"`
 	DurationMs int64    `json:"duration_ms"`
 	Error      string   `json:"error"`
-	CreatedAt  string   `json:"created_at"`
-}
-
-// DistillJevCallUserView 是普通用户看到的行：去掉 channel_id 与错误细节。
-type DistillJevCallUserView struct {
-	Id         int64    `json:"id"`
-	RequestId  string   `json:"request_id"`
-	Model      string   `json:"model"`
-	Rpm        int      `json:"rpm"`
-	Outcome    string   `json:"outcome"`
-	Score      *float64 `json:"score"`
-	Threshold  float64  `json:"threshold"`
-	DurationMs int64    `json:"duration_ms"`
 	CreatedAt  string   `json:"created_at"`
 }
 
@@ -71,17 +57,15 @@ func ListDistillJevCalls(c *gin.Context) {
 		pageSize = 20
 	}
 
-	role := c.GetInt("role")
-	isAdmin := role >= common.RoleAdminUser
-	scopeUserID, err := distillHitUserScope(role, c.GetInt("id"), c.Query("user_id"))
-	if err != nil {
-		common.ApiErrorMsg(c, err.Error())
-		return
-	}
-	if !isAdmin && scopeUserID <= 0 {
-		// 正常不会走到：UserAuth 一定带上 id。宁可拒绝，也不要退化成「不加过滤」。
-		common.ApiErrorMsg(c, "未登录")
-		return
+	// 管理员可选的用户筛选；非法值直接报错，避免静默退化成「看全部」。
+	scopeUserID := 0
+	if raw := strings.TrimSpace(c.Query("user_id")); raw != "" {
+		id, err := strconv.Atoi(raw)
+		if err != nil {
+			common.ApiErrorMsg(c, "user_id 不是数字")
+			return
+		}
+		scopeUserID = id
 	}
 
 	// 每次 finisher（Count / Scan / Find）都从 Session 重新起飞：GORM 复用同一个
@@ -135,21 +119,6 @@ func ListDistillJevCalls(c *gin.Context) {
 
 	items := make([]any, 0, len(rows))
 	for _, r := range rows {
-		created := r.CreatedAt.Format(time.RFC3339)
-		if !isAdmin {
-			items = append(items, DistillJevCallUserView{
-				Id:         r.Id,
-				RequestId:  r.RequestId,
-				Model:      r.Model,
-				Rpm:        r.Rpm,
-				Outcome:    r.Outcome,
-				Score:      r.Score,
-				Threshold:  r.Threshold,
-				DurationMs: r.DurationMs,
-				CreatedAt:  created,
-			})
-			continue
-		}
 		view := DistillJevCallView{
 			Id:         r.Id,
 			UserId:     r.UserId,
@@ -163,7 +132,7 @@ func ListDistillJevCalls(c *gin.Context) {
 			Threshold:  r.Threshold,
 			DurationMs: r.DurationMs,
 			Error:      r.Error,
-			CreatedAt:  created,
+			CreatedAt:  r.CreatedAt.Format(time.RFC3339),
 		}
 		if cache, err := model.GetUserCache(r.UserId); err == nil && cache != nil {
 			view.Username = cache.Username
