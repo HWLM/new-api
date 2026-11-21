@@ -24,6 +24,8 @@ import type {
   DistillClearCacheRequest,
   DistillClearCacheResult,
   DistillHitsPage,
+  DistillJevCallsPage,
+  DistillJevCallsQuery,
   DistillHitsQuery,
   DistillSetting,
   DistillSettingUpdate,
@@ -81,6 +83,22 @@ export async function clearDistillCache(input: DistillClearCacheRequest) {
   const res = await api.post<ApiResponse<DistillClearCacheResult>>(
     '/api/distill_detect/clear_cache',
     input
+  )
+  return res.data
+}
+
+export async function listDistillJevCalls(query: DistillJevCallsQuery) {
+  const params: Record<string, string | number> = {
+    p: query.p,
+    page_size: query.page_size,
+  }
+  if (query.user_id) params.user_id = query.user_id
+  if (query.outcome) params.outcome = query.outcome
+  if (query.from) params.from = query.from
+  if (query.to) params.to = query.to
+  const res = await api.get<ApiResponse<DistillJevCallsPage>>(
+    '/api/distill_detect/jev_calls',
+    { params }
   )
   return res.data
 }

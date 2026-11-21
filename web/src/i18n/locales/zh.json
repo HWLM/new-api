@@ -6279,6 +6279,19 @@
     "When a user exceeds the concurrency limit, new requests hop once to the fallback channel configured on the request's own channel. If that channel has no usable fallback, the request gets 429 rate_limit_exceeded.": "用户超过并发上限时，新请求会单跳到该请求所在渠道自己配置的兜底渠道；该渠道没有可用兜底时返回 429 rate_limit_exceeded。",
     "Total and per-group concurrency both apply; the stricter wins. With fallback on, over-limit requests hop once to the fallback channel configured on the request's own channel (429 if it has no usable fallback); with fallback off they get 429 rate_limit_exceeded immediately.": "总并发与分组并发同时生效，取更严的一个。开启「走兜底渠道」时，超限请求单跳到该请求所在渠道配置的兜底渠道（没有可用兜底则 429）；关闭则直接返回 429 rate_limit_exceeded。",
     "On: hop once to the fallback channel of the request's own channel (429 if none usable)": "开启：单跳到该请求所在渠道的兜底渠道（没有可用兜底则 429）",
-    "Off: 429 rate_limit_exceeded as soon as the group is full": "关闭：分组满额即返回 429 rate_limit_exceeded"
+    "Off: 429 rate_limit_exceeded as soon as the group is full": "关闭：分组满额即返回 429 rate_limit_exceeded",
+    "Average duration": "平均耗时",
+    "Average score": "平均分",
+    "Every real call to the judge service, including failures. Dedup-skipped requests are not called and not listed.": "判定服务的每一次真实调用都会记录，失败也记；去重跳过的请求没有调用，不会出现在这里。",
+    "Failed to load Jev call records": "加载 Jev 调用记录失败",
+    "HTTP error": "HTTP 错误",
+    "Jev call records": "Jev 调用记录",
+    "Network error": "网络错误",
+    "No Jev calls in this range": "该范围内没有 Jev 调用记录",
+    "Parse error": "解析失败",
+    "Show error": "查看错误",
+    "Threshold at the time: {{value}}": "当时阈值：{{value}}",
+    "Timeout": "超时",
+    "Total calls": "总调用"
   }
 }

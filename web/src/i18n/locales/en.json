@@ -6279,6 +6279,19 @@
     "When a user exceeds the concurrency limit, new requests hop once to the fallback channel configured on the request's own channel. If that channel has no usable fallback, the request gets 429 rate_limit_exceeded.": "When a user exceeds the concurrency limit, new requests hop once to the fallback channel configured on the request's own channel. If that channel has no usable fallback, the request gets 429 rate_limit_exceeded.",
     "Total and per-group concurrency both apply; the stricter wins. With fallback on, over-limit requests hop once to the fallback channel configured on the request's own channel (429 if it has no usable fallback); with fallback off they get 429 rate_limit_exceeded immediately.": "Total and per-group concurrency both apply; the stricter wins. With fallback on, over-limit requests hop once to the fallback channel configured on the request's own channel (429 if it has no usable fallback); with fallback off they get 429 rate_limit_exceeded immediately.",
     "On: hop once to the fallback channel of the request's own channel (429 if none usable)": "On: hop once to the fallback channel of the request's own channel (429 if none usable)",
-    "Off: 429 rate_limit_exceeded as soon as the group is full": "Off: 429 rate_limit_exceeded as soon as the group is full"
+    "Off: 429 rate_limit_exceeded as soon as the group is full": "Off: 429 rate_limit_exceeded as soon as the group is full",
+    "Average duration": "Average duration",
+    "Average score": "Average score",
+    "Every real call to the judge service, including failures. Dedup-skipped requests are not called and not listed.": "Every real call to the judge service, including failures. Dedup-skipped requests are not called and not listed.",
+    "Failed to load Jev call records": "Failed to load Jev call records",
+    "HTTP error": "HTTP error",
+    "Jev call records": "Jev call records",
+    "Network error": "Network error",
+    "No Jev calls in this range": "No Jev calls in this range",
+    "Parse error": "Parse error",
+    "Show error": "Show error",
+    "Threshold at the time: {{value}}": "Threshold at the time: {{value}}",
+    "Timeout": "Timeout",
+    "Total calls": "Total calls"
   }
 }
