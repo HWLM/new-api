@@ -299,16 +299,30 @@ def distill_put(patch):
 
 # ── Redis（RL5 造拒答降级态、RL8 造蒸馏降级态）──────────────────────────
 class Redis:
+    """极简 RESP 客户端。WSL 里的 Redis 走 localhost 转发，连接会被静默重置，
+    所以每次命令失败就重连一次再试，否则用例会拿到「键没写进去」的假红。"""
+
     def __init__(self, addr, password="", db=0):
-        host, _, port = addr.partition(":")
+        self.addr, self.password, self.db = addr, password, db
+        self._connect()
+
+    def _connect(self):
+        host, _, port = self.addr.partition(":")
         self.sock = socket.create_connection((host or "127.0.0.1", int(port or 6379)), timeout=10)
         self.f = self.sock.makefile("rb")
-        if password:
-            self.cmd("AUTH", password)
-        if db:
-            self.cmd("SELECT", str(db))
+        if self.password:
+            self._send("AUTH", self.password)
+        if self.db:
+            self._send("SELECT", str(self.db))
 
     def cmd(self, *args):
+        try:
+            return self._send(*args)
+        except (OSError, RuntimeError):
+            self._connect()
+            return self._send(*args)
+
+    def _send(self, *args):
         buf = [b"*%d\r\n" % len(args)]
         for a in args:
             b = a if isinstance(a, bytes) else str(a).encode()
