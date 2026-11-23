@@ -35,10 +35,8 @@ var defaultGroupSpecialUsableGroup = map[string]map[string]string{
 }
 
 type GroupRatioSetting struct {
-	GroupRatio              *types.RWMap[string, float64]            `json:"group_ratio"`
-	GroupGroupRatio         *types.RWMap[string, map[string]float64] `json:"group_group_ratio"`
-	GroupSpecialUsableGroup *types.RWMap[string, map[string]string]  `json:"group_special_usable_group"`
-	UserGroupVisibleGroups  *types.RWMap[string, []string]           `json:"user_group_visible_groups"`
+	GroupSpecialUsableGroup *types.RWMap[string, map[string]string] `json:"group_special_usable_group"`
+	UserGroupVisibleGroups  *types.RWMap[string, []string]          `json:"user_group_visible_groups"`
 }
 
 var groupRatioSetting GroupRatioSetting
@@ -52,8 +50,6 @@ func init() {
 
 	groupRatioSetting = GroupRatioSetting{
 		GroupSpecialUsableGroup: groupSpecialUsableGroup,
-		GroupRatio:              groupRatioMap,
-		GroupGroupRatio:         groupGroupRatioMap,
 		UserGroupVisibleGroups:  userGroupVisibleGroupsMap,
 	}
 
