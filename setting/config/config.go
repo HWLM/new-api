@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -86,6 +87,35 @@ func (cm *ConfigManager) SaveToDB(updateFunc func(key, value string) error) erro
 		}
 	}
 
+	return nil
+}
+
+// SaveModuleToDB 只把一个命名空间的配置序列化写库。
+//
+// 与 SaveToDB 的区别只有作用范围：SaveToDB 把**所有**已注册模块的当前内存
+// 快照一次性写回 options 表，任何模块的保存动作都会顺手刷新别的模块的键；
+// 多实例下这会把各自的内存快照互相覆盖。SaveModuleToDB 只写 name 一个模块。
+//
+// 未注册的 name 返回错误，而不是静默成功——一个拼错的命名空间不该表现为
+// 「保存成功但什么都没写」。
+func (cm *ConfigManager) SaveModuleToDB(name string, updateFunc func(key, value string) error) error {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	config, ok := cm.configs[name]
+	if !ok {
+		return fmt.Errorf("config module not registered: %s", name)
+	}
+	configMap, err := configToMap(config)
+	if err != nil {
+		return err
+	}
+	for key, value := range configMap {
+		dbKey := name + "." + key
+		if err := updateFunc(dbKey, value); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

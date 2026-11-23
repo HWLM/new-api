@@ -395,12 +395,14 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 
 // persistDistillSetting 把配置写进 option 表并刷新内存。
 //
-// ⛔ 走 config.GlobalConfig.SaveToDB —— 与 refusal_demote_setting 完全同一条路，
-// 不自己造一份序列化，避免两套格式在重启后打架。SaveToDB 用反射按 json tag
-// 展开成 `distill_detect_setting.<field>` 的 kv，启动时 LoadFromDB 再按同一套
-// 规则灌回来，因此字段只要加在这里就自动持久化。
+// ⛔ 走 config.GlobalConfig.SaveModuleToDB，只写 `distill_detect_setting.*`
+// 一个命名空间——不自己造一份序列化，避免两套格式在重启后打架；同时不碰
+// 其它模块的键（SaveToDB 会把所有模块的内存快照一次性刷库，多实例下会
+// 互相覆盖，group_ratio_setting.group_ratio 的镜像键就是这样被写出去的）。
+// SaveModuleToDB 用反射按 json tag 展开成 `distill_detect_setting.<field>` 的 kv，
+// 启动时 LoadFromDB 再按同一套规则灌回来，因此字段只要加在这里就自动持久化。
 func persistDistillSetting() error {
-	return config.GlobalConfig.SaveToDB(func(key, value string) error {
+	return config.GlobalConfig.SaveModuleToDB("distill_detect_setting", func(key, value string) error {
 		return model.UpdateOption(key, value)
 	})
 }
