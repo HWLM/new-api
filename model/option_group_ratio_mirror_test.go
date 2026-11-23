@@ -48,15 +48,18 @@ func TestStaleGroupRatioMirrorRowDoesNotDropNewGroups(t *testing.T) {
 	})
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
 
-	// 残留镜像行：修复前由 SaveToDB 写出的旧快照，不含 new_group。
+	// 用户在分组定价页新增分组（走旧键）——先写旧键，镜像行随后才被写出，
+	// 保证镜像行 rowid 更大、在 AllOption() 的插入序里排在旧键之后加载。
+	require.NoError(t, UpdateOption("GroupRatio", `{"default":1,"new_group":2.5}`))
+	require.True(t, ratio_setting.ContainsGroupRatio("new_group"))
+
+	// 残留镜像行：模拟随后一次 SaveToDB 写出的旧快照，不含 new_group。
+	// 修复前它排在旧键之后加载，会把内存表整体换回这份快照（假绿的成因
+	// 就是顺序反了：镜像先行、旧键后灌，旧键永远赢）。
 	require.NoError(t, db.Create(&Option{
 		Key:   "group_ratio_setting.group_ratio",
 		Value: `{"default":1}`,
 	}).Error)
-
-	// 用户在分组定价页新增分组（走旧键）。
-	require.NoError(t, UpdateOption("GroupRatio", `{"default":1,"new_group":2.5}`))
-	require.True(t, ratio_setting.ContainsGroupRatio("new_group"))
 
 	// 模拟多个 SYNC_FREQUENCY 周期的全量加载。
 	for round := 1; round <= 3; round++ {
@@ -79,12 +82,13 @@ func TestStaleGroupGroupRatioMirrorRowIsInert(t *testing.T) {
 	})
 	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{}`))
 
+	// 同前：先写旧键，镜像行在后，保证它在插入序里后加载。
+	require.NoError(t, UpdateOption("GroupGroupRatio", `{"svip":{"fresh_group":0.8}}`))
+
 	require.NoError(t, db.Create(&Option{
 		Key:   "group_ratio_setting.group_group_ratio",
 		Value: `{"vip":{"stale_group":0.5}}`,
 	}).Error)
-
-	require.NoError(t, UpdateOption("GroupGroupRatio", `{"svip":{"fresh_group":0.8}}`))
 
 	for round := 1; round <= 3; round++ {
 		loadOptionsFromDatabase()
