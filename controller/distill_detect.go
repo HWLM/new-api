@@ -75,6 +75,7 @@ func GetDistillDetectSetting(c *gin.Context) {
 			ObserveOnly:          s.ObserveOnly,
 			JevBaseURL:           s.JevBaseURL,
 			JevApiKeySet:         strings.TrimSpace(s.JevApiKey) != "",
+			JevModel:             s.JevModel,
 			JevTimeoutMs:         s.JevTimeoutMs,
 			MaxStateChars:        s.MaxStateChars,
 			HeadSampleChars:      s.HeadSampleChars,
