@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { t as i18nT } from 'i18next'
 import {
   ChevronDown,
   ChevronLeft,
@@ -72,6 +73,25 @@ function formatTime(value: string): string {
   if (!value) return '-'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function channelLabels(channels?: string): string {
+  if (!channels) return ''
+  const map: Record<string, string> = {
+    telegram: i18nT('Telegram'),
+    wecom: i18nT('WeCom'),
+    email: i18nT('Email'),
+    webhook: i18nT('Webhook'),
+    bark: i18nT('Bark'),
+    gotify: i18nT('Gotify'),
+    feishu: i18nT('Feishu'),
+    dingtalk: i18nT('DingTalk'),
+  }
+  return channels
+    .split(',')
+    .map((c) => map[c.trim()] || c.trim())
+    .filter(Boolean)
+    .join('、')
 }
 
 export function DistillHits() {
@@ -410,11 +430,32 @@ function HitRow(props: {
         </TableCell>
         {props.isAdmin ? (
           <TableCell>
-            {hit.alert_sent ? (
-              <Badge variant='secondary'>{t('Sent')}</Badge>
-            ) : (
-              <span className='text-muted-foreground'>{t('Not sent')}</span>
-            )}
+            <div className='grid grid-cols-[max-content_1fr] items-center gap-x-2 gap-y-1'>
+              <span className='text-muted-foreground text-xs whitespace-nowrap'>
+                {t('Admin alert')}
+              </span>
+              <span>
+                {hit.alert_sent ? (
+                  <span title={channelLabels(hit.alert_sent_channels)}>
+                    <Badge variant='secondary'>{t('Sent')}</Badge>
+                  </span>
+                ) : (
+                  <Badge variant='outline'>{t('Not sent')}</Badge>
+                )}
+              </span>
+              <span className='text-muted-foreground text-xs whitespace-nowrap'>
+                {t('User alert')}
+              </span>
+              <span>
+                {hit.alert_sent_user ? (
+                  <span title={channelLabels(hit.alert_sent_user_channel)}>
+                    <Badge variant='secondary'>{t('Sent')}</Badge>
+                  </span>
+                ) : (
+                  <Badge variant='outline'>{t('Not sent')}</Badge>
+                )}
+              </span>
+            </div>
           </TableCell>
         ) : null}
       </TableRow>

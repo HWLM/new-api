@@ -1682,6 +1682,10 @@ type UpdateUserSettingRequest struct {
 	GotifyUrl                        string  `json:"gotify_url,omitempty"`
 	GotifyToken                      string  `json:"gotify_token,omitempty"`
 	GotifyPriority                   int     `json:"gotify_priority,omitempty"`
+	FeishuWebhookUrl                 string  `json:"feishu_webhook_url,omitempty"`
+	FeishuSecret                     string  `json:"feishu_secret,omitempty"`
+	DingTalkWebhookUrl               string  `json:"dingtalk_webhook_url,omitempty"`
+	DingTalkSecret                   string  `json:"dingtalk_secret,omitempty"`
 	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
 	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
 	RecordIpLog                      *bool   `json:"record_ip_log,omitempty"`
@@ -1695,7 +1699,7 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	// 验证预警类型
-	if req.QuotaWarningType != dto.NotifyTypeEmail && req.QuotaWarningType != dto.NotifyTypeWebhook && req.QuotaWarningType != dto.NotifyTypeBark && req.QuotaWarningType != dto.NotifyTypeGotify {
+	if req.QuotaWarningType != dto.NotifyTypeEmail && req.QuotaWarningType != dto.NotifyTypeWebhook && req.QuotaWarningType != dto.NotifyTypeBark && req.QuotaWarningType != dto.NotifyTypeGotify && req.QuotaWarningType != dto.NotifyTypeFeishu && req.QuotaWarningType != dto.NotifyTypeDingTalk {
 		common.ApiErrorI18n(c, i18n.MsgSettingInvalidType)
 		return
 	}
@@ -1768,6 +1772,33 @@ func UpdateUserSetting(c *gin.Context) {
 		}
 	}
 
+	// 如果是飞书类型，验证飞书 webhook URL（官方域名白名单，secret 可空）
+	if req.QuotaWarningType == dto.NotifyTypeFeishu {
+		if strings.TrimSpace(req.FeishuWebhookUrl) == "" {
+			common.ApiErrorI18n(c, i18n.MsgSettingFeishuUrlEmpty)
+			return
+		}
+		if !strings.HasPrefix(req.FeishuWebhookUrl, "https://open.feishu.cn/open-apis/bot/v2/hook/") &&
+			!strings.HasPrefix(req.FeishuWebhookUrl, "https://open.larksuite.com/open-apis/bot/v2/hook/") {
+			common.ApiErrorI18n(c, i18n.MsgSettingFeishuUrlInvalid)
+			return
+		}
+	}
+
+	// 如果是钉钉类型，验证钉钉 webhook URL（官方域名白名单，secret 可空）
+	if req.QuotaWarningType == dto.NotifyTypeDingTalk {
+		if strings.TrimSpace(req.DingTalkWebhookUrl) == "" {
+			common.ApiErrorI18n(c, i18n.MsgSettingDingTalkUrlEmpty)
+			return
+		}
+		if !strings.HasPrefix(req.DingTalkWebhookUrl, "https://oapi.dingtalk.com/robot/send") {
+			common.ApiErrorI18n(c, i18n.MsgSettingDingTalkUrlInvalid)
+			return
+		}
+	}
+
+	// 蒸馏告警通知渠道已改为管理员在用户编辑页维护（顶层 User 字段），此处不再接受用户提交。
+
 	userId := c.GetInt("id")
 	user, err := model.GetUserById(userId, true)
 	if err != nil {
@@ -1820,6 +1851,22 @@ func UpdateUserSetting(c *gin.Context) {
 			settings.GotifyPriority = 5
 		} else {
 			settings.GotifyPriority = req.GotifyPriority
+		}
+	}
+
+	// 如果是飞书类型，添加飞书配置到设置中
+	if req.QuotaWarningType == dto.NotifyTypeFeishu {
+		settings.FeishuWebhookUrl = strings.TrimSpace(req.FeishuWebhookUrl)
+		if req.FeishuSecret != "" {
+			settings.FeishuSecret = req.FeishuSecret
+		}
+	}
+
+	// 如果是钉钉类型，添加钉钉配置到设置中
+	if req.QuotaWarningType == dto.NotifyTypeDingTalk {
+		settings.DingTalkWebhookUrl = strings.TrimSpace(req.DingTalkWebhookUrl)
+		if req.DingTalkSecret != "" {
+			settings.DingTalkSecret = req.DingTalkSecret
 		}
 	}
 

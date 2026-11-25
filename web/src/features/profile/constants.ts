@@ -33,4 +33,6 @@ export const NOTIFICATION_METHODS = [
   { value: 'webhook' as const, label: 'Webhook' },
   { value: 'bark' as const, label: 'Bark' },
   { value: 'gotify' as const, label: 'Gotify' },
+  { value: 'feishu' as const, label: 'Feishu' },
+  { value: 'dingtalk' as const, label: 'DingTalk' },
 ] as const

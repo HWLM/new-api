@@ -16,11 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Bell, Loader2, Mail, Server, Webhook } from 'lucide-react'
-import { useState, useEffect, useCallback } from 'react'
+import {
+  Bell,
+  Loader2,
+  Mail,
+  Server,
+  Webhook,
+} from 'lucide-react'
+import { useState, useEffect, useCallback, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { IconDingTalk, IconFeishu } from '@/assets/brand-icons'
 import { PasswordInput } from '@/components/password-input'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,13 +42,22 @@ import {
   NOTIFICATION_METHODS,
 } from '../../constants'
 import { parseUserSettings } from '../../lib'
-import type { UserProfile, UserSettings, NotifyType } from '../../types'
+import type {
+  UserProfile,
+  UserSettings,
+  NotifyType,
+} from '../../types'
 
-const NOTIFICATION_ICONS: Record<NotifyType, typeof Mail> = {
+const NOTIFICATION_ICONS: Record<
+  NotifyType,
+  ComponentType<{ className?: string }>
+> = {
   email: Mail,
   webhook: Webhook,
   bark: Bell,
   gotify: Server,
+  feishu: IconFeishu,
+  dingtalk: IconDingTalk,
 }
 
 const NOTIFICATION_VALUES = new Set<NotifyType>(
@@ -78,6 +94,10 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     gotify_url: '',
     gotify_token: '',
     gotify_priority: 5,
+    feishu_webhook_url: '',
+    feishu_secret: '',
+    dingtalk_webhook_url: '',
+    dingtalk_secret: '',
     accept_unset_model_ratio_model: false,
     record_ip_log: true,
     upstream_model_update_notify_enabled: false,
@@ -105,6 +125,10 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         gotify_url: parsed.gotify_url ?? '',
         gotify_token: parsed.gotify_token ?? '',
         gotify_priority: parsed.gotify_priority ?? 5,
+        feishu_webhook_url: parsed.feishu_webhook_url ?? '',
+        feishu_secret: parsed.feishu_secret ?? '',
+        dingtalk_webhook_url: parsed.dingtalk_webhook_url ?? '',
+        dingtalk_secret: parsed.dingtalk_secret ?? '',
         accept_unset_model_ratio_model:
           parsed.accept_unset_model_ratio_model || false,
         record_ip_log: parsed.record_ip_log ?? true,
@@ -125,7 +149,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
       } else {
         toast.error(response.message || t('Failed to update settings'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to update settings'))
     } finally {
       setLoading(false)
@@ -143,8 +167,9 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
           value={[notifyType]}
           onValueChange={(value) => {
             const nextValue = value.find((item) => item !== notifyType)
-            if (nextValue)
+            if (nextValue) {
               updateField('notify_type', normalizeNotifyType(nextValue))
+            }
           }}
           aria-label={t('Notification Method')}
           variant='outline'
@@ -316,6 +341,72 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
                 {t('Gotify Documentation')}
               </a>
             </p>
+          </div>
+        </>
+      )}
+
+      {/* Feishu Settings */}
+      {notifyType === 'feishu' && (
+        <>
+          <div className='space-y-1.5'>
+            <Label htmlFor='feishuWebhookUrl'>{t('Feishu Webhook URL')}</Label>
+            <Input
+              id='feishuWebhookUrl'
+              type='url'
+              className='h-9'
+              value={settings.feishu_webhook_url}
+              onChange={(e) => updateField('feishu_webhook_url', e.target.value)}
+              placeholder='https://open.feishu.cn/open-apis/bot/v2/hook/xxxx'
+            />
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Feishu custom bot hook URL. Enable signature verification in Feishu to sign messages.'
+              )}
+            </p>
+          </div>
+          <div className='space-y-1.5'>
+            <Label htmlFor='feishuSecret'>{t('Feishu Secret')}</Label>
+            <PasswordInput
+              id='feishuSecret'
+              value={settings.feishu_secret}
+              onChange={(e) => updateField('feishu_secret', e.target.value)}
+              placeholder={t('Leave empty to disable signature verification')}
+            />
+          </div>
+        </>
+      )}
+
+      {/* DingTalk Settings */}
+      {notifyType === 'dingtalk' && (
+        <>
+          <div className='space-y-1.5'>
+            <Label htmlFor='dingtalkWebhookUrl'>
+              {t('DingTalk Webhook URL')}
+            </Label>
+            <Input
+              id='dingtalkWebhookUrl'
+              type='url'
+              className='h-9'
+              value={settings.dingtalk_webhook_url}
+              onChange={(e) =>
+                updateField('dingtalk_webhook_url', e.target.value)
+              }
+              placeholder='https://oapi.dingtalk.com/robot/send?access_token=xxxx'
+            />
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'DingTalk custom robot webhook URL. Enable sign in DingTalk to sign messages.'
+              )}
+            </p>
+          </div>
+          <div className='space-y-1.5'>
+            <Label htmlFor='dingtalkSecret'>{t('DingTalk Secret')}</Label>
+            <PasswordInput
+              id='dingtalkSecret'
+              value={settings.dingtalk_secret}
+              onChange={(e) => updateField('dingtalk_secret', e.target.value)}
+              placeholder={t('Leave empty to disable signature verification')}
+            />
           </div>
         </>
       )}

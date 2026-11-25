@@ -691,6 +691,55 @@ export function UsersMutateDrawer({
 
                   <FormField
                     control={form.control}
+                    name='distill_notify_override'
+                    render={({ field }) => {
+                      const value = field.value ?? 0
+                      return (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Distill alert notify override')}
+                          </FormLabel>
+                          <FormControl>
+                            <div className='flex items-center gap-2'>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value === 0 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(0)}
+                              >
+                                {t('Follow global')}
+                              </Button>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value === 1 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(1)}
+                              >
+                                {t('Force notify')}
+                              </Button>
+                              <Button
+                                type='button'
+                                size='sm'
+                                variant={value < 0 ? 'default' : 'outline'}
+                                onClick={() => field.onChange(-1)}
+                              >
+                                {t('Never notify')}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Whether to send this user a neutral distill alert. Default off to avoid tipping off distillers.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )
+                    }}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name='remark'
                     render={({ field }) => (
                       <FormItem>

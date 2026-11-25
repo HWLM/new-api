@@ -100,6 +100,30 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 			return nil
 		}
 		return sendGotifyNotify(gotifyUrl, gotifyToken, userSetting.GotifyPriority, data)
+	case dto.NotifyTypeFeishu:
+		feishuUrl := userSetting.FeishuWebhookUrl
+		if feishuUrl == "" {
+			common.SysLog(fmt.Sprintf("user %d has no feishu webhook url, skip sending feishu", userId))
+			return nil
+		}
+		content := data.Content
+		for _, value := range data.Values {
+			content = strings.Replace(content, dto.ContentValueParam, fmt.Sprintf("%v", value), 1)
+		}
+		return SendFeishuText(feishuUrl, userSetting.FeishuSecret, data.Title+"\n"+content)
+	case dto.NotifyTypeDingTalk:
+		dingTalkUrl := userSetting.DingTalkWebhookUrl
+		if dingTalkUrl == "" {
+			common.SysLog(fmt.Sprintf("user %d has no dingtalk webhook url, skip sending dingtalk", userId))
+			return nil
+		}
+		content := data.Content
+		for _, value := range data.Values {
+			content = strings.Replace(content, dto.ContentValueParam, fmt.Sprintf("%v", value), 1)
+		}
+		return SendDingTalkText(dingTalkUrl, userSetting.DingTalkSecret, data.Title+"\n"+content)
+	default:
+		common.SysLog(fmt.Sprintf("user %d has unsupported notify type %q, skip sending", userId, notifyType))
 	}
 	return nil
 }

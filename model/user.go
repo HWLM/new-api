@@ -111,6 +111,11 @@ type User struct {
 	//    0  跟随全局 distill_detect_setting.enabled
 	//    1  该用户强制启用（即便全局关闭）
 	DistillDetectOverride int                        `json:"distill_detect_override" gorm:"type:int;default:0;column:distill_detect_override"`
+	// DistillNotifyOverride 蒸馏告警「是否通知用户」的用户级三态开关，语义与上面同款：
+	//   -1  该用户永不被通知（用于疑似终端蒸馏者，避免打草惊蛇）
+	//    0  跟随全局 distill_detect_setting.notify_user_enabled
+	//    1  该用户强制通知（用于疑似二级代理，即便全局关闭也通知）
+	DistillNotifyOverride int                        `json:"distill_notify_override" gorm:"type:int;default:0;column:distill_notify_override"`
 	AffCode               string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	AffCount              int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
 	AffQuota              int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
@@ -148,6 +153,7 @@ func (user *User) ToBaseUser() *UserBase {
 		GroupRateLimits:       user.GroupRateLimits,
 		RefusalDemoteOverride: user.RefusalDemoteOverride,
 		DistillDetectOverride: user.DistillDetectOverride,
+		DistillNotifyOverride: user.DistillNotifyOverride,
 		AuthVersion:           user.AuthVersion,
 		CacheSchema:           userCacheSchemaVersion,
 	}
@@ -1235,6 +1241,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		"group_rate_limits":       newUser.GroupRateLimits,
 		"refusal_demote_override": newUser.RefusalDemoteOverride,
 		"distill_detect_override": newUser.DistillDetectOverride,
+		"distill_notify_override": newUser.DistillNotifyOverride,
 	}
 	// settlement_currency 为空表示本次请求未提交该字段（如用户列表里仅切换"允许在线充值"的
 	// 部分更新），此时保留数据库原值，避免把用户的结算方式误清为默认（按人民币）。

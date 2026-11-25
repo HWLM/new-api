@@ -89,7 +89,8 @@ redis.call('HSET', KEYS[1],
   'Status', ARGV[5], 'Role', ARGV[6], 'Username', ARGV[7],
   'Setting', ARGV[8], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[9],
   'MaxConcurrency', ARGV[13], 'RefusalDemoteOverride', ARGV[14],
-  'DistillDetectOverride', ARGV[15], 'GroupRateLimits', ARGV[16])
+  'DistillDetectOverride', ARGV[15], 'GroupRateLimits', ARGV[16],
+  'DistillNotifyOverride', ARGV[17])
 if ARGV[10] == '1' and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
   redis.call('HSET', KEYS[1], 'Quota', ARGV[11])
 end
@@ -100,7 +101,7 @@ return 1`
 		user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
 		user.Username, user.Setting, user.CacheSchema, includeQuotaArg, user.Quota, ttl,
 		user.MaxConcurrency, user.RefusalDemoteOverride, user.DistillDetectOverride,
-		user.GroupRateLimits,
+		user.GroupRateLimits, user.DistillNotifyOverride,
 	).Int()
 	if err != nil {
 		return err

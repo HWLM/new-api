@@ -110,6 +110,7 @@ const distillSchema = z
     max_state_chars: z.number().int().min(500).max(200000),
     head_sample_chars: z.number().int().min(0).max(200000),
     dedup_seconds: z.number().int().min(0).max(86400),
+    notify_user_enabled: z.boolean(),
     questions: questionsSchema,
     alert_telegram: z.boolean(),
     alert_wecom: z.boolean(),
@@ -159,6 +160,7 @@ const PLAIN_KEYS = [
   'max_state_chars',
   'head_sample_chars',
   'dedup_seconds',
+  'notify_user_enabled',
   'alert_telegram',
   'alert_wecom',
   'alert_throttle_seconds',
@@ -186,6 +188,7 @@ function toFormValues(s: DistillSetting): DistillFormValues {
     max_state_chars: s.max_state_chars,
     head_sample_chars: s.head_sample_chars,
     dedup_seconds: s.dedup_seconds,
+    notify_user_enabled: s.notify_user_enabled ?? false,
     questions: toQuestionFormValues(s.questions),
     alert_telegram: s.alert_telegram,
     alert_wecom: s.alert_wecom,
@@ -717,7 +720,7 @@ export function DistillDetectSection() {
           />
 
           <GroupTitle>{t('Alerts')}</GroupTitle>
-          <div className='grid gap-3 md:grid-cols-2'>
+          <div className='grid gap-3 md:grid-cols-3'>
             <SwitchField
               control={control}
               name='alert_telegram'
@@ -730,6 +733,14 @@ export function DistillDetectSection() {
               control={control}
               name='alert_wecom'
               label={t('WeCom alert')}
+            />
+            <SwitchField
+              control={control}
+              name='notify_user_enabled'
+              label={t('Notify the detected user')}
+              description={t(
+                'Also send a neutral alert to the detected user via their own Feishu/DingTalk channel. Default off to avoid tipping off distillers.'
+              )}
             />
           </div>
           <NumberField
