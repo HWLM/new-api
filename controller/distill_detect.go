@@ -56,7 +56,7 @@ type DistillSettingView struct {
 	DetectChannelIds  []int `json:"detect_channel_ids"`
 	FallbackChannelId int   `json:"fallback_channel_id"`
 	DedupSeconds      int   `json:"dedup_seconds"`
-	// NotifyUserEnabled 是否把蒸馏命中告警发给被判定用户本人（飞书/钉钉）。默认 false。
+	// NotifyUserEnabled 是否把蒸馏命中告警发给被判定用户本人（用户所选通知渠道）。默认 false。
 	NotifyUserEnabled bool `json:"notify_user_enabled"`
 }
 
@@ -435,7 +435,7 @@ type DistillHitView struct {
 	SampledAt   string `json:"sampled_at"`
 	DemoteUntil string `json:"demote_until"`
 	AlertSent   bool   `json:"alert_sent"`
-	// AlertSentUser 用户侧告警（飞书/钉钉）是否已发出，与 AlertSent 分开。
+	// AlertSentUser 用户侧告警（用户所选通知渠道）是否已发出，与 AlertSent 分开。
 	AlertSentUser bool `json:"alert_sent_user"`
 	// AlertSentChannels 管理员侧实际发出告警的通道，逗号分隔（telegram,wecom）。
 	AlertSentChannels string `json:"alert_sent_channels"`

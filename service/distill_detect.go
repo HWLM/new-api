@@ -620,8 +620,8 @@ func JudgeDistill(ctx context.Context, doc string, meta JevCallMeta) DistillVerd
 
 // PersistDistillHitSync 同步落库一条命中（含告警）。
 //
-// ⛔ 重导模式必须用这个而不是 RecordDistillHit 的后台版：那次请求本身就要被切到
-// 兜底渠道，运营随后可能立刻拿 request_id 来查，记录晚到就会查不到。
+// ⛔ 必须同步落库：重导模式下那次请求本身就要被切到兜底渠道，运营随后可能
+// 立刻拿 request_id 来查，记录晚到就会查不到。
 func PersistDistillHitSync(hit *model.DistillDetectHit) {
 	if hit == nil {
 		return
@@ -871,37 +871,6 @@ func EvaluateDistill(userID int, requestID, modelName string, channelID int, bod
 		markDistillDemoted(ctx, userID, s.DemoteSeconds)
 	}
 	return hit
-}
-
-// RecordDistillHit 落库并（可选）告警。调用方在后台 goroutine 里执行。
-func RecordDistillHit(hit *model.DistillDetectHit) {
-	if hit == nil {
-		return
-	}
-	gopool.Go(func() {
-		if err := model.DB.Create(hit).Error; err != nil {
-			common.SysError(fmt.Sprintf("distill_detect: 写入命中记录失败 user=%d req=%s err=%v",
-				hit.UserId, hit.RequestId, err))
-			return
-		}
-		_ = NotifyDistillHit(hit)
-		updates := map[string]any{}
-		if hit.AlertSent {
-			updates["alert_sent"] = true
-		}
-		if hit.AlertSentUser {
-			updates["alert_sent_user"] = true
-		}
-		if hit.AlertSentChannels != "" {
-			updates["alert_sent_channels"] = hit.AlertSentChannels
-		}
-		if hit.AlertSentUserChannel != "" {
-			updates["alert_sent_user_channel"] = hit.AlertSentUserChannel
-		}
-		if len(updates) > 0 {
-			model.DB.Model(hit).Updates(updates)
-		}
-	})
 }
 
 // distillMemoryRPM 是 Redis 不可用时的进程内兜底。

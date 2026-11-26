@@ -44,11 +44,11 @@ type DistillDetectHit struct {
 	DocChars int `json:"doc_chars"`
 	// SampledAt 判定发生的时刻。
 	SampledAt time.Time `json:"sampled_at" gorm:"index:idx_distill_hits_user_time,priority:2"`
-	// DemoteUntil 本轮降级到期时刻；观察模式下仍然写，便于估算重导后会持续多久。
+	// DemoteUntil 本轮降级到期时刻；仅在非观察模式且确认数达到阈值时写入，观察模式恒为空。
 	DemoteUntil *time.Time `json:"demote_until"`
 	// AlertSent 管理员侧告警（TG/企微）是否已发出；发送失败保持 false，运营可对照日志排查。
 	AlertSent bool `json:"alert_sent"`
-	// AlertSentUser 用户侧告警（飞书/钉钉）是否已发出；与 AlertSent 分开记录，便于审计
+	// AlertSentUser 用户侧告警（用户所选通知渠道）是否已发出；与 AlertSent 分开记录，便于审计
 	// 「发给了谁、哪个渠道成败」。
 	AlertSentUser bool `json:"alert_sent_user"`
 	// AlertSentChannels 管理员侧实际发出告警的通道，逗号分隔（telegram,wecom）。

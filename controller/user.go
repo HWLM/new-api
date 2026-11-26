@@ -750,8 +750,12 @@ func GetUserModels(c *gin.Context) {
 }
 
 func UpdateUser(c *gin.Context) {
-	var updatedUser model.User
-	err := common.DecodeJson(c.Request.Body, &updatedUser)
+	var req struct {
+		model.User
+		DistillNotifyOverride *int `json:"distill_notify_override"`
+	}
+	err := common.DecodeJson(c.Request.Body, &req)
+	updatedUser := req.User
 	if err != nil || updatedUser.Id == 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -772,6 +776,15 @@ func UpdateUser(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	// Partial updates (for example, the top-up toggle) must not reset this policy.
+	updatedUser.DistillNotifyOverride = originUser.DistillNotifyOverride
+	if req.DistillNotifyOverride != nil {
+		if *req.DistillNotifyOverride < -1 || *req.DistillNotifyOverride > 1 {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		updatedUser.DistillNotifyOverride = *req.DistillNotifyOverride
 	}
 	if updatedUser.Role != common.RoleGuestUser && updatedUser.Role != originUser.Role {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)

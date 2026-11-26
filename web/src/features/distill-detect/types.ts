@@ -62,7 +62,7 @@ export type DistillSetting = {
   /** §16 检测渠道白名单；空 = 不检测。与 fallback_channel_id 互斥。 */
   detect_channel_ids: number[]
   dedup_seconds: number
-  /** 是否把蒸馏命中告警发给被判定用户本人（飞书/钉钉），默认 false。 */
+  /** 是否把蒸馏命中告警发给被判定用户本人（用户所选通知渠道），默认 false。 */
   notify_user_enabled: boolean
 }
 
@@ -119,7 +119,7 @@ export type DistillHit = {
   /** RFC3339；空串 = 未降级。 */
   demote_until: string
   alert_sent: boolean
-  /** 用户侧告警（飞书/钉钉）是否已发出，与 alert_sent 分开。 */
+  /** 用户侧告警（用户所选通知渠道）是否已发出，与 alert_sent 分开。 */
   alert_sent_user?: boolean
   /** 管理员侧实际发出告警的通道，逗号分隔（telegram,wecom）。 */
   alert_sent_channels?: string
