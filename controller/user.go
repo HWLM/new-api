@@ -1686,22 +1686,42 @@ func TopUp(c *gin.Context) {
 }
 
 type UpdateUserSettingRequest struct {
-	QuotaWarningType                 string  `json:"notify_type"`
-	QuotaWarningThreshold            float64 `json:"quota_warning_threshold"`
-	WebhookUrl                       string  `json:"webhook_url,omitempty"`
-	WebhookSecret                    string  `json:"webhook_secret,omitempty"`
-	NotificationEmail                string  `json:"notification_email,omitempty"`
-	BarkUrl                          string  `json:"bark_url,omitempty"`
-	GotifyUrl                        string  `json:"gotify_url,omitempty"`
-	GotifyToken                      string  `json:"gotify_token,omitempty"`
-	GotifyPriority                   int     `json:"gotify_priority,omitempty"`
-	FeishuWebhookUrl                 string  `json:"feishu_webhook_url,omitempty"`
-	FeishuSecret                     string  `json:"feishu_secret,omitempty"`
-	DingTalkWebhookUrl               string  `json:"dingtalk_webhook_url,omitempty"`
-	DingTalkSecret                   string  `json:"dingtalk_secret,omitempty"`
-	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
-	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
-	RecordIpLog                      *bool   `json:"record_ip_log,omitempty"`
+	QuotaWarningType      string  `json:"notify_type"`
+	QuotaWarningThreshold float64 `json:"quota_warning_threshold"`
+	WebhookUrl            string  `json:"webhook_url,omitempty"`
+	WebhookSecret         string  `json:"webhook_secret,omitempty"`
+	NotificationEmail     string  `json:"notification_email,omitempty"`
+	BarkUrl               string  `json:"bark_url,omitempty"`
+	GotifyUrl             string  `json:"gotify_url,omitempty"`
+	GotifyToken           string  `json:"gotify_token,omitempty"`
+	GotifyPriority        int     `json:"gotify_priority,omitempty"`
+	FeishuWebhookUrl      string  `json:"feishu_webhook_url,omitempty"`
+	FeishuSecret          string  `json:"feishu_secret,omitempty"`
+	// ClearFeishuSecret 显式要求清空已存的飞书签名密钥。没有这个开关就没有任何
+	// 途径关掉签名校验：留空表示「保留」。
+	ClearFeishuSecret  bool   `json:"clear_feishu_secret,omitempty"`
+	DingTalkWebhookUrl string `json:"dingtalk_webhook_url,omitempty"`
+	DingTalkSecret     string `json:"dingtalk_secret,omitempty"`
+	// ClearDingTalkSecret 同上，钉钉加签密钥。
+	ClearDingTalkSecret              bool  `json:"clear_dingtalk_secret,omitempty"`
+	UpstreamModelUpdateNotifyEnabled *bool `json:"upstream_model_update_notify_enabled,omitempty"`
+	AcceptUnsetModelRatioModel       bool  `json:"accept_unset_model_ratio_model"`
+	RecordIpLog                      *bool `json:"record_ip_log,omitempty"`
+}
+
+// resolveNotifySecret 决定这次提交后要存的通知密钥。
+//
+// settings 是从零组装的（见 UpdateUserSetting 里的 dto.UserSetting{}），所以「没提交」
+// 不能被当成「清空」：只有显式勾选 clear 才清空，提交了非空值就覆盖，其余情况沿用
+// 已存值。飞书与钉钉共用这套规则。
+func resolveNotifySecret(current, submitted string, clear bool) string {
+	if clear {
+		return ""
+	}
+	if submitted != "" {
+		return submitted
+	}
+	return current
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1870,17 +1890,13 @@ func UpdateUserSetting(c *gin.Context) {
 	// 如果是飞书类型，添加飞书配置到设置中
 	if req.QuotaWarningType == dto.NotifyTypeFeishu {
 		settings.FeishuWebhookUrl = strings.TrimSpace(req.FeishuWebhookUrl)
-		if req.FeishuSecret != "" {
-			settings.FeishuSecret = req.FeishuSecret
-		}
+		settings.FeishuSecret = resolveNotifySecret(existingSettings.FeishuSecret, req.FeishuSecret, req.ClearFeishuSecret)
 	}
 
 	// 如果是钉钉类型，添加钉钉配置到设置中
 	if req.QuotaWarningType == dto.NotifyTypeDingTalk {
 		settings.DingTalkWebhookUrl = strings.TrimSpace(req.DingTalkWebhookUrl)
-		if req.DingTalkSecret != "" {
-			settings.DingTalkSecret = req.DingTalkSecret
-		}
+		settings.DingTalkSecret = resolveNotifySecret(existingSettings.DingTalkSecret, req.DingTalkSecret, req.ClearDingTalkSecret)
 	}
 
 	// 更新用户设置

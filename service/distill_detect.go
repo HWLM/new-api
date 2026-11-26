@@ -104,9 +104,10 @@ func IsDistillDetectEffectiveForUser(userID int) bool {
 // IsDistillNotifyEffectiveForUser 决定「是否把蒸馏命中告警发给该用户本人」。
 //
 // 结合全局开关与用户三态（与 IsDistillDetectEffectiveForUser 同款）：
-//   -1  用户显式关闭（永不被通知）
-//    0  跟随全局 NotifyUserEnabled
-//    1  用户强制通知（即便全局关闭）
+//
+//	-1  用户显式关闭（永不被通知）
+//	 0  跟随全局 NotifyUserEnabled
+//	 1  用户强制通知（即便全局关闭）
 //
 // ⛔ 折中方案：平台无法识别被判定者是终端蒸馏者还是二级代理，默认全局关闭、
 // 按需开启，避免打草惊蛇。

@@ -171,6 +171,13 @@ export type DistillAlertChannelResult = {
 export type DistillAlertTestResult = {
   telegram?: DistillAlertChannelResult
   wecom?: DistillAlertChannelResult
+  /**
+   * 用户侧链路（NotifyUser + 用户自选渠道）的测试结果。
+   * 测试消息发给发起请求的管理员自己，链路代码与真实告警相同。
+   */
+  user?: DistillAlertChannelResult
+  /** 这次实际试的渠道（email/webhook/bark/gotify/feishu/dingtalk）。 */
+  user_channel?: string
 }
 
 export type ApiResponse<T> = {

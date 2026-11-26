@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -45,6 +46,21 @@ func NotifyUpstreamModelUpdateWatchers(subject string, content string) {
 		sentCount++
 	}
 	common.SysLog(fmt.Sprintf("upstream model update notifications sent: %d", sentCount))
+}
+
+// notifyHTMLTagPattern 匹配历史通知模板里可能夹带的 HTML 标签。
+var notifyHTMLTagPattern = regexp.MustCompile(`<[^>]*>`)
+
+// notifyPlainTextContent 把通知正文里的 HTML 片段转成纯文本。
+//
+// 飞书 / 钉钉自定义机器人只收纯文本（text 消息），而 service/quota.go 等处的历史
+// 模板是给支持 HTML 的渠道（Email / Webhook）拼的，带 <br/> 和 <a href='…'>，直接
+// 发出去用户看到的就是裸标签。统一在发送前转一次，比让每个调用方按渠道各写一份
+// 模板要稳：以后新增的 HTML 模板也不会再漏到这两个通道。
+func notifyPlainTextContent(content string) string {
+	content = strings.ReplaceAll(content, "<br/>", "\n")
+	content = strings.ReplaceAll(content, "<br>", "\n")
+	return notifyHTMLTagPattern.ReplaceAllString(content, "")
 }
 
 func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data dto.Notify) error {
@@ -110,7 +126,7 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 		for _, value := range data.Values {
 			content = strings.Replace(content, dto.ContentValueParam, fmt.Sprintf("%v", value), 1)
 		}
-		return SendFeishuText(feishuUrl, userSetting.FeishuSecret, data.Title+"\n"+content)
+		return SendFeishuText(feishuUrl, userSetting.FeishuSecret, data.Title+"\n"+notifyPlainTextContent(content))
 	case dto.NotifyTypeDingTalk:
 		dingTalkUrl := userSetting.DingTalkWebhookUrl
 		if dingTalkUrl == "" {
@@ -121,7 +137,7 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 		for _, value := range data.Values {
 			content = strings.Replace(content, dto.ContentValueParam, fmt.Sprintf("%v", value), 1)
 		}
-		return SendDingTalkText(dingTalkUrl, userSetting.DingTalkSecret, data.Title+"\n"+content)
+		return SendDingTalkText(dingTalkUrl, userSetting.DingTalkSecret, data.Title+"\n"+notifyPlainTextContent(content))
 	default:
 		common.SysLog(fmt.Sprintf("user %d has unsupported notify type %q, skip sending", userId, notifyType))
 	}

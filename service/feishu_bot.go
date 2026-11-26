@@ -49,10 +49,10 @@ type feishuTextContent struct {
 }
 
 type feishuTextReq struct {
-	MsgType   string           `json:"msg_type"`
+	MsgType   string            `json:"msg_type"`
 	Content   feishuTextContent `json:"content"`
-	Timestamp string           `json:"timestamp,omitempty"`
-	Sign      string           `json:"sign,omitempty"`
+	Timestamp string            `json:"timestamp,omitempty"`
+	Sign      string            `json:"sign,omitempty"`
 }
 
 type feishuResp struct {

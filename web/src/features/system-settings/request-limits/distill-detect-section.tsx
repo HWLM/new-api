@@ -739,7 +739,7 @@ export function DistillDetectSection() {
               name='notify_user_enabled'
               label={t('Notify the detected user')}
               description={t(
-                'Also send a neutral alert to the detected user via their own Feishu/DingTalk channel. Default off to avoid tipping off distillers.'
+                'Also send a neutral alert to the detected user through the notification method they configured in their own profile. Default off to avoid tipping off distillers.'
               )}
             />
           </div>
@@ -997,6 +997,11 @@ function DistillAlertTestPanel() {
           {t('Uses the saved settings; save your changes first.')}
         </span>
       </div>
+      <span className='text-muted-foreground text-xs'>
+        {t(
+          'The user-channel test is sent to your own notification settings.'
+        )}
+      </span>
       {result ? (
         <ul className='flex flex-col gap-1 text-sm'>
           <AlertResultLine
@@ -1006,6 +1011,14 @@ function DistillAlertTestPanel() {
           <AlertResultLine
             label={t('WeCom')}
             outcome={describeAlertResult(result.wecom)}
+          />
+          <AlertResultLine
+            label={
+              result.user_channel
+                ? `${t('User alert')} (${result.user_channel})`
+                : t('User alert')
+            }
+            outcome={describeAlertResult(result.user)}
           />
         </ul>
       ) : null}
@@ -1017,7 +1030,7 @@ function AlertResultLine(props: { label: string; outcome: AlertOutcome }) {
   const { kind, detail } = props.outcome
   return (
     <li className='flex flex-wrap items-center gap-2'>
-      <span className='w-20 shrink-0'>{props.label}</span>
+      <span className='min-w-20 shrink-0'>{props.label}</span>
       <AlertBadge kind={kind} />
       {detail ? (
         <span className='text-muted-foreground text-xs break-all'>

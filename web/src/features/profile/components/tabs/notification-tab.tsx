@@ -98,6 +98,8 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     feishu_secret: '',
     dingtalk_webhook_url: '',
     dingtalk_secret: '',
+    clear_feishu_secret: false,
+    clear_dingtalk_secret: false,
     accept_unset_model_ratio_model: false,
     record_ip_log: true,
     upstream_model_update_notify_enabled: false,
@@ -129,6 +131,8 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         feishu_secret: parsed.feishu_secret ?? '',
         dingtalk_webhook_url: parsed.dingtalk_webhook_url ?? '',
         dingtalk_secret: parsed.dingtalk_secret ?? '',
+        clear_feishu_secret: false,
+        clear_dingtalk_secret: false,
         accept_unset_model_ratio_model:
           parsed.accept_unset_model_ratio_model || false,
         record_ip_log: parsed.record_ip_log ?? true,
@@ -370,8 +374,18 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
               id='feishuSecret'
               value={settings.feishu_secret}
               onChange={(e) => updateField('feishu_secret', e.target.value)}
-              placeholder={t('Leave empty to disable signature verification')}
+              placeholder={t('Leave empty to keep the existing secret')}
+              disabled={settings.clear_feishu_secret}
             />
+            <label className='text-muted-foreground flex items-center gap-2 text-xs'>
+              <Switch
+                checked={settings.clear_feishu_secret ?? false}
+                onCheckedChange={(checked) =>
+                  updateField('clear_feishu_secret', checked)
+                }
+              />
+              {t('Clear the saved key on save')}
+            </label>
           </div>
         </>
       )}
@@ -405,8 +419,18 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
               id='dingtalkSecret'
               value={settings.dingtalk_secret}
               onChange={(e) => updateField('dingtalk_secret', e.target.value)}
-              placeholder={t('Leave empty to disable signature verification')}
+              placeholder={t('Leave empty to keep the existing secret')}
+              disabled={settings.clear_dingtalk_secret}
             />
+            <label className='text-muted-foreground flex items-center gap-2 text-xs'>
+              <Switch
+                checked={settings.clear_dingtalk_secret ?? false}
+                onCheckedChange={(checked) =>
+                  updateField('clear_dingtalk_secret', checked)
+                }
+              />
+              {t('Clear the saved key on save')}
+            </label>
           </div>
         </>
       )}

@@ -110,7 +110,7 @@ type User struct {
 	//   -1  该用户永不做蒸馏检测（豁免）
 	//    0  跟随全局 distill_detect_setting.enabled
 	//    1  该用户强制启用（即便全局关闭）
-	DistillDetectOverride int                        `json:"distill_detect_override" gorm:"type:int;default:0;column:distill_detect_override"`
+	DistillDetectOverride int `json:"distill_detect_override" gorm:"type:int;default:0;column:distill_detect_override"`
 	// DistillNotifyOverride 蒸馏告警「是否通知用户」的用户级三态开关，语义与上面同款：
 	//   -1  该用户永不被通知（用于疑似终端蒸馏者，避免打草惊蛇）
 	//    0  跟随全局 distill_detect_setting.notify_user_enabled

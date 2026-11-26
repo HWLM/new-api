@@ -542,19 +542,19 @@ func ListDistillHits(c *gin.Context) {
 			continue
 		}
 		view := DistillHitView{
-			Id:              r.Id,
-			UserId:          r.UserId,
-			RequestId:       r.RequestId,
-			Model:           r.Model,
-			ChannelId:       r.ChannelId,
-			FallbackId:      r.FallbackId,
-			Score:           r.Score,
-			Categories:      r.Categories,
-			QuestionResults: distillHitQuestionResults(r),
-			DedupReused:     r.DedupReused,
-			DocChars:        r.DocChars,
-			SampledAt:       r.SampledAt.Format(time.RFC3339),
-			DemoteUntil:     distillHitDemoteUntil(r),
+			Id:                   r.Id,
+			UserId:               r.UserId,
+			RequestId:            r.RequestId,
+			Model:                r.Model,
+			ChannelId:            r.ChannelId,
+			FallbackId:           r.FallbackId,
+			Score:                r.Score,
+			Categories:           r.Categories,
+			QuestionResults:      distillHitQuestionResults(r),
+			DedupReused:          r.DedupReused,
+			DocChars:             r.DocChars,
+			SampledAt:            r.SampledAt.Format(time.RFC3339),
+			DemoteUntil:          distillHitDemoteUntil(r),
 			AlertSent:            r.AlertSent,
 			AlertSentUser:        r.AlertSentUser,
 			AlertSentChannels:    r.AlertSentChannels,
@@ -684,7 +684,7 @@ func TestDistill(c *gin.Context) {
 // ⛔ 不受 AlertThrottleSeconds 约束：测试按钮按一下就发一条，节流是防刷屏，
 // 不是防测试。也不写 hits、不改任何状态。
 func TestDistillAlert(c *gin.Context) {
-	results := service.SendDistillTestAlert(c.Request.Context())
+	results := service.SendDistillTestAlert(c.Request.Context(), c.GetInt("id"))
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
