@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
@@ -44,7 +45,9 @@ func NotifyDistillHit(hit *model.DistillDetectHit) error {
 	}
 	text := buildDistillAlertText(hit, s)
 	var firstErr error
-	sent := false
+	sentAdmin := false
+	sentUser := false
+	var adminChannels []string
 
 	if s.AlertTelegram {
 		token := strings.TrimSpace(s.TgBotToken)
@@ -57,7 +60,8 @@ func NotifyDistillHit(hit *model.DistillDetectHit) error {
 				firstErr = err
 			}
 		} else {
-			sent = true
+			sentAdmin = true
+			adminChannels = append(adminChannels, "telegram")
 		}
 	}
 
@@ -71,14 +75,201 @@ func NotifyDistillHit(hit *model.DistillDetectHit) error {
 				firstErr = err
 			}
 		} else {
-			sent = true
+			sentAdmin = true
+			adminChannels = append(adminChannels, "wecom")
 		}
 	}
 
-	if sent {
+	// 用户侧告警：复用现有节流门，把用户可见的告警发到被判定用户自己维护的
+	// 通知渠道（复用 NotifyType，支持 email/webhook/bark/gotify/飞书/钉钉）。
+	// 全局开关/用户三态未放行、或渠道未配置时静默跳过。
+	if userSent, err := notifyDistillHitToUser(hit); err != nil {
+		// ⛔ 措辞不要写「发送失败」：这里既可能是渠道发送失败，也可能只是被
+		// NotifyUser 的通知限流挡下（error 里写明原因），写错会让运维去查渠道配置。
+		common.SysError("distill_detect: 用户侧告警未发出: " + err.Error())
+		if firstErr == nil {
+			firstErr = err
+		}
+	} else if userSent {
+		sentUser = true
+	}
+
+	if sentAdmin {
 		hit.AlertSent = true
 	}
+	if sentUser {
+		hit.AlertSentUser = true
+	}
+	hit.AlertSentChannels = strings.Join(adminChannels, ",")
+	// 一条都没发出去、且没有任何发送失败：说明本次**压根没尝试发送**（通道全关 /
+	// token、webhook 未配置 / 用户侧渠道没填，这些判定都发生在发送之前）。此时
+	// 释放本窗口的节流名额，避免「既没告警、下一窗口也被抑制」。
+	//
+	// ⛔ 发送失败（firstErr != nil）时必须保留名额：否则通道配错的那一次之后，
+	// 每次命中都会立刻重试一次外呼，节流窗口直接被架空。失败留到下一个窗口再试
+	// 才是节流该有的语义。
+	if !sentAdmin && !sentUser && firstErr == nil {
+		distillAlertReleaseThrottle(hit.UserId)
+	}
 	return firstErr
+}
+
+// notifyDistillHitToUser 把蒸馏命中告警发给被判定用户本人维护的通知渠道。
+//
+// 返回 (sent bool, err error)：sent 表示发送未出错。err 仅在发送失败时非空；
+// 全局开关/用户三态未放行时返回 (false, nil)，静默跳过。
+//
+// 渠道复用客户在「通知方式」里自填的 NotifyType（email/webhook/bark/gotify/
+// 飞书/钉钉）与对应配置 —— 管理员只决定「是否通知」（三态），不再重复维护渠道。
+func notifyDistillHitToUser(hit *model.DistillDetectHit) (bool, error) {
+	if hit == nil {
+		return false, nil
+	}
+	// 全局开关 + 用户三态：默认不通知用户，避免打草惊蛇。
+	if !IsDistillNotifyEffectiveForUser(hit.UserId) {
+		return false, nil
+	}
+	s := operation_setting.GetDistillDetectSetting()
+	user, err := model.GetUserById(hit.UserId, false)
+	if err != nil || user == nil {
+		return false, err
+	}
+	setting := user.GetSetting()
+
+	// 发送前检查渠道是否已配置：未配置则静默跳过，不算发送成功，避免把
+	// 「未配置跳过」误标为「已发送」。判定条件与 NotifyUser 内部保持一致。
+	notifyType, ready := distillUserNotifyTarget(setting, user.Email)
+	if !ready {
+		return false, nil
+	}
+
+	title, body := BuildDistillUserAlertText(hit, user.Username, s.ObserveOnly, setting.Language)
+
+	// 复用通用通知链路：用户「通知方式」选哪个渠道，蒸馏告警就发哪个渠道。
+	notify := dto.NewNotify(dto.NotifyTypeDistillHit, title, body, nil)
+	if err := NotifyUser(user.Id, user.Email, setting, notify); err != nil {
+		// 带上通道名：NotifyUser 的错误本身不说是哪个渠道（限流、发送失败都用同一
+		// 个 error 返回），日志里没有通道名运维只能靠猜。
+		return false, fmt.Errorf("channel=%s: %w", notifyType, err)
+	}
+	hit.AlertSentUserChannel = notifyType
+	return true, nil
+}
+
+// distillUserNotifyTarget 解析该用户当前的通知渠道，并判断它是否配好可用。
+//
+// ⛔ 判定条件必须与 NotifyUser 内部的跳过条件一一对应：两边不一致就会出现
+// 「记录成已发送、实际什么都没发」的假象。
+//
+// 返回值 notifyType 已把空值规范成 email（与 NotifyUser 一致），即使 ready 为
+// false 也会带回来 —— 测试告警要用它告诉运营「该去配哪个渠道」。
+func distillUserNotifyTarget(setting dto.UserSetting, userEmail string) (notifyType string, ready bool) {
+	notifyType = setting.NotifyType
+	if notifyType == "" {
+		notifyType = dto.NotifyTypeEmail
+	}
+	switch notifyType {
+	case dto.NotifyTypeEmail:
+		return notifyType, setting.NotificationEmail != "" || userEmail != ""
+	case dto.NotifyTypeWebhook:
+		return notifyType, setting.WebhookUrl != ""
+	case dto.NotifyTypeBark:
+		return notifyType, setting.BarkUrl != ""
+	case dto.NotifyTypeGotify:
+		return notifyType, setting.GotifyUrl != "" && setting.GotifyToken != ""
+	case dto.NotifyTypeFeishu:
+		return notifyType, setting.FeishuWebhookUrl != ""
+	case dto.NotifyTypeDingTalk:
+		return notifyType, setting.DingTalkWebhookUrl != ""
+	default:
+		return notifyType, false
+	}
+}
+
+// distillUserAlertTemplate 用户侧告警文案的多语言模板。
+type distillUserAlertTemplate struct {
+	Title   string
+	Account string
+	Request string
+	Model   string
+	Time    string
+	Observe string
+	Reroute string
+	Sep     string
+}
+
+var distillUserAlertTemplates = map[string]distillUserAlertTemplate{
+	"en": {
+		Title:   "Distillation Detection Notice",
+		Account: "Account",
+		Request: "Request ID",
+		Model:   "Model",
+		Time:    "Time",
+		Observe: "Our system detected request patterns under your account that look like batch training-data generation. Please review your usage. If you have questions, please contact the platform administrator.",
+		Reroute: "Our system detected requests under your account for batch training-data generation. The related traffic has been temporarily routed to the fallback channel. Please comply with the usage policy. If you have questions, please contact the platform administrator.",
+		Sep:     ": ",
+	},
+	"zh": {
+		Title:   "【蒸馏检测】提示",
+		Account: "账号",
+		Request: "请求编号",
+		Model:   "模型",
+		Time:    "时间",
+		Observe: "系统检测到你的账号下存在疑似批量生成训练数据的请求特征，请自查使用方式。如有疑问，请联系平台管理员。",
+		Reroute: "系统检测到你的账号下存在批量生成训练数据的请求，相关流量已临时切换至兜底渠道，请规范使用。如有疑问，请联系平台管理员。",
+		Sep:     "：",
+	},
+	"zh-TW": {
+		Title:   "【蒸餾檢測】提示",
+		Account: "帳號",
+		Request: "請求編號",
+		Model:   "模型",
+		Time:    "時間",
+		Observe: "系統偵測到你的帳號下存在疑似批次生成訓練資料的請求特徵，請自查使用方式。如有疑問，請聯絡平台管理員。",
+		Reroute: "系統偵測到你的帳號下存在批次生成訓練資料的請求，相關流量已臨時切換至備援管道，請規範使用。如有疑問，請聯絡平台管理員。",
+		Sep:     "：",
+	},
+}
+
+// distillUserAlertTemplateFor 按用户语言偏好选模板；未知语言回落到简体中文。
+func distillUserAlertTemplateFor(lang string) distillUserAlertTemplate {
+	l := strings.ToLower(strings.TrimSpace(lang))
+	switch {
+	case strings.HasPrefix(l, "en"):
+		return distillUserAlertTemplates["en"]
+	case strings.HasPrefix(l, "zh-tw"), strings.HasPrefix(l, "zh_tw"), strings.HasPrefix(l, "zh-hant"):
+		return distillUserAlertTemplates["zh-TW"]
+	default:
+		return distillUserAlertTemplates["zh"]
+	}
+}
+
+// BuildDistillUserAlertText 生成发给被判定用户本人的告警标题与正文（用户可见模板）。
+//
+// ⛔ 与 buildDistillAlertText 完全独立：只含账号/请求编号/模型/时间/说明，
+// 绝不包含分数/阈值/渠道 id/兜底渠道 id 等运营口径 —— 否则等于把判定口径与
+// 内部拓扑交给被判定方。标题与正文均按用户语言偏好本地化。
+//
+// ⛔ 折中方案：平台无法区分对方是终端蒸馏者还是二级代理，措辞保持中性（
+// 「你的账号下」「疑似」），观察模式与重导模式用不同语气，避免打草惊蛇或
+// 虚假指控。
+func BuildDistillUserAlertText(hit *model.DistillDetectHit, username string, observeOnly bool, lang string) (title, body string) {
+	tpl := distillUserAlertTemplateFor(lang)
+	var b strings.Builder
+	if strings.TrimSpace(username) != "" {
+		b.WriteString(tpl.Account + tpl.Sep + username + "\n")
+	}
+	b.WriteString(tpl.Request + tpl.Sep + hit.RequestId + "\n")
+	if strings.TrimSpace(hit.Model) != "" {
+		b.WriteString(tpl.Model + tpl.Sep + hit.Model + "\n")
+	}
+	b.WriteString(tpl.Time + tpl.Sep + hit.SampledAt.Format("2006-01-02 15:04:05") + "\n")
+	if observeOnly {
+		b.WriteString(tpl.Observe)
+	} else {
+		b.WriteString(tpl.Reroute)
+	}
+	return tpl.Title, b.String()
 }
 
 // distillAlertThrottleKeyPrefix 告警节流键前缀。
@@ -137,6 +328,28 @@ func distillAlertClearThrottle(userID int) int {
 	return 1
 }
 
+// distillAlertReleaseThrottle 释放该用户本窗口的告警节流名额（Redis + 内存）。
+//
+// 只在「本次压根没尝试发送」时调用（通道全关 / token、webhook 未配置），避免白占
+// 名额、抑制后续真正可发的命中。发送失败**不释放** —— 失败应当留到下一个窗口再试，
+// 否则通道配错会把节流彻底架空。
+func distillAlertReleaseThrottle(userID int) {
+	if userID <= 0 {
+		return
+	}
+	key := fmt.Sprintf("%s{user:%d}", distillAlertThrottleKeyPrefix, userID)
+	if common.RedisEnabled && common.RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), distillRedisTimeoutMs*time.Millisecond)
+		defer cancel()
+		if err := common.RDB.Del(ctx, key).Err(); err != nil {
+			common.SysLog(fmt.Sprintf("distill_detect: alert throttle release failed user=%d err=%v", userID, err))
+		}
+	}
+	distillAlertThrottleMu.Lock()
+	delete(distillAlertThrottle, userID)
+	distillAlertThrottleMu.Unlock()
+}
+
 // DistillAlertChannelResult 是一个告警通道的测试结果。
 //
 // Status 取值：
@@ -153,6 +366,12 @@ type DistillAlertChannelResult struct {
 type DistillAlertTestResult struct {
 	Telegram DistillAlertChannelResult `json:"telegram"`
 	WeCom    DistillAlertChannelResult `json:"wecom"`
+	// User 是**用户侧**那条链路（NotifyUser + 用户自选渠道）的测试结果。测试消息发到
+	// 发起请求的管理员自己身上 —— 只有他有可用的通知配置，而链路代码完全相同。
+	User DistillAlertChannelResult `json:"user"`
+	// UserChannel 是这次实际试的渠道（email/webhook/bark/gotify/feishu/dingtalk），
+	// 没配好时也会带回来，方便运营知道该去哪个页面填。
+	UserChannel string `json:"user_channel,omitempty"`
 }
 
 // SendDistillTestAlert 用当前配置给每个通道发一条测试消息。
@@ -162,7 +381,10 @@ type DistillAlertTestResult struct {
 //
 // ⛔ 通道开关关着时**不发**，返回 disabled 而不是偷偷发一条：否则「关掉了
 // 还在收消息」会让人以为开关坏了。
-func SendDistillTestAlert(ctx context.Context) DistillAlertTestResult {
+//
+// testerUserID 是发起测试的管理员：用户侧链路要发到「某个人的通知配置」上，
+// 用管理员自己最省事，走的是与真实告警完全相同的 NotifyUser 代码。
+func SendDistillTestAlert(ctx context.Context, testerUserID int) DistillAlertTestResult {
 	s := operation_setting.GetDistillDetectSetting()
 	var out DistillAlertTestResult
 
@@ -186,7 +408,38 @@ func SendDistillTestAlert(ctx context.Context) DistillAlertTestResult {
 		out.WeCom = DistillAlertChannelResult{Status: "sent"}
 	}
 
+	out.User, out.UserChannel = testDistillUserChannel(testerUserID)
 	return out
+}
+
+// testDistillUserChannel 试一次「用户侧告警」的投递链路。
+//
+// 与真实告警的两处刻意差异：
+//   - 只要求全局开关/该用户三态放行与渠道已配置，不写 hits、不受告警节流约束；
+//   - Notify.Type 用 channel_test 而不是 distill_hit：NotifyUser 按类型分桶限流
+//     （默认 2 次/10 分钟），用真实类型会让连点两次测试就把当天额度吃掉。
+func testDistillUserChannel(userID int) (DistillAlertChannelResult, string) {
+	if userID <= 0 {
+		return DistillAlertChannelResult{Status: "disabled"}, ""
+	}
+	user, err := model.GetUserById(userID, false)
+	if err != nil || user == nil {
+		return DistillAlertChannelResult{Status: "failed", Error: "user not found"}, ""
+	}
+	setting := user.GetSetting()
+	channel, ready := distillUserNotifyTarget(setting, user.Email)
+	if !IsDistillNotifyEffectiveForUser(user.Id) {
+		return DistillAlertChannelResult{Status: "disabled"}, channel
+	}
+	if !ready {
+		return DistillAlertChannelResult{Status: "not_configured"}, channel
+	}
+	title, content := distillUserAlertTestText()
+	notify := dto.NewNotify(dto.NotifyTypeChannelTest, title, content, nil)
+	if err := NotifyUser(user.Id, user.Email, setting, notify); err != nil {
+		return DistillAlertChannelResult{Status: "failed", Error: err.Error()}, channel
+	}
+	return DistillAlertChannelResult{Status: "sent"}, channel
 }
 
 // distillAlertTestText 是测试消息正文。开头就写明是测试，避免运营群里误判。
@@ -194,6 +447,16 @@ func distillAlertTestText() string {
 	return "【蒸馏检测】告警通道测试\n" +
 		"如果你在群里看到这条消息，说明该通道配置正确，蒸馏命中时可以正常收到告警。\n" +
 		"本条为手动测试，不是真实命中。"
+}
+
+// distillUserAlertTestText 是用户侧测试消息的标题与正文。
+//
+// ⛔ 收件人可能确实是被判定过的用户，所以措辞必须与真实告警一样中性：说明这是
+// 手动测试、不构成指控，也不能出现任何判定口径。
+func distillUserAlertTestText() (title, content string) {
+	return "【蒸馏检测】通知渠道测试",
+		"这是一条由管理员手动触发的测试消息，用于确认通知渠道是否通畅。\n" +
+			"它不是真实的蒸馏命中，也不代表你的账号被判定。"
 }
 
 // buildDistillAlertText 组装告警正文（规格 §7 的格式）。
@@ -251,6 +514,3 @@ func readAllLimited(r io.Reader, limit int64) ([]byte, error) {
 	}
 	return buf, nil
 }
-
-// distillAlertTimeout 与判定调用无关，是告警发送的兜底上下文。
-var _ = time.Second

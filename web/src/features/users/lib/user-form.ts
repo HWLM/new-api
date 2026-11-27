@@ -45,6 +45,7 @@ export const userFormSchema = z.object({
   max_concurrency: z.number().int().min(-1).optional(),
   refusal_demote_override: z.number().int().min(-1).max(1).optional(),
   distill_detect_override: z.number().int().min(-1).max(1).optional(),
+  distill_notify_override: z.number().int().min(-1).max(1).optional(),
   group_rate_limits: z
     .array(
       z.object({
@@ -93,6 +94,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   max_concurrency: 0,
   refusal_demote_override: 0,
   distill_detect_override: 0,
+  distill_notify_override: 0,
   group_rate_limits: [],
   remark: '',
   settlement_currency: 'CNY',
@@ -142,6 +144,7 @@ export function transformFormDataToPayload(
     payload.max_concurrency = data.max_concurrency ?? 0
     payload.refusal_demote_override = data.refusal_demote_override ?? 0
     payload.distill_detect_override = data.distill_detect_override ?? 0
+    payload.distill_notify_override = data.distill_notify_override ?? 0
     payload.group_rate_limits = serializeGroupRateLimits(
       data.group_rate_limits ?? []
     )
@@ -165,6 +168,7 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     max_concurrency: user.max_concurrency ?? 0,
     refusal_demote_override: user.refusal_demote_override ?? 0,
     distill_detect_override: user.distill_detect_override ?? 0,
+    distill_notify_override: user.distill_notify_override ?? 0,
     group_rate_limits: parseGroupRateLimits(user.group_rate_limits),
     remark: user.remark || '',
     settlement_currency:

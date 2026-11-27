@@ -243,6 +243,12 @@ type DistillDetectSetting struct {
 
 	// DedupSeconds 同一用户同一正文哈希在该窗口内不重复打分（0 = 不去重）。
 	DedupSeconds int `json:"dedup_seconds"`
+
+	// NotifyUserEnabled 是否把蒸馏命中告警发给「被判定用户本人」维护的通知渠道。
+	// ⛔ 默认 false：默认只告警管理员，不通知用户。用户级可用 DistillNotifyOverride
+	// 三态覆盖（跟随全局 / 强制通知 / 永不通知）。这是折中方案 —— 平台无法区分
+	// 被判定者是终端蒸馏者还是二级代理，默认静默、按需开启，避免打草惊蛇。
+	NotifyUserEnabled bool `json:"notify_user_enabled"`
 }
 
 var distillDetectSetting = DistillDetectSetting{

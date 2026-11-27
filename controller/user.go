@@ -750,8 +750,12 @@ func GetUserModels(c *gin.Context) {
 }
 
 func UpdateUser(c *gin.Context) {
-	var updatedUser model.User
-	err := common.DecodeJson(c.Request.Body, &updatedUser)
+	var req struct {
+		model.User
+		DistillNotifyOverride *int `json:"distill_notify_override"`
+	}
+	err := common.DecodeJson(c.Request.Body, &req)
+	updatedUser := req.User
 	if err != nil || updatedUser.Id == 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -772,6 +776,15 @@ func UpdateUser(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	// Partial updates (for example, the top-up toggle) must not reset this policy.
+	updatedUser.DistillNotifyOverride = originUser.DistillNotifyOverride
+	if req.DistillNotifyOverride != nil {
+		if *req.DistillNotifyOverride < -1 || *req.DistillNotifyOverride > 1 {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		updatedUser.DistillNotifyOverride = *req.DistillNotifyOverride
 	}
 	if updatedUser.Role != common.RoleGuestUser && updatedUser.Role != originUser.Role {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
@@ -1673,18 +1686,42 @@ func TopUp(c *gin.Context) {
 }
 
 type UpdateUserSettingRequest struct {
-	QuotaWarningType                 string  `json:"notify_type"`
-	QuotaWarningThreshold            float64 `json:"quota_warning_threshold"`
-	WebhookUrl                       string  `json:"webhook_url,omitempty"`
-	WebhookSecret                    string  `json:"webhook_secret,omitempty"`
-	NotificationEmail                string  `json:"notification_email,omitempty"`
-	BarkUrl                          string  `json:"bark_url,omitempty"`
-	GotifyUrl                        string  `json:"gotify_url,omitempty"`
-	GotifyToken                      string  `json:"gotify_token,omitempty"`
-	GotifyPriority                   int     `json:"gotify_priority,omitempty"`
-	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
-	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
-	RecordIpLog                      *bool   `json:"record_ip_log,omitempty"`
+	QuotaWarningType      string  `json:"notify_type"`
+	QuotaWarningThreshold float64 `json:"quota_warning_threshold"`
+	WebhookUrl            string  `json:"webhook_url,omitempty"`
+	WebhookSecret         string  `json:"webhook_secret,omitempty"`
+	NotificationEmail     string  `json:"notification_email,omitempty"`
+	BarkUrl               string  `json:"bark_url,omitempty"`
+	GotifyUrl             string  `json:"gotify_url,omitempty"`
+	GotifyToken           string  `json:"gotify_token,omitempty"`
+	GotifyPriority        int     `json:"gotify_priority,omitempty"`
+	FeishuWebhookUrl      string  `json:"feishu_webhook_url,omitempty"`
+	FeishuSecret          string  `json:"feishu_secret,omitempty"`
+	// ClearFeishuSecret 显式要求清空已存的飞书签名密钥。没有这个开关就没有任何
+	// 途径关掉签名校验：留空表示「保留」。
+	ClearFeishuSecret  bool   `json:"clear_feishu_secret,omitempty"`
+	DingTalkWebhookUrl string `json:"dingtalk_webhook_url,omitempty"`
+	DingTalkSecret     string `json:"dingtalk_secret,omitempty"`
+	// ClearDingTalkSecret 同上，钉钉加签密钥。
+	ClearDingTalkSecret              bool  `json:"clear_dingtalk_secret,omitempty"`
+	UpstreamModelUpdateNotifyEnabled *bool `json:"upstream_model_update_notify_enabled,omitempty"`
+	AcceptUnsetModelRatioModel       bool  `json:"accept_unset_model_ratio_model"`
+	RecordIpLog                      *bool `json:"record_ip_log,omitempty"`
+}
+
+// resolveNotifySecret 决定这次提交后要存的通知密钥。
+//
+// settings 是从零组装的（见 UpdateUserSetting 里的 dto.UserSetting{}），所以「没提交」
+// 不能被当成「清空」：只有显式勾选 clear 才清空，提交了非空值就覆盖，其余情况沿用
+// 已存值。飞书与钉钉共用这套规则。
+func resolveNotifySecret(current, submitted string, clear bool) string {
+	if clear {
+		return ""
+	}
+	if submitted != "" {
+		return submitted
+	}
+	return current
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1695,7 +1732,7 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	// 验证预警类型
-	if req.QuotaWarningType != dto.NotifyTypeEmail && req.QuotaWarningType != dto.NotifyTypeWebhook && req.QuotaWarningType != dto.NotifyTypeBark && req.QuotaWarningType != dto.NotifyTypeGotify {
+	if req.QuotaWarningType != dto.NotifyTypeEmail && req.QuotaWarningType != dto.NotifyTypeWebhook && req.QuotaWarningType != dto.NotifyTypeBark && req.QuotaWarningType != dto.NotifyTypeGotify && req.QuotaWarningType != dto.NotifyTypeFeishu && req.QuotaWarningType != dto.NotifyTypeDingTalk {
 		common.ApiErrorI18n(c, i18n.MsgSettingInvalidType)
 		return
 	}
@@ -1768,6 +1805,33 @@ func UpdateUserSetting(c *gin.Context) {
 		}
 	}
 
+	// 如果是飞书类型，验证飞书 webhook URL（官方域名白名单，secret 可空）
+	if req.QuotaWarningType == dto.NotifyTypeFeishu {
+		if strings.TrimSpace(req.FeishuWebhookUrl) == "" {
+			common.ApiErrorI18n(c, i18n.MsgSettingFeishuUrlEmpty)
+			return
+		}
+		if !strings.HasPrefix(req.FeishuWebhookUrl, "https://open.feishu.cn/open-apis/bot/v2/hook/") &&
+			!strings.HasPrefix(req.FeishuWebhookUrl, "https://open.larksuite.com/open-apis/bot/v2/hook/") {
+			common.ApiErrorI18n(c, i18n.MsgSettingFeishuUrlInvalid)
+			return
+		}
+	}
+
+	// 如果是钉钉类型，验证钉钉 webhook URL（官方域名白名单，secret 可空）
+	if req.QuotaWarningType == dto.NotifyTypeDingTalk {
+		if strings.TrimSpace(req.DingTalkWebhookUrl) == "" {
+			common.ApiErrorI18n(c, i18n.MsgSettingDingTalkUrlEmpty)
+			return
+		}
+		if !strings.HasPrefix(req.DingTalkWebhookUrl, "https://oapi.dingtalk.com/robot/send") {
+			common.ApiErrorI18n(c, i18n.MsgSettingDingTalkUrlInvalid)
+			return
+		}
+	}
+
+	// 蒸馏告警通知渠道已改为管理员在用户编辑页维护（顶层 User 字段），此处不再接受用户提交。
+
 	userId := c.GetInt("id")
 	user, err := model.GetUserById(userId, true)
 	if err != nil {
@@ -1821,6 +1885,18 @@ func UpdateUserSetting(c *gin.Context) {
 		} else {
 			settings.GotifyPriority = req.GotifyPriority
 		}
+	}
+
+	// 如果是飞书类型，添加飞书配置到设置中
+	if req.QuotaWarningType == dto.NotifyTypeFeishu {
+		settings.FeishuWebhookUrl = strings.TrimSpace(req.FeishuWebhookUrl)
+		settings.FeishuSecret = resolveNotifySecret(existingSettings.FeishuSecret, req.FeishuSecret, req.ClearFeishuSecret)
+	}
+
+	// 如果是钉钉类型，添加钉钉配置到设置中
+	if req.QuotaWarningType == dto.NotifyTypeDingTalk {
+		settings.DingTalkWebhookUrl = strings.TrimSpace(req.DingTalkWebhookUrl)
+		settings.DingTalkSecret = resolveNotifySecret(existingSettings.DingTalkSecret, req.DingTalkSecret, req.ClearDingTalkSecret)
 	}
 
 	// 更新用户设置

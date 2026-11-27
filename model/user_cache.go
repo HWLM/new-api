@@ -19,7 +19,8 @@ import (
 //
 //	3 → 4  加入 MaxConcurrency / RefusalDemoteOverride / DistillDetectOverride
 //	4 → 5  加入 GroupRateLimits（分组速率，规格 §21）
-const userCacheSchemaVersion = 5
+//	5 → 6  加入 DistillNotifyOverride（蒸馏告警是否通知用户的三态）
+const userCacheSchemaVersion = 6
 
 type UserBase struct {
 	Id                    int    `json:"id"`
@@ -34,6 +35,7 @@ type UserBase struct {
 	GroupRateLimits       string `json:"group_rate_limits"`
 	RefusalDemoteOverride int    `json:"refusal_demote_override"`
 	DistillDetectOverride int    `json:"distill_detect_override"`
+	DistillNotifyOverride int    `json:"distill_notify_override"`
 	AuthVersion           int64  `json:"-"`
 	CacheSchema           int    `json:"-"`
 }
@@ -131,6 +133,9 @@ func updateUserCache(user User) error {
 		return err
 	}
 	if err := updateUserDistillDetectOverrideCache(user.Id, user.DistillDetectOverride); err != nil {
+		return err
+	}
+	if err := updateUserDistillNotifyOverrideCache(user.Id, user.DistillNotifyOverride); err != nil {
 		return err
 	}
 	return updateUserSettingCache(user.Id, user.Setting)
@@ -327,6 +332,11 @@ func updateUserSettingCache(userId int, setting string) error {
 // 正在被反复判中；等一分钟才生效，等于这段时间的命中照常记、告警照常发。
 func updateUserDistillDetectOverrideCache(userId int, override int) error {
 	return updateUserCacheField(userId, "DistillDetectOverride", override)
+}
+
+// updateUserDistillNotifyOverrideCache 立即刷新「蒸馏告警是否通知用户」三态。
+func updateUserDistillNotifyOverrideCache(userId int, override int) error {
+	return updateUserCacheField(userId, "DistillNotifyOverride", override)
 }
 
 // updateUserRefusalDemoteOverrideCache 同上，拒答降级三态。

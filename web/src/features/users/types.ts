@@ -57,6 +57,8 @@ export const userSchema = z.object({
   refusal_demote_override: z.number().optional(),
   /** 蒸馏检测用户级三态：-1=豁免，0=跟随全局，1=强制启用 */
   distill_detect_override: z.number().optional(),
+  /** 蒸馏告警「是否通知用户」三态：-1=永不通知，0=跟随全局，1=强制通知 */
+  distill_notify_override: z.number().optional(),
   /** §21.3 分组速率 JSON 字符串，空 = 未配置 */
   group_rate_limits: z.string().nullable().optional(),
   aff_code: z.string().optional(),
@@ -191,6 +193,8 @@ export interface UserFormData {
   refusal_demote_override?: number
   /** 蒸馏检测用户级三态：-1=豁免，0=跟随全局，1=强制启用 */
   distill_detect_override?: number
+  /** 蒸馏告警「是否通知用户」三态：-1=永不通知，0=跟随全局，1=强制通知 */
+  distill_notify_override?: number
   /** §21.3 分组速率 JSON 字符串；空串 = 清空配置 */
   group_rate_limits?: string
   remark?: string // Only used when updating user

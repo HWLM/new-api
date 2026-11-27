@@ -110,6 +110,7 @@ const distillSchema = z
     max_state_chars: z.number().int().min(500).max(200000),
     head_sample_chars: z.number().int().min(0).max(200000),
     dedup_seconds: z.number().int().min(0).max(86400),
+    notify_user_enabled: z.boolean(),
     questions: questionsSchema,
     alert_telegram: z.boolean(),
     alert_wecom: z.boolean(),
@@ -159,6 +160,7 @@ const PLAIN_KEYS = [
   'max_state_chars',
   'head_sample_chars',
   'dedup_seconds',
+  'notify_user_enabled',
   'alert_telegram',
   'alert_wecom',
   'alert_throttle_seconds',
@@ -186,6 +188,7 @@ function toFormValues(s: DistillSetting): DistillFormValues {
     max_state_chars: s.max_state_chars,
     head_sample_chars: s.head_sample_chars,
     dedup_seconds: s.dedup_seconds,
+    notify_user_enabled: s.notify_user_enabled ?? false,
     questions: toQuestionFormValues(s.questions),
     alert_telegram: s.alert_telegram,
     alert_wecom: s.alert_wecom,
@@ -717,7 +720,7 @@ export function DistillDetectSection() {
           />
 
           <GroupTitle>{t('Alerts')}</GroupTitle>
-          <div className='grid gap-3 md:grid-cols-2'>
+          <div className='grid gap-3 md:grid-cols-3'>
             <SwitchField
               control={control}
               name='alert_telegram'
@@ -730,6 +733,14 @@ export function DistillDetectSection() {
               control={control}
               name='alert_wecom'
               label={t('WeCom alert')}
+            />
+            <SwitchField
+              control={control}
+              name='notify_user_enabled'
+              label={t('Notify the detected user')}
+              description={t(
+                'Also send a neutral alert to the detected user through the notification method they configured in their own profile. Default off to avoid tipping off distillers.'
+              )}
             />
           </div>
           <NumberField
@@ -986,6 +997,11 @@ function DistillAlertTestPanel() {
           {t('Uses the saved settings; save your changes first.')}
         </span>
       </div>
+      <span className='text-muted-foreground text-xs'>
+        {t(
+          'The user-channel test is sent to your own notification settings.'
+        )}
+      </span>
       {result ? (
         <ul className='flex flex-col gap-1 text-sm'>
           <AlertResultLine
@@ -995,6 +1011,14 @@ function DistillAlertTestPanel() {
           <AlertResultLine
             label={t('WeCom')}
             outcome={describeAlertResult(result.wecom)}
+          />
+          <AlertResultLine
+            label={
+              result.user_channel
+                ? `${t('User alert')} (${result.user_channel})`
+                : t('User alert')
+            }
+            outcome={describeAlertResult(result.user)}
           />
         </ul>
       ) : null}
@@ -1006,7 +1030,7 @@ function AlertResultLine(props: { label: string; outcome: AlertOutcome }) {
   const { kind, detail } = props.outcome
   return (
     <li className='flex flex-wrap items-center gap-2'>
-      <span className='w-20 shrink-0'>{props.label}</span>
+      <span className='min-w-20 shrink-0'>{props.label}</span>
       <AlertBadge kind={kind} />
       {detail ? (
         <span className='text-muted-foreground text-xs break-all'>

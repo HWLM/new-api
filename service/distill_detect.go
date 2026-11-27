@@ -101,6 +101,31 @@ func IsDistillDetectEffectiveForUser(userID int) bool {
 	return s.Enabled
 }
 
+// IsDistillNotifyEffectiveForUser 决定「是否把蒸馏命中告警发给该用户本人」。
+//
+// 结合全局开关与用户三态（与 IsDistillDetectEffectiveForUser 同款）：
+//
+//	-1  用户显式关闭（永不被通知）
+//	 0  跟随全局 NotifyUserEnabled
+//	 1  用户强制通知（即便全局关闭）
+//
+// ⛔ 折中方案：平台无法识别被判定者是终端蒸馏者还是二级代理，默认全局关闭、
+// 按需开启，避免打草惊蛇。
+func IsDistillNotifyEffectiveForUser(userID int) bool {
+	s := operation_setting.GetDistillDetectSetting()
+	override := 0
+	if cache, err := model.GetUserCache(userID); err == nil && cache != nil {
+		override = cache.DistillNotifyOverride
+	}
+	if override < 0 {
+		return false
+	}
+	if override > 0 {
+		return true
+	}
+	return s.NotifyUserEnabled
+}
+
 // DistillRPM 累加该用户当前分钟的请求数并返回累加后的值。
 //
 // ⛔ 用「每分钟一个固定 key + 60s TTL」而不是滑窗：门槛问的是「这一分钟他是不是
@@ -596,8 +621,8 @@ func JudgeDistill(ctx context.Context, doc string, meta JevCallMeta) DistillVerd
 
 // PersistDistillHitSync 同步落库一条命中（含告警）。
 //
-// ⛔ 重导模式必须用这个而不是 RecordDistillHit 的后台版：那次请求本身就要被切到
-// 兜底渠道，运营随后可能立刻拿 request_id 来查，记录晚到就会查不到。
+// ⛔ 必须同步落库：重导模式下那次请求本身就要被切到兜底渠道，运营随后可能
+// 立刻拿 request_id 来查，记录晚到就会查不到。
 func PersistDistillHitSync(hit *model.DistillDetectHit) {
 	if hit == nil {
 		return
@@ -608,8 +633,22 @@ func PersistDistillHitSync(hit *model.DistillDetectHit) {
 		return
 	}
 	gopool.Go(func() {
-		if err := NotifyDistillHit(hit); err == nil && hit.AlertSent {
-			model.DB.Model(&model.DistillDetectHit{}).Where("id = ?", hit.Id).Update("alert_sent", true)
+		_ = NotifyDistillHit(hit)
+		updates := map[string]any{}
+		if hit.AlertSent {
+			updates["alert_sent"] = true
+		}
+		if hit.AlertSentUser {
+			updates["alert_sent_user"] = true
+		}
+		if hit.AlertSentChannels != "" {
+			updates["alert_sent_channels"] = hit.AlertSentChannels
+		}
+		if hit.AlertSentUserChannel != "" {
+			updates["alert_sent_user_channel"] = hit.AlertSentUserChannel
+		}
+		if len(updates) > 0 {
+			model.DB.Model(&model.DistillDetectHit{}).Where("id = ?", hit.Id).Updates(updates)
 		}
 	})
 }
@@ -833,23 +872,6 @@ func EvaluateDistill(userID int, requestID, modelName string, channelID int, bod
 		markDistillDemoted(ctx, userID, s.DemoteSeconds)
 	}
 	return hit
-}
-
-// RecordDistillHit 落库并（可选）告警。调用方在后台 goroutine 里执行。
-func RecordDistillHit(hit *model.DistillDetectHit) {
-	if hit == nil {
-		return
-	}
-	gopool.Go(func() {
-		if err := model.DB.Create(hit).Error; err != nil {
-			common.SysError(fmt.Sprintf("distill_detect: 写入命中记录失败 user=%d req=%s err=%v",
-				hit.UserId, hit.RequestId, err))
-			return
-		}
-		if err := NotifyDistillHit(hit); err == nil && hit.AlertSent {
-			model.DB.Model(hit).Update("alert_sent", true)
-		}
-	})
 }
 
 // distillMemoryRPM 是 Redis 不可用时的进程内兜底。

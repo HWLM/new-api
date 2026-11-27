@@ -56,6 +56,8 @@ type DistillSettingView struct {
 	DetectChannelIds  []int `json:"detect_channel_ids"`
 	FallbackChannelId int   `json:"fallback_channel_id"`
 	DedupSeconds      int   `json:"dedup_seconds"`
+	// NotifyUserEnabled 是否把蒸馏命中告警发给被判定用户本人（用户所选通知渠道）。默认 false。
+	NotifyUserEnabled bool `json:"notify_user_enabled"`
 }
 
 // GetDistillDetectSetting 返回当前配置。
@@ -89,6 +91,7 @@ func GetDistillDetectSetting(c *gin.Context) {
 			DetectChannelIds:     operation_setting.NormalizeDistillDetectChannelIds(s.DetectChannelIds),
 			FallbackChannelId:    s.FallbackChannelId,
 			DedupSeconds:         s.DedupSeconds,
+			NotifyUserEnabled:    s.NotifyUserEnabled,
 		},
 	})
 }
@@ -124,6 +127,7 @@ type DistillSettingUpdateRequest struct {
 	DetectChannelIds  *[]int `json:"detect_channel_ids"`
 	FallbackChannelId *int   `json:"fallback_channel_id"`
 	DedupSeconds      *int   `json:"dedup_seconds"`
+	NotifyUserEnabled *bool  `json:"notify_user_enabled"`
 }
 
 // UpdateDistillDetectSetting 写配置。
@@ -385,6 +389,9 @@ func UpdateDistillDetectSetting(c *gin.Context) {
 	if req.DedupSeconds != nil {
 		s.DedupSeconds = *req.DedupSeconds
 	}
+	if req.NotifyUserEnabled != nil {
+		s.NotifyUserEnabled = *req.NotifyUserEnabled
+	}
 
 	// 落库：走网关配置那套 kv（option 表），重启后仍生效。
 	if err := persistDistillSetting(); err != nil {
@@ -428,6 +435,12 @@ type DistillHitView struct {
 	SampledAt   string `json:"sampled_at"`
 	DemoteUntil string `json:"demote_until"`
 	AlertSent   bool   `json:"alert_sent"`
+	// AlertSentUser 用户侧告警（用户所选通知渠道）是否已发出，与 AlertSent 分开。
+	AlertSentUser bool `json:"alert_sent_user"`
+	// AlertSentChannels 管理员侧实际发出告警的通道，逗号分隔（telegram,wecom）。
+	AlertSentChannels string `json:"alert_sent_channels"`
+	// AlertSentUserChannel 用户侧实际发出告警的通道（email/webhook/bark/gotify/feishu/dingtalk）。
+	AlertSentUserChannel string `json:"alert_sent_user_channel"`
 }
 
 // DistillHitUserView 是**普通用户**看到的命中记录形状（规格 §17.1）。
@@ -529,20 +542,23 @@ func ListDistillHits(c *gin.Context) {
 			continue
 		}
 		view := DistillHitView{
-			Id:              r.Id,
-			UserId:          r.UserId,
-			RequestId:       r.RequestId,
-			Model:           r.Model,
-			ChannelId:       r.ChannelId,
-			FallbackId:      r.FallbackId,
-			Score:           r.Score,
-			Categories:      r.Categories,
-			QuestionResults: distillHitQuestionResults(r),
-			DedupReused:     r.DedupReused,
-			DocChars:        r.DocChars,
-			SampledAt:       r.SampledAt.Format(time.RFC3339),
-			DemoteUntil:     distillHitDemoteUntil(r),
-			AlertSent:       r.AlertSent,
+			Id:                   r.Id,
+			UserId:               r.UserId,
+			RequestId:            r.RequestId,
+			Model:                r.Model,
+			ChannelId:            r.ChannelId,
+			FallbackId:           r.FallbackId,
+			Score:                r.Score,
+			Categories:           r.Categories,
+			QuestionResults:      distillHitQuestionResults(r),
+			DedupReused:          r.DedupReused,
+			DocChars:             r.DocChars,
+			SampledAt:            r.SampledAt.Format(time.RFC3339),
+			DemoteUntil:          distillHitDemoteUntil(r),
+			AlertSent:            r.AlertSent,
+			AlertSentUser:        r.AlertSentUser,
+			AlertSentChannels:    r.AlertSentChannels,
+			AlertSentUserChannel: r.AlertSentUserChannel,
 		}
 		if cache, err := model.GetUserCache(r.UserId); err == nil && cache != nil {
 			view.Username = cache.Username
@@ -668,7 +684,7 @@ func TestDistill(c *gin.Context) {
 // ⛔ 不受 AlertThrottleSeconds 约束：测试按钮按一下就发一条，节流是防刷屏，
 // 不是防测试。也不写 hits、不改任何状态。
 func TestDistillAlert(c *gin.Context) {
-	results := service.SendDistillTestAlert(c.Request.Context())
+	results := service.SendDistillTestAlert(c.Request.Context(), c.GetInt("id"))
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
